@@ -43,10 +43,23 @@ class Fit:
     cast_spec: object
     converged: bool
 
+    # termcode del optimizador (raxopt / qnewtopt.c), con la clasificación que
+    # fijó drtran en su hito M1: 1-2 convergencia, 3 parada SIN MEJORA (normal si
+    # se arranca en el óptimo, o si se llega a él), 4-5 fallo real.
+    _ESTADO = {1: "CONVERGIÓ (gradiente)",
+               2: "CONVERGIÓ (paso)",
+               3: "paró sin mejora",
+               4: "límite de iteraciones",
+               5: "pasos de longitud máxima"}
+
+    @property
+    def estado(self):
+        return self._ESTADO.get(self.termcode, f"termcode={self.termcode}")
+
     def __repr__(self):                                    # pragma: no cover
-        estado = "CONVERGIÓ" if self.converged else "SE DETUVO"
-        return (f"Fit(logL={self.loglik:.6f}, {estado}, termcode={self.termcode}, "
-                f"nit={self.nit}, npar={len(self.x)})")
+        return (f"Fit(logL={self.loglik:.6f}, {self.estado}, "
+                f"termcode={self.termcode}, nit={self.nit}, "
+                f"npar={len(self.x)})")
 
 
 def _f1f2(x, cast_spec, xitol, embed=False):

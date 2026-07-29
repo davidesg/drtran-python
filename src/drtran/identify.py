@@ -14,6 +14,17 @@ Puerto de `prewhiten_and_identify` (`drtran.c`). El procedimiento clásico:
    antecede a la entrada, hay retroalimentación y el modelo de transferencia con
    una sola entrada no se sostiene.
 
+Fuentes
+-------
+* **Box & Jenkins (1976, cap. 11)** — el preblanqueo SIMPLE que se implementa
+  aquí: filtrar la entrada con su ARMA y aplicar EL MISMO filtro a la salida, de
+  modo que r(k) estime directamente los ν escalados.
+* **Haugh & Box (1977)**, JASA 72(357) 121-130 — el artículo original. Proponen
+  el DOBLE preblanqueo (cada serie con su propio modelo) y dan la distribución
+  asintótica de las correlaciones cruzadas.
+* **Tsay (1985)**, JBES 3(3) 228-237 — la crítica. Señala dos problemas del
+  enfoque; ver más abajo cuál cubrimos y cuál no.
+
 Dos decisiones del C que se replican porque son las que evitan disparates:
 
 * La estructura es el **bloque CONTIGUO** que arranca en b. Con bandas al 5 % se
@@ -21,6 +32,32 @@ Dos decisiones del C que se replican porque son las que evitan disparates:
   significativo de toda la CCF disparaba s a valores absurdos (s=24).
 * La exogeneidad se juzga con un **portmanteau** sobre k<0, no contando cuántos
   cruzan: contar dispara el aviso casi siempre por el mismo motivo.
+
+Lo que dice la literatura, y qué hacemos con ello
+-------------------------------------------------
+**Haugh & Box (1977) §1.4**: `var{r_xy(k)} ≈ (N−k)⁻¹`, así que la banda debe
+ensancharse con el retardo. El C usa `2/√N` constante. Medido en el caso
+canónico, esa diferencia crea un falso positivo en k=24 — que es justamente el
+que obligó a la heurística del bloque contiguo. Disponible como
+`banda="haugh-box"`; el defecto sigue siendo `"constante"` para homologar.
+
+**Tsay (1985) §2** señala dos problemas del preblanqueo:
+
+1. *La unidireccionalidad rara vez es cierta; puede haber retroalimentación.*
+   CUBIERTO: es exactamente el portmanteau de exogeneidad sobre k<0.
+2. *En series no estacionarias, la transformación (diferenciar) puede DEBILITAR
+   la relación entre las variables*, con conclusiones contradictorias entre el
+   análisis en niveles y en series transformadas (cita Feige & Pearce 1974).
+   **NO cubierto**: aquí se identifica sobre la serie ya diferenciada que fija el
+   `.pre`. Es una limitación real del método, no del puerto. La alternativa de
+   Tsay —aproximación VAR + mínimos cuadrados + método de la esquina, sin
+   preblanquear ni diferenciar— queda fuera de alcance por ahora.
+
+**Tsay (1985) ec. (2.2)**, de propina: la covarianza de las innovaciones de la
+forma reducida es diagonal **si y sólo si b ≠ 0**. Con transferencia
+contemporánea (b=0) la forma reducida NO puede tener Σ diagonal — que es
+exactamente por lo que el cast empotrado necesita `normalize_phi0` y por lo que
+el C guarda aparte la Q ESTRUCTURAL. Confirmación teórica del diseño.
 """
 
 from __future__ import annotations
@@ -38,10 +75,11 @@ class Identificacion:
     lags: np.ndarray                 # retardos, de -nlags a +nlags
     ccf: np.ndarray                  # r(k)
     nu: np.ndarray                   # pesos ν(k) = r(k)·s_β/s_a
-    threshold: float                 # ±2/√n
+    threshold: float                 # el umbral en k=0
     b: int
     r: int
     s: int
+    umbral: np.ndarray = None        # umbral por retardo (puede variar con |k|)
     alternativas: list = field(default_factory=list)   # [(b, r, s, motivo), …]
     exogena: bool = True
     Q_exogeneidad: float = 0.0
@@ -55,7 +93,8 @@ class Identificacion:
 
     @property
     def significativos_no_negativos(self):
-        m = (self.lags >= 0) & (np.abs(self.ccf) > self.threshold)
+        u = self.umbral if self.umbral is not None else self.threshold
+        m = (self.lags >= 0) & (np.abs(self.ccf) > u)
         return self.lags[m].tolist()
 
     def __repr__(self):                                   # pragma: no cover
@@ -104,11 +143,29 @@ def _ccf(d1, d2, nlags):
     return out
 
 
-def identify(cast_spec, link, x=None, nlags=None):
+def identify(cast_spec, link, x=None, nlags=None, banda="constante"):
     """Identifica (b, r, s) del `link` a partir de la CCF preblanqueada.
 
     `x` por defecto son las semillas del `.pre`: el preblanqueo usa el ARMA que
     fue estimó para la entrada, que es justo lo que la escalera pone ahí.
+
+    `banda` elige el umbral de significación:
+
+    * `"constante"` (por defecto) — `2/√N` para todos los retardos, que es lo que
+      hace el C y con lo que este puerto homologa.
+    * `"haugh-box"` — `2/√(N−|k|)`, que es lo que dice el artículo original.
+      Haugh & Box (1977, §1.4) dan `var{r_xy(k)} ≈ (N−k)⁻¹` y proponen juzgar cada
+      estimación «against an approximate standard error of N^(−½) **or
+      (N−k)^(−½)**». La banda debe ENSANCHARSE con el retardo, porque hay menos
+      solapamiento para estimarla.
+
+      No es cosmético: en el caso canónico (N=215) el umbral en k=24 pasa de
+      0.1364 a 0.1447, y el pico de −0.1423 deja de ser significativo. Ese pico es
+      justamente el falso positivo que obligó al C a introducir la heurística del
+      «bloque contiguo». Con la banda del artículo el falso positivo no llega a
+      existir: **la heurística compensa una banda mal calibrada**.
+
+      Se deja opcional para no romper la homologación con el binario.
     """
     from fue.cast_us import cast_us_py
 
@@ -159,7 +216,14 @@ def identify(cast_spec, link, x=None, nlags=None):
         ccf[nlags - k] = cneg[k]
 
     nu = ccf * (s_b / s_a)                  # 4: pesos de la respuesta al impulso
-    threshold = 2.0 / math.sqrt(n)
+    if banda == "haugh-box":
+        # Haugh & Box (1977) §1.4: var{r_xy(k)} ~ (N-k)^-1
+        umbral = np.array([2.0 / math.sqrt(n - abs(int(k))) for k in lags])
+    elif banda == "constante":
+        umbral = np.full(len(lags), 2.0 / math.sqrt(n))
+    else:
+        raise ValueError(f"banda desconocida: {banda!r}")
+    threshold = float(umbral[nlags])         # el de k=0, para el informe
 
     # 5: exogeneidad por portmanteau sobre k<0 (no por recuento).
     # `diagnose.c:ChiTestC`: Q = n(n+2)·Σ_{i=1..lags} r_i² / (n − i + 1), saltando
@@ -172,19 +236,22 @@ def identify(cast_spec, link, x=None, nlags=None):
         pval = float(1.0 - chi2.cdf(Q, nlags))
     except Exception:                                    # pragma: no cover
         pval = float("nan")
-    nsig_neg = int(np.sum(np.abs(cn) > threshold))
+    nsig_neg = int(np.sum([abs(cn[i - 1]) > umbral[nlags - i]
+                           for i in range(1, nlags + 1)]))
 
     # 6: b = primer k>=0 significativo; el bloque CONTIGUO desde ahí
-    sig_pos = [k for k in range(nlags + 1) if abs(ccf[nlags + k]) > threshold]
+    sig_pos = [k for k in range(nlags + 1)
+               if abs(ccf[nlags + k]) > umbral[nlags + k]]
     if not sig_pos:
         return Identificacion(lags=lags, ccf=ccf, nu=nu, threshold=threshold,
-                              b=0, r=0, s=0, exogena=(pval >= 0.05),
+                              umbral=umbral, b=0, r=0, s=0,
+                              exogena=(pval >= 0.05),
                               Q_exogeneidad=Q, p_exogeneidad=pval,
                               n_signif_negativos=nsig_neg)
 
     b_hat = sig_pos[0]
     last = b_hat
-    while last + 1 <= nlags and abs(ccf[nlags + last + 1]) > threshold:
+    while last + 1 <= nlags and abs(ccf[nlags + last + 1]) > umbral[nlags + last + 1]:
         last += 1
 
     alternativas = []
@@ -206,7 +273,7 @@ def identify(cast_spec, link, x=None, nlags=None):
 
     b, r, s, _motivo = alternativas[-1]      # el más parsimonioso propuesto
     return Identificacion(lags=lags, ccf=ccf, nu=nu, threshold=threshold,
-                          b=b, r=r, s=s, alternativas=alternativas,
+                          umbral=umbral, b=b, r=r, s=s, alternativas=alternativas,
                           exogena=(pval >= 0.05), Q_exogeneidad=Q,
                           p_exogeneidad=pval, n_signif_negativos=nsig_neg)
 
@@ -226,10 +293,12 @@ def report(ident, nombres=("X", "Y")):
          f"  Pesos ν(k) = r(k)·s_β/s_a   (banda ±{ident.threshold:.4f})",
          "     k      r(k)       ν(k)",
          "    ------------------------------"]
-    for k, c, v in zip(ident.lags, ident.ccf, ident.nu):
-        if abs(c) > ident.threshold:
+    u = ident.umbral if ident.umbral is not None else np.full(len(ident.lags),
+                                                             ident.threshold)
+    for k, c, v, uk in zip(ident.lags, ident.ccf, ident.nu, u):
+        if abs(c) > uk:
             L.append(f"   {int(k):4d}  {c:8.4f}  {v:9.4f}  *")
-    if not any(abs(ident.ccf) > ident.threshold):
+    if not any(abs(ident.ccf) > u):
         L.append("     (ninguno)")
     L += ["",
           "  Exogeneidad — portmanteau de la CCF en k < 0:",

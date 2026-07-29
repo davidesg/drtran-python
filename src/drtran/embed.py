@@ -1,10 +1,24 @@
 """El cast EMPOTRADO: la transferencia DENTRO del VARMA, sin restar nada.
 
-Puerto de `build_embedded_varma` (`tran_shootx.c`). Es el cast por defecto del C
-y es mejor que el de resta: `elf` recibe las series **tal cual** y su
-verosimilitud exacta se ocupa de la inicialización pre-muestral, así que **no hay
-truncamiento**. El cast por resta tiene que truncar la convolución al principio
-de la muestra (asume w=0 antes del primer dato).
+Puerto de `build_embedded_varma` (`tran_shootx.c`). Es el cast **por defecto**,
+aquí igual que en el C, y la razón de fondo es la previsión.
+
+Por qué es el óptimo para prever
+--------------------------------
+`elf` recibe las series **tal cual** y de él sale **todo**, incluidas las
+condiciones iniciales: la verosimilitud exacta se ocupa de la inicialización
+pre-muestral. El cast por resta, en cambio, tiene que truncar la convolución al
+principio de la muestra (asume w=0 antes del primer dato), así que introduce una
+aproximación que la previsión arrastra. Con el empotrado no hay ninguna pieza
+calculada fuera de `elf`.
+
+**Ojo con una lectura fácil y falsa:** el empotrado NO da mayor verosimilitud que
+el de resta. Las dos no miden lo mismo — el de resta modela el RUIDO
+N = w_Y − transferencia, y el empotrado modela la serie OBSERVADA w_Y con la
+transferencia dentro del VARMA. Medido, el empotrado queda por debajo
+(−721.8015 frente a −721.7202 en el caso canónico con r=1), y el binario C da
+exactamente el mismo patrón. La ventaja del empotrado es la ausencia de
+truncamiento, no un ajuste mejor.
 
 La matemática
 -------------

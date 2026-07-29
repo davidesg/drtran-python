@@ -105,3 +105,41 @@ def test_el_informe_menciona_lo_esencial(ident):
     assert "b=0" in txt and "r=0" in txt and "s=1" in txt
     assert "18.2969" in txt or "18.297" in txt
     assert "exógena" in txt
+
+
+# ── lo que dice el artículo original (Haugh & Box 1977) ──────────────────────
+def test_banda_de_haugh_box_elimina_el_falso_positivo_del_lag_24():
+    """Haugh & Box (1977) §1.4: var{r_xy(k)} ≈ (N−k)⁻¹, no N⁻¹.
+
+    La banda debe ENSANCHARSE con el retardo. Con N=215 el umbral en k=24 pasa de
+    0.1364 a 0.1447, y el pico de −0.1423 deja de ser significativo. Ese pico es
+    justamente el falso positivo que obligó al C a la heurística del bloque
+    contiguo: la heurística compensa una banda mal calibrada.
+    """
+    cs = build_cast_spec([drtran.load_pre(ES_CPI), drtran.load_pre(WTI)])
+    const = identify(cs, Link(out=0, inp=1), banda="constante")
+    hb = identify(cs, Link(out=0, inp=1), banda="haugh-box")
+
+    assert 24 in const.significativos_no_negativos
+    assert 24 not in hb.significativos_no_negativos
+    assert hb.significativos_no_negativos == [0, 1]
+    # la propuesta no cambia: la heurística ya lo estaba tapando
+    assert (const.b, const.r, const.s) == (hb.b, hb.r, hb.s) == (0, 0, 1)
+
+
+def test_la_banda_haugh_box_crece_con_el_retardo():
+    cs = build_cast_spec([drtran.load_pre(ES_CPI), drtran.load_pre(WTI)])
+    hb = identify(cs, Link(out=0, inp=1), banda="haugh-box")
+    mid = len(hb.lags) // 2
+    assert hb.umbral[mid] == pytest.approx(2 / np.sqrt(215), abs=1e-6)
+    assert hb.umbral[mid + 24] == pytest.approx(2 / np.sqrt(215 - 24), abs=1e-6)
+    assert hb.umbral[mid + 24] > hb.umbral[mid]
+    # y es simétrica
+    assert hb.umbral[mid - 24] == pytest.approx(hb.umbral[mid + 24])
+
+
+def test_el_defecto_sigue_homologando_con_el_c():
+    """El defecto es la banda constante, que es lo que hace el binario."""
+    cs = build_cast_spec([drtran.load_pre(ES_CPI), drtran.load_pre(WTI)])
+    i = identify(cs, Link(out=0, inp=1))
+    assert i.threshold == pytest.approx(0.13640, abs=1e-5)

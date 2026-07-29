@@ -102,3 +102,42 @@ def test_la_transferencia_mejora_significativamente(dos):
     omega = unpack(f1)["links"][0][0]
     assert omega[0] > 0.0, "un alza del crudo sube el IPC"
     assert omega[0] == pytest.approx(0.016, abs=5e-3)
+
+
+# ── el ciclo completo, y la robustez al arranque ─────────────────────────────
+def test_ciclo_completo_identificar_estimar_contrastar(dos):
+    """Box-Jenkins de punta a punta sin decirle los órdenes."""
+    from drtran.identify import identify
+
+    Y, X = dos
+    idn = identify(build_cast_spec([Y, X]), Link(out=0, inp=1))
+    assert (idn.b, idn.r, idn.s) == (0, 0, 1)
+    assert idn.exogena
+
+    cs = build_cast_spec([Y, X], links=[Link(0, 1, idn.b, idn.r, idn.s)])
+    f = fit(cs)
+    f0 = fit(build_cast_spec([Y, X]))
+    assert f.ifault == 0
+    assert 2.0 * (f.loglik - f0.loglik) > 50.0        # LR medido: 98.3 con 2 gl
+
+
+def test_el_optimo_es_un_atractor_no_un_eco_del_arranque(dos):
+    """El test de robustez del hito M1 de drtran.
+
+    `termcode=3` es "parada sin mejora", y sólo es un fallo si el punto no es el
+    óptimo. La forma de dirimirlo es perturbar el arranque: si todos los caminos
+    caen en el mismo sitio, la parada es legítima.
+    """
+    Y, X = dos
+    cs = build_cast_spec([Y, X], links=[Link(0, 1, 0, 0, 1)])
+    base = fit(cs)
+    om_base = unpack(base)["links"][0][0]
+
+    rng = np.random.default_rng(0)
+    for _ in range(3):
+        x0 = x0_from_pre(cs).copy()
+        x0[:2] += rng.normal(0, 0.01, 2)
+        x0[2:6] *= rng.uniform(0.5, 1.5, 4)
+        f = fit(cs, x0=x0)
+        assert f.loglik == pytest.approx(base.loglik, abs=1e-5)
+        assert unpack(f)["links"][0][0] == pytest.approx(om_base, abs=1e-5)
