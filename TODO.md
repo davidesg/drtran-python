@@ -45,20 +45,25 @@ el principio no negociable y el criterio de validación.
       Medido en el caso canónico Y←X (b=0,r=0,s=0): **ω₀ = 0.016002**,
       logL −736.774 frente a −767.424 del diagonal, **LR = 61.3 (1 gl,
       p=4.9e-15)**. Converge por gradiente en 21 iteraciones.
-- [~] **Cast EMPOTRADO (`embed.py`) — IMPLEMENTADO pero BLOQUEADO por drvarma.**
+- [x] **Cast EMPOTRADO (`embed.py`) — DESBLOQUEADO y homologado.**
       Álgebra de polinomios: fila i = diagonal φᵢ·Dᵢ, fuera de diagonal
       −φᵢ·ωₖ·B^bₖ·(Dᵢ/δₖ), MA Dᵢ·θᵢ, con Dᵢ = Πₖ δₖ de los enlaces entrantes;
       medias en orden topológico; series SIN restar; y `normalize_phi0`
       (Φ₀⁻¹ por la izquierda) porque una transferencia contemporánea mete ω₀ en
       el retardo cero. Verificado: sin enlaces y con ω=0 coincide EXACTAMENTE
       con el diagonal.
-      **Bloqueo:** el empotrado produce Φ_p singular por construcción (los
-      órdenes de fila son distintos) y `_elf_f1f2` de drvarma devuelve ifault=3
-      sobre VARMA estacionarios con Φ_p de rango deficiente. Es un bug del PORT
-      Python, no del C: el binario estima esos mismos modelos con `-V`
-      (−721.801539 / −718.287406 / −756.602851). Ver
-      `drvarma/bench/repro_phi_p_singular.py`. Hasta que se arregle, el cast por
-      resta es el operativo.
+      Estuvo bloqueado por un fallo de port en drvarma: `_chol_lower` usaba
+      `np.linalg.cholesky` (estricta) donde el C usa la Cholesky MODIFICADA
+      (`nlatools.c:choldcp`), que acepta matrices semidefinidas. Como el
+      empotrado produce Φ_p singular por construcción, `elf` lo rechazaba con
+      ifault=3. **Arreglado en drvarma** (commit `fix(as311)`), y de paso cerró
+      los tres tests de paridad con el C que arrastraba su suite.
+      Homologa con el binario (`-V`) a ~1e-7: (0,0,0) −736.774158,
+      (0,1,0) −721.801539, (0,0,1) −718.287406, (1,1,1) −756.602851.
+      `fit(..., embed=True)` es ahora el DEFECTO, como en el C.
+      **Ojo:** el empotrado NO da mayor verosimilitud que el de resta — las dos no
+      miden lo mismo (el de resta modela el RUIDO y trunca; el empotrado modela la
+      serie OBSERVADA). El C muestra el mismo patrón.
 - [x] **Homologación con el binario C.** El cast por resta reproduce el
       `drtran` compilado a ~1e-7 en cuatro combinaciones de b/r/s:
       (0,0,0) −736.774158, (0,1,0) −721.720197, (0,0,1) −718.183933,

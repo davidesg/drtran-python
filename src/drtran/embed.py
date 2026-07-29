@@ -202,6 +202,22 @@ def cast_embedded(x, cast_spec):
     return ph, th, MU, W, sg, 0
 
 
+def loglik_embedded(x, cast_spec, xitol=-1e-3):
+    """Log-verosimilitud exacta concentrada con el cast EMPOTRADO."""
+    from drvarma.estimate_py import _elf_f1f2
+
+    phi, theta, mu, w, sigma, ifault = cast_embedded(x, cast_spec)
+    if ifault:
+        return float("-inf"), int(ifault)
+    n, m = w.shape
+    f1, f2, ifa = _elf_f1f2(w, mu, phi, theta, sigma, xitol)
+    if ifa or not (f1 > 0.0 and f2 > 0.0):
+        return float("-inf"), int(ifa or 5)
+    ll = (-0.5 * m * n * (math.log(2.0 * math.pi) - math.log(m) - math.log(n) + 1.0)
+          - 0.5 * n * (m * math.log(f1) + math.log(f2)))
+    return float(ll), int(ifa)
+
+
 def nu_at_one(omega, delta):
     """ν(1) = ω(1)/δ(1), la ganancia en estado estacionario del enlace.
 

@@ -38,6 +38,17 @@ REF_C = {
     (0, 0, 1): -718.183933,
     (1, 1, 1): -756.528944,
 }
+
+# logL del binario C con el cast EMPOTRADO (-V), que es el DEFECTO del C: mete la
+# transferencia dentro del VARMA sin restar, así que no trunca al inicio de la
+# muestra. Estuvo bloqueado en Python hasta arreglar la Cholesky modificada de
+# drvarma (el port usaba np.linalg.cholesky, estricta, donde el C usa choldcp).
+REF_C_EMBED = {
+    (0, 0, 0): -736.774158,      # sin memoria: coincide con el de resta
+    (0, 1, 0): -721.801539,
+    (0, 0, 1): -718.287406,
+    (1, 1, 1): -756.602851,
+}
 REF_DIAGONAL = -767.424341          # -0 (sin transferencia); también la suma de fue
 REF_OMEGA0 = 0.016002               # ± 0.001935, t = 8.27 (errores estándar del C)
 
@@ -51,12 +62,55 @@ def dos():
 
 
 @pytest.mark.parametrize("brs", sorted(REF_C))
-def test_el_puerto_reproduce_el_binario_c(dos, brs):
+def test_el_puerto_reproduce_el_binario_c_por_resta(dos, brs):
     b, r, s = brs
     Y, X = dos
-    f = fit(build_cast_spec([Y, X], links=[Link(0, 1, b=b, r=r, s=s)]))
+    f = fit(build_cast_spec([Y, X], links=[Link(0, 1, b=b, r=r, s=s)]),
+            embed=False)
     assert f.ifault == 0
     assert f.loglik == pytest.approx(REF_C[brs], abs=1e-5)
+
+
+@pytest.mark.parametrize("brs", sorted(REF_C_EMBED))
+def test_el_puerto_reproduce_el_binario_c_empotrado(dos, brs):
+    """El cast EMPOTRADO, que es el defecto del C (-V).
+
+    Produce Φ_p singular por construcción (los órdenes de fila son distintos), lo
+    que destapó el fallo de port de la Cholesky en drvarma. Con aquello arreglado,
+    homologa a ~1e-7.
+    """
+    b, r, s = brs
+    Y, X = dos
+    f = fit(build_cast_spec([Y, X], links=[Link(0, 1, b=b, r=r, s=s)]),
+            embed=True)
+    assert f.ifault == 0
+    assert f.loglik == pytest.approx(REF_C_EMBED[brs], abs=1e-5)
+
+
+def test_empotrado_y_resta_coinciden_sin_memoria_y_difieren_poco_con_ella(dos):
+    """Sin memoria (b=r=s=0) coinciden exactamente: no hay convolución que truncar.
+
+    Con memoria difieren, pero NO en el sentido de que uno sea "mejor": las dos
+    verosimilitudes no miden lo mismo. El cast por resta modela el RUIDO
+    N = w_Y − transferencia (y trunca la convolución al principio de la muestra);
+    el empotrado modela la serie OBSERVADA w_Y con la transferencia dentro del
+    VARMA. El C da exactamente el mismo patrón (−V por debajo de −S), así que la
+    diferencia es una propiedad del método, no un defecto del puerto.
+    """
+    Y, X = dos
+    cs0 = build_cast_spec([Y, X], links=[Link(0, 1, 0, 0, 0)])
+    assert fit(cs0, embed=True).loglik == pytest.approx(
+        fit(cs0, embed=False).loglik, abs=1e-6)
+
+    for brs in ((0, 1, 0), (0, 0, 1), (1, 1, 1)):
+        cs = build_cast_spec([Y, X], links=[Link(0, 1, *brs)])
+        e = fit(cs, embed=True).loglik
+        r = fit(cs, embed=False).loglik
+        assert e != pytest.approx(r, abs=1e-6), "con memoria deben diferir"
+        assert abs(e - r) < 1.0, "pero muy poco: sólo el tratamiento pre-muestral"
+        # y cada uno reproduce su referencia del C
+        assert e == pytest.approx(REF_C_EMBED[brs], abs=1e-5)
+        assert r == pytest.approx(REF_C[brs], abs=1e-5)
 
 
 def test_el_diagonal_coincide_con_el_c_y_con_fue(dos):
@@ -85,15 +139,17 @@ def test_contra_el_binario_en_vivo(dos, tmp_path):
     """
     Y, X = dos
     b, r, s = 0, 1, 0
-    out = tmp_path / "c.out"
-    res = subprocess.run(
-        [BIN, Y_PRE, X_PRE, "-b", str(b), "-r", str(r), "-s", str(s),
-         "-S", "-o", str(out)],
-        capture_output=True, text=True, timeout=300, cwd=C_REPO)
-    linea = [l for l in res.stdout.splitlines() if "Log-likelihood" in l]
-    if not linea:
-        pytest.skip(f"el binario no dio log-likelihood: {res.stdout[-300:]}")
-    ll_c = float(linea[0].split(":")[1])
+    for flag, embed in (("-S", False), ("-V", True)):
+        out = tmp_path / f"c{flag}.out"
+        res = subprocess.run(
+            [BIN, Y_PRE, X_PRE, "-b", str(b), "-r", str(r), "-s", str(s),
+             flag, "-o", str(out)],
+            capture_output=True, text=True, timeout=300, cwd=C_REPO)
+        linea = [l for l in res.stdout.splitlines() if "Log-likelihood" in l]
+        if not linea:
+            pytest.skip(f"el binario no dio log-likelihood: {res.stdout[-300:]}")
+        ll_c = float(linea[0].split(":")[1])
 
-    f = fit(build_cast_spec([Y, X], links=[Link(0, 1, b=b, r=r, s=s)]))
-    assert f.loglik == pytest.approx(ll_c, abs=1e-5)
+        f = fit(build_cast_spec([Y, X], links=[Link(0, 1, b=b, r=r, s=s)]),
+                embed=embed)
+        assert f.loglik == pytest.approx(ll_c, abs=1e-5), f"discrepa con {flag}"

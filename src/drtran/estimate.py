@@ -28,6 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .cast import cast_diagonal
+from .embed import cast_embedded
 
 
 @dataclass
@@ -48,31 +49,42 @@ class Fit:
                 f"nit={self.nit}, npar={len(self.x)})")
 
 
-def _f1f2(x, cast_spec, xitol):
-    """(f1, f2, ifault) del cast en x, vía el `elf` de drvarma."""
+def _f1f2(x, cast_spec, xitol, embed=False):
+    """(f1, f2, ifault) del cast en x, vía el `elf` de drvarma.
+
+    `embed=True` usa el cast EMPOTRADO (el de por defecto en el C), que mete la
+    transferencia dentro del VARMA sin restar nada, así que no hay truncamiento
+    pre-muestral.
+    """
     from drvarma.estimate_py import _elf_f1f2
 
-    phi, theta, mu, w, sigma, ifault = cast_diagonal(x, cast_spec)
+    hacer = cast_embedded if embed else cast_diagonal
+    phi, theta, mu, w, sigma, ifault = hacer(x, cast_spec)
     if ifault:
         return None, None, int(ifault)
     f1, f2, ifa = _elf_f1f2(w, mu, phi, theta, sigma, xitol)
     return float(f1), float(f2), int(ifa)
 
 
-def loglik(x, cast_spec, xitol=-1e-3):
+def loglik(x, cast_spec, xitol=-1e-3, embed=False):
     """Log-verosimilitud exacta concentrada en x (drvmlest.c:est [4])."""
-    f1, f2, ifa = _f1f2(x, cast_spec, xitol)
+    f1, f2, ifa = _f1f2(x, cast_spec, xitol, embed)
     if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
         return float("-inf"), int(ifa or 5)
-    _phi, _t, _m, w, _s, _i = cast_diagonal(x, cast_spec)
+    hacer = cast_embedded if embed else cast_diagonal
+    _phi, _t, _m, w, _s, _i = hacer(x, cast_spec)
     n, m = w.shape
     ll = (-0.5 * m * n * (math.log(2.0 * math.pi) - math.log(m) - math.log(n) + 1.0)
           - 0.5 * n * (m * math.log(f1) + math.log(f2)))
     return float(ll), int(ifa)
 
 
-def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7, sptol=1e-7):
+def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
+        sptol=1e-7, embed=True):
     """Estima el modelo conjunto y devuelve un `Fit`.
+
+    `embed=True` (por defecto, como en el C) mete la transferencia DENTRO del
+    VARMA; `embed=False` la resta, que es el cast antiguo (`-S`).
 
     `x0` por defecto son las semillas del `.pre` (las estimaciones univariantes de
     fue) con las transferencias en cero — es decir, se arranca en el escalón
@@ -89,7 +101,7 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7, sptol=1e-7):
     x0 = np.asarray(x0_from_pre(cast_spec) if x0 is None else x0, float)
     npar = len(x0)
 
-    f1_0, f2_0, ifa0 = _f1f2(x0, cast_spec, xitol)
+    f1_0, f2_0, ifa0 = _f1f2(x0, cast_spec, xitol, embed)
     if ifa0 or f1_0 is None or not (f1_0 > 0.0 and f2_0 > 0.0):
         return Fit(x=x0, loglik=float("-inf"), ifault=int(ifa0 or 5),
                    termcode=0, nit=0, cast_spec=cast_spec, converged=False)
@@ -97,13 +109,13 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7, sptol=1e-7):
     m = cast_spec.m
 
     def objetivo(xv):
-        f1, f2, ifa = _f1f2(np.asarray(xv, float), cast_spec, xitol)
+        f1, f2, ifa = _f1f2(np.asarray(xv, float), cast_spec, xitol, embed)
         if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
             return 1.0                       # punto rechazado: no mejora
         return (f1 / f1_0) ** m * (f2 / f2_0)
 
     if npar == 0:
-        ll, ifa = loglik(x0, cast_spec, xitol)
+        ll, ifa = loglik(x0, cast_spec, xitol, embed)
         return Fit(x=x0, loglik=ll, ifault=ifa, termcode=1, nit=0,
                    cast_spec=cast_spec, converged=True)
 
@@ -117,7 +129,7 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7, sptol=1e-7):
     _fk, _bfac, nit, termcode = _qnewt.raxopt(func1, npar, xk, maxits, grtol, sptol)
     x_hat = xk[1:npar + 1].copy()
 
-    ll, ifa = loglik(x_hat, cast_spec, xitol)
+    ll, ifa = loglik(x_hat, cast_spec, xitol, embed)
     return Fit(x=x_hat, loglik=ll, ifault=int(ifa), termcode=int(termcode),
                nit=int(nit), cast_spec=cast_spec,
                converged=int(termcode) in (1, 2))
