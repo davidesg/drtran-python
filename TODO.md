@@ -45,10 +45,30 @@ el principio no negociable y el criterio de validación.
       Medido en el caso canónico Y←X (b=0,r=0,s=0): **ω₀ = 0.016002**,
       logL −736.774 frente a −767.424 del diagonal, **LR = 61.3 (1 gl,
       p=4.9e-15)**. Converge por gradiente en 21 iteraciones.
-- [ ] Cast EMPOTRADO (`embed_varma`): mete la transferencia dentro del VARMA sin
-      restar nada y deja la inicialización pre-muestral a la verosimilitud
-      exacta (sin truncamiento). El de resta ya funciona; el empotrado es mejor.
+- [~] **Cast EMPOTRADO (`embed.py`) — IMPLEMENTADO pero BLOQUEADO por drvarma.**
+      Álgebra de polinomios: fila i = diagonal φᵢ·Dᵢ, fuera de diagonal
+      −φᵢ·ωₖ·B^bₖ·(Dᵢ/δₖ), MA Dᵢ·θᵢ, con Dᵢ = Πₖ δₖ de los enlaces entrantes;
+      medias en orden topológico; series SIN restar; y `normalize_phi0`
+      (Φ₀⁻¹ por la izquierda) porque una transferencia contemporánea mete ω₀ en
+      el retardo cero. Verificado: sin enlaces y con ω=0 coincide EXACTAMENTE
+      con el diagonal.
+      **Bloqueo:** el empotrado produce Φ_p singular por construcción (los
+      órdenes de fila son distintos) y `_elf_f1f2` de drvarma devuelve ifault=3
+      sobre VARMA estacionarios con Φ_p de rango deficiente. Es un bug del PORT
+      Python, no del C: el binario estima esos mismos modelos con `-V`
+      (−721.801539 / −718.287406 / −756.602851). Ver
+      `drvarma/bench/repro_phi_p_singular.py`. Hasta que se arregle, el cast por
+      resta es el operativo.
+- [x] **Homologación con el binario C.** El cast por resta reproduce el
+      `drtran` compilado a ~1e-7 en cuatro combinaciones de b/r/s:
+      (0,0,0) −736.774158, (0,1,0) −721.720197, (0,0,1) −718.183933,
+      (1,1,1) −756.528944; y el diagonal −767.424341. Un test relanza el binario
+      en vivo para no arrastrar referencias obsoletas.
+      Tests: `tests/test_homologacion_c.py` (7).
 - [ ] Identificación de (b, r, s) por preblanqueo + CCF.
+- [ ] Red de transferencias (`-n`), DAG y `expand_params` (fijos, compartidos,
+      productos, combinaciones lineales). Objetivos del C para cuando llegue:
+      m6 diagonal −1709.511575, red libre −1697.613401.
 - [ ] `expand_params`: parámetros fijos, COMPARTIDOS, productos y combinaciones
       lineales (la tabla de slots del `.cns`, por nombres: `omega1[1]`,
       `theta_2[B^1]`, `q[5,2]`).
