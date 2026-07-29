@@ -189,20 +189,29 @@ def cast_embedded(x, cast_spec):
         for k in range(1, min(len(M[i]), q + 1)):
             THETA[k, i, i] = -M[i][k]
 
-    # --- Medias: aquí w_i es la serie OBSERVADA, no el ruido ---------------
-    #     E[w_i] = mu_i + Σ_{k: out=i} g_k·E[w_inp(k)],  g_k = ν_k(1)
-    # ν_k(1) = ω(1)/δ(1) con ω(1) = ω₀ − ω₁ − … (BJR) y δ(1) = 1 − δ₁ − …
-    MU = np.zeros(m)
-    for i in _orden_topologico(m, links):
-        MU[i] = mus[i]
-        for k, l in enumerate(links):
-            if l.out != i:
-                continue
-            w1 = om[k][0] - float(np.sum(om[k][1:])) if l.s > 0 else om[k][0]
-            d1 = 1.0 - float(np.sum(de[k])) if l.r > 0 else 1.0
-            if abs(d1) < 1e-10:
-                return None, None, None, None, None, 1
-            MU[i] += (w1 / d1) * MU[l.inp]
+    # --- Medias: SIN ajuste. μ es la MEDIA de la serie, no un intercepto ----
+    #
+    # Box-Jenkins escribe el modelo en DESVIACIONES de la media,
+    #     (w_Y − μ_Y) = ν(B)·(w_X − μ_X) + N_t,
+    # y por eso las transferencias salen limpias: tomando esperanzas,
+    # E[w_Y] = μ_Y, sin heredar nada de la entrada. Multiplicando por δ(B),
+    #     φ_Y·δ·(w_Y − μ_Y) − φ_Y·ω·B^b·(w_X − μ_X) = δ·θ_Y·a_Y,
+    # que es exactamente la fila 1 de Φ(B)(w − μ) = Θ(B)a CON μ = (μ_Y, μ_X).
+    # No hay término adicional que añadir.
+    #
+    # El C hace `MU[i] += (Σ_k ω_k / δ(1))·MU[inp]` (tran_shootx.c:288), que
+    # correspondería a la parametrización con INTERCEPTO,
+    # w_Y = c + ν(B)·w_X + N. Las dos son la misma familia reparametrizada
+    # MIENTRAS μ_Y sea libre — verificado: con μ de la salida libre dan el mismo
+    # óptimo a 1e-12. Divergen cuando μ_Y está FIJADA, y ahí imponen cosas
+    # distintas: en desviaciones, μ_Y = 0 significa E[w_Y] = 0; con intercepto
+    # significa E[w_Y] = ν(1)·μ_X ≠ 0.
+    #
+    # La especificación en desviaciones es la que exige la coherencia con fue:
+    # el μ del `.pre` es la MEDIA que fue estimó para esa serie. Si fue la fijó
+    # en cero, quiere decir que la serie no tiene deriva, no que un intercepto
+    # valga cero.
+    MU = np.asarray(mus, float)
 
     # --- Las series, SIN RESTAR NADA: es lo que cambia todo ----------------
     n = min(len(w) for w in ws)

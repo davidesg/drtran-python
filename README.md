@@ -50,31 +50,46 @@ las univariantes. Caso canónico `ES_CPI_m10` ← `WTI_ar1`:
 | WTI | 0.299193 | −760.0326 |
 | **suma = objetivo conjunto** | | **−767.424341** |
 
+## Un ejemplo
+
+```python
+import drtran
+from drtran.cast import build_cast_spec, Link
+from drtran.estimate import fit, unpack
+
+Y = drtran.load_pre("ES_CPI_m10.pre")       # la salida
+X = drtran.load_pre("WTI_ar1.pre")          # la entrada
+
+cs = build_cast_spec([Y, X], links=[Link(out=0, inp=1, b=0, r=0, s=1)])
+f  = fit(cs)                                # empotrado por defecto, como en el C
+print(f.loglik, unpack(f)["links"])
+```
+
+`identify(cs, link)` propone (b, r, s) por preblanqueo y CCF antes de estimar.
+
 ## Estado
 
-**Paso 0 — completado.** La entrada está validada:
+**Pasos 0, 1 y 2 — cerrados.** La entrada está validada campo a campo, el cast
+diagonal supera la puerta (−767.424341, dif. 3.9e-07 con la suma de fue), están los
+dos casts de transferencia —por resta y **empotrado**, este el defecto— con
+estimación conjunta, y la identificación de (b, r, s) por preblanqueo + CCF. Todo
+homologado contra el binario C a ~1e-7, con un test que lo **relanza en vivo**.
+**52 tests**, verdes.
 
-- `fue.load()` lee `.pre` y `.inp`, y se ha verificado **campo a campo** que
-  preserva todo lo que drtran necesita: λ/d/D, `refactor`, μ **con su flag de
-  fijado**, órdenes y coeficientes AR/MA regulares y anuales, AR(2)/MA(2) de
-  frecuencia fija, los deterministas con sus ω y sus flags, y la serie. **No se
-  porta `fue_pre_reader.c`.**
-- fue Python reproduce los univariantes de referencia, y su suma da la diana de la
-  conjunta con diferencia 7.6e-09.
+**Falta:** red de transferencias (`-n`), DAG y `expand_params`; el resto de los
+diagnósticos de `diagnose.c`; previsión y CLI. Detalle en [`TODO.md`](TODO.md).
 
-**Paso 1 — siguiente.** Portar el cast (`tran_shootx.c`, 660 líneas), siguiendo la
-estructura de `fue/cast_us.py` (`build_est_spec` / `cast(x) → estructura`).
-
-**Paso 2 — la puerta.** Conjunta diagonal = −767.424341.
-
-**Paso 3.** Transferencia ω/δ, diagnósticos (portmanteau de transferencia y de
-exogeneidad), previsión.
+> **[`docs/PORTE.md`](docs/PORTE.md) — el registro del proceso.** Cómo se hizo,
+> qué decisiones no son traducción y por qué, las cifras de homologación, los tres
+> defectos que el porte le encontró al original (entre ellos que **μ es la media,
+> no un intercepto**) y las trampas al comparar contra el binario.
 
 ## Alcance del puerto
 
 La mayor parte del C **no se porta**, se reutiliza: `elfvarma` + `drvmlest` +
 `qnewtopt` + `nlatools` ya están en drvarma Python; `gnuplot_i` → matplotlib; el
-lector de `.pre` → `fue.load()`. Son ~4.500 de las 12.600 líneas del C.
+lector de `.pre` → `fue.load()`. Son ~5.800 de las 12.615 líneas del C.
 
-Queda: `tran_shootx.c` (el cast, 660), `diagnose.c` (1687) y `drtran.c`
-(CLI/orquestación, 4189 — se encoge mucho en Python).
+Portado: `tran_shootx.c` (el cast, 668) → `cast.py` + `embed.py`, y la parte de
+identificación de `diagnose.c` → `identify.py`. Queda el resto de `diagnose.c`
+(1687) y `drtran.c` (CLI/orquestación, 4201 — se encoge mucho en Python).

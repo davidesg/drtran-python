@@ -1,7 +1,10 @@
 # drtran (Python) — TODO
 
 Puerto de `drtran` (C) reutilizando `fue` y `drvarma`. Ver README para el diseño,
-el principio no negociable y el criterio de validación.
+el principio no negociable y el criterio de validación, y
+[`docs/PORTE.md`](docs/PORTE.md) para el **registro del proceso**: las decisiones
+que no son traducción, las cifras de homologación y los defectos que el porte le
+encontró al original.
 
 ## Paso 0 — entrada — HECHO
 
@@ -83,6 +86,23 @@ el principio no negociable y el criterio de validación.
       exogeneidad se juzga por portmanteau, no contando cuántos cruzan.
       Tests: `tests/test_identificacion.py` (9), incluida una transferencia
       sintética con retardo conocido (b=3).
+- [x] **La MEDIA es la media, no un intercepto** (`embed.py`). El modelo se escribe
+      en DESVIACIONES, (w_Y − μ_Y) = ν(B)(w_X − μ_X) + N_t ⇒ E[w_Y] = μ_Y: la
+      salida **no hereda** nada de la entrada, y multiplicando por δ(B) sale la
+      fila 1 de Φ(B)(w − μ) = Θ(B)a con μ = (μ_Y, μ_X), sin término adicional.
+      Antes se hacía `MU[i] += (ω(1)/δ(1))·MU[inp]` en orden topológico, que es la
+      parametrización con INTERCEPTO. Misma familia mientras μ_Y sea libre (mismo
+      óptimo a 1e-12); divergen con μ_Y FIJADA. Manda la coherencia con fue: el μ
+      del `.pre` es la media que fue estimó, y un cero significa que la serie no
+      tiene deriva. **El mismo defecto estaba en el C** y se corrigió allí
+      (`tran_shootx.c:build_embedded_varma`, commit `fix(cast)`), donde figuraba
+      como sospecha de signo en su TODO.
+      No se ve en el caso canónico: su entrada (WTI) tiene μ = 0 y el término vale
+      cero con cualquier convención. Hace falta la entrada con **media libre**.
+      Verificado con `ES_CPI_m10` ← `DE_CPI_mar3sar`: fue C = fue Python = drtran C
+      = drtran Python = 3.8139613 en el diagonal, y con transferencia C ≡ Python en
+      (0,0,0) 24.408974, (0,0,1) 35.487981, (0,1,1) 35.555382.
+      Tests: `tests/test_transferencia.py`, dos nuevos.
 - [ ] Red de transferencias (`-n`), DAG y `expand_params` (fijos, compartidos,
       productos, combinaciones lineales). Objetivos del C para cuando llegue:
       m6 diagonal −1709.511575, red libre −1697.613401.

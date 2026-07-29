@@ -141,3 +141,49 @@ def test_el_optimo_es_un_atractor_no_un_eco_del_arranque(dos):
         f = fit(cs, x0=x0)
         assert f.loglik == pytest.approx(base.loglik, abs=1e-5)
         assert unpack(f)["links"][0][0] == pytest.approx(om_base, abs=1e-5)
+
+
+# ── la especificación de la media ────────────────────────────────────────────
+def test_la_media_es_la_media_no_un_intercepto():
+    """Box-Jenkins escribe el modelo en DESVIACIONES de la media:
+
+        (w_Y − μ_Y) = ν(B)·(w_X − μ_X) + N_t   ⇒   E[w_Y] = μ_Y
+
+    así que la media de la salida NO hereda nada de la entrada. Multiplicando
+    por δ(B), la fila 1 es Φ(B)(w − μ) = Θ(B)a con μ = (μ_Y, μ_X): sin término
+    adicional. La alternativa (w_Y = c + ν(B)w_X + N) trata μ como INTERCEPTO.
+
+    Las dos son la misma familia MIENTRAS μ_Y sea libre; divergen cuando está
+    FIJADA. La coherencia con fue decide: el μ del `.pre` es la media que fue
+    estimó, no un intercepto.
+    """
+    from drtran.embed import cast_embedded
+
+    C = "/home/david/Dropbox/SRC/drtran/tests/cases"
+    # salida con μ FIJA en 0, entrada con μ libre: el caso que discrimina
+    Y = drtran.load_pre(os.path.join(C, "WTI_ar1.pre"))
+    X = drtran.load_pre(os.path.join(C, "ES_CPI_m10.pre"))
+    assert Y.model.estimate_mu is False and X.model.estimate_mu is True
+
+    cs = build_cast_spec([Y, X], links=[Link(0, 1, b=0, r=0, s=1)])
+    x = x0_from_pre(cs)
+    x[0], x[1] = 17.0, 5.97           # ω no triviales, para que el término pese
+    _phi, _th, mu, _w, _s, ifault = cast_embedded(x, cs)
+
+    assert ifault == 0
+    assert mu[0] == pytest.approx(0.0), "μ de la salida es 0: no hereda de la entrada"
+    assert mu[1] == pytest.approx(0.154472), "μ de la entrada es la del .pre"
+
+
+def test_con_media_de_salida_libre_la_parametrizacion_da_igual(dos):
+    """Prueba de que ajustar o no la media es una REPARAMETRIZACIÓN: con μ_Y
+    libre, cualquiera de las dos alcanza el mismo óptimo. Sólo importa cuando
+    μ_Y está fijada, y ahí manda la convención de desviaciones."""
+    C = "/home/david/Dropbox/SRC/drtran/tests/cases"
+    Y = drtran.load_pre(os.path.join(C, "ES_CPI_m10.pre"))   # μ libre
+    X = drtran.load_pre(os.path.join(C, "WTI_ar1.pre"))
+    cs = build_cast_spec([Y, X], links=[Link(0, 1, b=0, r=0, s=1)])
+    f = fit(cs, embed=True)
+    assert f.ifault == 0
+    # homologa con el binario, que en este caso (μ de la ENTRADA = 0) coincide
+    assert f.loglik == pytest.approx(-718.287406, abs=1e-4)
