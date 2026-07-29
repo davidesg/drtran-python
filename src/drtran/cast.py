@@ -39,6 +39,56 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+@dataclass(frozen=True)
+class Link:
+    """Un enlace de transferencia: `out` recibe de `inp` con ω(B)/δ(B)·B^b.
+
+    Copia de `struct Tlink` del C. Índices de serie 0-based (el C los usa
+    1-based); `s` es el grado del numerador y `r` el del denominador, así que el
+    enlace aporta (s+1) + r parámetros libres.
+    """
+
+    out: int
+    inp: int
+    b: int = 0
+    r: int = 0
+    s: int = 0
+
+    @property
+    def npar(self):
+        return (self.s + 1) + self.r
+
+
+def compute_irf(omega, delta, b, length):
+    """Pesos ν del filtro racional ω(B)/δ(B) con retardo b. Puerto de `compute_irf`.
+
+        ν[t] = ω[t-1-b] + Σ_{j=1..r} δ[j]·ν[t-j]
+
+    `ν[j]` pesa la entrada en el retardo j−1 (1-based en el C; aquí `nu[0]` es el
+    peso del retardo 0).
+
+    **Convención de signo de Box-Jenkins**, la misma que `calcnu` de fue: el
+    numerador es ω(B) = ω₀ − ω₁B − ω₂B² − …, o sea **el término líder suma y los
+    demás restan**. Portar esto al revés es el tipo de error de un carácter que ya
+    costó un bug en el propio C (el signo de Nyquist en `CalcNonsOp`).
+    """
+    omega = np.asarray(omega, float)
+    delta = np.asarray(delta, float)
+    s = len(omega) - 1
+    r = len(delta)
+    nu = np.zeros(length)
+    for t in range(1, length + 1):
+        lag = t - 1 - b
+        acc = 0.0
+        if 0 <= lag <= s:
+            acc = omega[0] if lag == 0 else -omega[lag]
+        for j in range(1, r + 1):
+            if t > j:
+                acc += delta[j - 1] * nu[t - j - 1]
+        nu[t - 1] = acc
+    return nu
+
+
 @dataclass
 class SeriesCast:
     """El cast univariante de una serie, precomputado (lo fijo)."""
@@ -58,6 +108,7 @@ class CastSpec:
     """
 
     series: list = field(default_factory=list)      # list[SeriesCast]
+    links: list = field(default_factory=list)       # list[Link]
     m: int = 0
     n_stat: int = 0                                  # longitud común de las w
     npar: int = 0
@@ -65,6 +116,10 @@ class CastSpec:
     @property
     def names(self):
         return [s.name for s in self.series]
+
+    @property
+    def npar_links(self):
+        return sum(l.npar for l in self.links)
 
 
 def _npar_univariante(model):
@@ -79,28 +134,35 @@ def _npar_univariante(model):
     return len(np.asarray(_build_initial_x(model), float))
 
 
-def build_cast_spec(specs):
+def build_cast_spec(specs, links=None):
     """Precomputa el cast a partir de los `.pre` leídos (uno por serie).
 
-    `specs[0]` es la SALIDA (la serie 1 del VARMA, la que recibiría las
-    transferencias); el resto son las entradas.
+    `specs[0]` es la SALIDA (la serie 1 del VARMA, la que recibe las
+    transferencias por defecto); el resto son las entradas. `links` es la lista de
+    enlaces; sin enlaces el modelo es el diagonal, que es la puerta de validación.
     """
     from fue.cast_us import build_est_spec
 
     if len(specs) < 2:
         raise ValueError("la conjunta necesita al menos 2 series")
 
-    cs = CastSpec()
+    cs = CastSpec(links=list(links or []))
     for s in specs:
         m = s.model
         cs.series.append(SeriesCast(spec=s, est_spec=build_est_spec(m),
                                     npar=_npar_univariante(m), name=s.name))
     cs.m = len(cs.series)
-    # Parámetros: los univariantes de cada serie + la covarianza.
-    # Covarianza: var[0] se fija en 1 (la escala la concentra sigma2), luego
-    # log(var_i/var_1) para i>0. Las covarianzas nacen FIJAS en cero: sólo se
-    # liberan si el .cns lo pide (todavía no implementado).
-    cs.npar = sum(s.npar for s in cs.series) + (cs.m - 1)
+    for l in cs.links:
+        if not (0 <= l.out < cs.m and 0 <= l.inp < cs.m):
+            raise ValueError(f"enlace fuera de rango: {l}")
+        if l.out == l.inp:
+            raise ValueError(f"un enlace no puede ir de una serie a sí misma: {l}")
+    # Orden del vector, siguiendo a shootx: transferencias → univariantes →
+    # covarianza. Covarianza: var[0] se fija en 1 (la escala la concentra
+    # sigma2), luego log(var_i/var_1) para i>0. Las covarianzas fuera de la
+    # diagonal nacen FIJAS en cero: sólo se liberan si el .cns lo pide (todavía
+    # no implementado).
+    cs.npar = cs.npar_links + sum(s.npar for s in cs.series) + (cs.m - 1)
     return cs
 
 
@@ -123,6 +185,13 @@ def cast_diagonal(x, cast_spec):
     x = np.asarray(x, float)
     m = cast_spec.m
     idx = 0
+
+    # --- 1. Transferencias: ω[0..s] y δ[1..r] de cada enlace ---------------
+    om, de = [], []
+    for l in cast_spec.links:
+        om.append(x[idx:idx + l.s + 1]); idx += l.s + 1
+        de.append(x[idx:idx + l.r]); idx += l.r
+
     ps, qs, phis, thetas, mus, ws = [], [], [], [], [], []
 
     for sc in cast_spec.series:
@@ -147,6 +216,21 @@ def cast_diagonal(x, cast_spec):
     n = min(len(w) for w in ws)
     W = np.column_stack([w[len(w) - n:] for w in ws])
 
+    # --- Transferencias: cada enlace RESTA a su salida ---------------------
+    # tr[o][t] = Σ_k ν_j[k]·w_in[t−k+1]; la serie 1 del VARMA pasa a ser el
+    # RUIDO N_t = w_Y − Σ_j transferencia_j. Con ω = 0 no se resta nada y el
+    # modelo se parte en univariantes independientes: la prueba del puente.
+    if cast_spec.links:
+        tr = np.zeros_like(W)
+        for l, o_j, d_j in zip(cast_spec.links, om, de):
+            nu = compute_irf(o_j, d_j, l.b, n)
+            xin = W[:, l.inp]
+            acc = np.zeros(n)
+            for t in range(n):                      # Σ_{k=0..t} ν[k]·x[t−k]
+                acc[t] = float(np.dot(nu[:t + 1], xin[t::-1]))
+            tr[:, l.out] += acc
+        W = W - tr
+
     p = max(ps) if ps else 0
     q = max(qs) if qs else 0
     PHI = np.zeros((p, m, m))
@@ -156,6 +240,12 @@ def cast_diagonal(x, cast_spec):
             PHI[k, i, i] = phis[i][k]
         for k in range(qs[i]):
             THETA[k, i, i] = thetas[i][k]
+
+    # Restricción del C (shootx [12]): un AR(1) pegado al círculo unidad se
+    # rechaza antes de llamar a elf, en vez de dejar que la verosimilitud explote.
+    for i in range(m):
+        if ps[i] >= 1 and abs(phis[i][0]) >= 0.999:
+            return None, None, None, None, None, 1
 
     return PHI, THETA, np.asarray(mus, float), W, sigma, 0
 
@@ -227,7 +317,10 @@ def x0_from_pre(cast_spec):
     """
     from fue.cast_us import _build_initial_x
 
-    partes, s2 = [], []
+    # Transferencias en CERO: es el modelo diagonal, que ya sabemos que homologa
+    # con fue. Arrancar la red desde ahí es lo que hace la escalera — primero el
+    # diagonal, luego la dinámica que la CCF de sus residuos sugiera.
+    partes, s2 = [np.zeros(cast_spec.npar_links)], []
     for sc in cast_spec.series:
         xi = np.asarray(_build_initial_x(sc.spec.model), float)
         partes.append(xi)

@@ -33,9 +33,22 @@ el principio no negociable y el criterio de validación.
 - [x] **Semilla de las razones de varianza.** No se dejan en cero: las escalas
       difieren ×1098 en el caso canónico y arrancar en 1 deja el punto inicial en
       −1371. Se calculan con el mismo `elf`, m=1, sobre las semillas del `.pre`.
-- [ ] Transferencias: ω/δ por enlace, `compute_irf`, y el cast EMPOTRADO
-      (`embed_varma`), que mete la transferencia dentro del VARMA sin restar nada
-      y deja la inicialización pre-muestral a la verosimilitud exacta.
+- [x] **Transferencias por RESTA.** `Link(out, inp, b, r, s)`, `compute_irf`
+      (convención BJR: ω(B)=ω₀−ω₁B−…, el líder suma y los demás restan) y la
+      resta a la salida: la serie 1 del VARMA pasa a ser el ruido
+      N_t = w_Y − Σⱼ transferenciaⱼ. Verificado: con ω=0 la verosimilitud es
+      EXACTAMENTE la del diagonal (diferencia 0.0).
+- [x] **Estimación conjunta** (`estimate.py`): objetivo escalado de Mauricio
+      (1995 ec. 3.5) normalizado a 1 en x₀ — en multivariante (f1/f1₀)^m·(f2/f2₀),
+      porque ll = C − 0.5n(m·log f1 + log f2) — minimizado con el `raxopt` de
+      drvarma. Un punto rechazado devuelve 1.0 y el optimizador se aleja.
+      Medido en el caso canónico Y←X (b=0,r=0,s=0): **ω₀ = 0.016002**,
+      logL −736.774 frente a −767.424 del diagonal, **LR = 61.3 (1 gl,
+      p=4.9e-15)**. Converge por gradiente en 21 iteraciones.
+- [ ] Cast EMPOTRADO (`embed_varma`): mete la transferencia dentro del VARMA sin
+      restar nada y deja la inicialización pre-muestral a la verosimilitud
+      exacta (sin truncamiento). El de resta ya funciona; el empotrado es mejor.
+- [ ] Identificación de (b, r, s) por preblanqueo + CCF.
 - [ ] `expand_params`: parámetros fijos, COMPARTIDOS, productos y combinaciones
       lineales (la tabla de slots del `.cns`, por nombres: `omega1[1]`,
       `theta_2[B^1]`, `q[5,2]`).

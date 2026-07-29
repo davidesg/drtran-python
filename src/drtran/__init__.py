@@ -26,8 +26,15 @@ factoriza, así que la conjunta debe reproducir la **suma** de las univariantes.
 Si no coincide, el cast está mal.
 """
 
+from .cast import Link, build_cast_spec, cast_diagonal, compute_irf, x0_from_pre
+from .estimate import Fit, fit, loglik, unpack
 from .pre import PreSpec, check_scale, load_pre
 
 __version__ = "0.0.1"
 
-__all__ = ["PreSpec", "load_pre", "check_scale", "__version__"]
+__all__ = [
+    "PreSpec", "load_pre", "check_scale",
+    "Link", "build_cast_spec", "cast_diagonal", "compute_irf", "x0_from_pre",
+    "Fit", "fit", "loglik", "unpack",
+    "__version__",
+]
