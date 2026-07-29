@@ -70,7 +70,19 @@ el principio no negociable y el criterio de validación.
       (1,1,1) −756.528944; y el diagonal −767.424341. Un test relanza el binario
       en vivo para no arrastrar referencias obsoletas.
       Tests: `tests/test_homologacion_c.py` (7).
-- [ ] Identificación de (b, r, s) por preblanqueo + CCF.
+- [x] **Identificación de (b, r, s) por preblanqueo + CCF** (`identify.py`).
+      Puerto de `prewhiten_and_identify`. Preblanquea la entrada con SU ARMA,
+      aplica EL MISMO filtro a la salida, calcula la CCF y lee ν(k)=r(k)·s_β/s_a.
+      Homologa con el binario: banda 0.13640, r(0)=0.492, r(1)=0.310,
+      r(2)=0.025, r(−1)=−0.077, r(−6)=−0.128, y la misma propuesta **b=0 r=0 s=1**.
+      Exogeneidad por portmanteau sobre k<0: **Q(24)=18.2969, p=0.7884**, idéntico
+      al C (el divisor de `ChiTestC` es n−i+1, no n−i).
+      Se replican las dos decisiones del C que evitan disparates: la estructura es
+      el **bloque CONTIGUO** desde b (hay un pico significativo en el lag 24 que NO
+      entra en la propuesta — con bandas al 5 % se espera 1 de cada 20 fuera), y la
+      exogeneidad se juzga por portmanteau, no contando cuántos cruzan.
+      Tests: `tests/test_identificacion.py` (9), incluida una transferencia
+      sintética con retardo conocido (b=3).
 - [ ] Red de transferencias (`-n`), DAG y `expand_params` (fijos, compartidos,
       productos, combinaciones lineales). Objetivos del C para cuando llegue:
       m6 diagonal −1709.511575, red libre −1697.613401.

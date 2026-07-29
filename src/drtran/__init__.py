@@ -27,7 +27,9 @@ Si no coincide, el cast está mal.
 """
 
 from .cast import Link, build_cast_spec, cast_diagonal, compute_irf, x0_from_pre
+from .embed import cast_embedded, loglik_embedded, normalize_phi0
 from .estimate import Fit, fit, loglik, unpack
+from .identify import Identificacion, identify, prewhiten, report
 from .pre import PreSpec, check_scale, load_pre
 
 __version__ = "0.0.1"
@@ -35,6 +37,8 @@ __version__ = "0.0.1"
 __all__ = [
     "PreSpec", "load_pre", "check_scale",
     "Link", "build_cast_spec", "cast_diagonal", "compute_irf", "x0_from_pre",
+    "cast_embedded", "loglik_embedded", "normalize_phi0",
     "Fit", "fit", "loglik", "unpack",
+    "Identificacion", "identify", "prewhiten", "report",
     "__version__",
 ]
