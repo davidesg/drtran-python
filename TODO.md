@@ -19,22 +19,33 @@ el principio no negociable y el criterio de validación.
       así que el ciclo `estimar → .pre → releer` no se ha probado todavía. Es lo
       que cierra la continuidad hacia el siguiente escalón. No bloquea el cast.
 
-## Paso 1 — el cast (`tran_shootx.c`, 660 líneas)
+## Paso 1 — el cast — HECHO (caso diagonal)
 
-- [ ] Portar el cast paramétrico: vector de parámetros → estructura VARMA.
-      Patrón a seguir: `fue/cast_us.py` (`build_est_spec(model)` precomputa lo
-      fijo; `cast_us_py(x, spec)` mapea x → (p, q, phi, theta, mu, w, ifault)).
-- [ ] Recast del par (Y, X) como VARMA bivariante diagonal, según BRIDGE_DESIGN:
-      serie 1 = `w_Y − transfer_t` (el ruido N_t) con el ARMA de Y; serie 2 =
-      `w_X` con el ARMA de X; covarianza diagonal; el acoplamiento entero vive en
-      `transfer_t = Σⱼ νⱼ · w_X(t−j)`. Con ω = 0 el modelo se parte en dos
-      univariantes independientes — y ahí está la prueba de que el puente es
-      correcto.
+- [x] **Cast diagonal** (`cast.py`). Se reutiliza el cast univariante de fue por
+      serie (`build_est_spec` + `cast_us_py`), que ya devuelve `w` con Box-Cox,
+      diferencias y deterministas restados — es `build_stationary_series` del C.
+      drtran sólo ENSAMBLA: Φ y Θ diagonales por bloques, μ por serie, w alineadas
+      por el final, Q normalizada.
+- [x] **Verosimilitud CONCENTRADA.** `est()` no estima la escala: descompone
+      Σ = sigma2·Q con Q[1][1]=1 y concentra sigma2. Evaluar `elf_varma` con un Σ
+      absoluto da otra cosa (pasar la identidad daba −7802 en vez de −767).
+      Se usa `_elf_f1f2` de drvarma + la fórmula de `drvmlest.c:est [4]`.
+- [x] **Semilla de las razones de varianza.** No se dejan en cero: las escalas
+      difieren ×1098 en el caso canónico y arrancar en 1 deja el punto inicial en
+      −1371. Se calculan con el mismo `elf`, m=1, sobre las semillas del `.pre`.
+- [ ] Transferencias: ω/δ por enlace, `compute_irf`, y el cast EMPOTRADO
+      (`embed_varma`), que mete la transferencia dentro del VARMA sin restar nada
+      y deja la inicialización pre-muestral a la verosimilitud exacta.
+- [ ] `expand_params`: parámetros fijos, COMPARTIDOS, productos y combinaciones
+      lineales (la tabla de slots del `.cns`, por nombres: `omega1[1]`,
+      `theta_2[B^1]`, `q[5,2]`).
 
-## Paso 2 — la puerta
+## Paso 2 — la puerta — SUPERADA
 
-- [ ] **Conjunta diagonal ≡ fue por separado**, logL = −767.424341. Sin esto no
-      se sigue: cualquier discrepancia es un bug del cast, nunca de `elf`.
+- [x] **Conjunta diagonal ≡ fue por separado.** logL = **−767.424341**,
+      diferencia 3.9e-07. Y se alcanza YA en las semillas del `.pre`, lo que
+      confirma empíricamente por qué el C reporta `termcode 3` en este escalón:
+      las semillas son el óptimo. Tests: `tests/test_cast_diagonal.py` (4).
 
 ## Paso 3 — lo demás
 
