@@ -67,17 +67,38 @@ print(f.loglik, unpack(f)["links"])
 
 `identify(cs, link)` propone (b, r, s) por preblanqueo y CCF antes de estimar.
 
+Y una **red** de transferencias, con sus restricciones:
+
+```python
+from drtran import build_slots, read_cns, read_dag
+
+cs = build_cast_spec(specs)                       # las m series
+cs = build_cast_spec(specs, links=read_dag("m6.dag", cs.names))
+slots = build_slots(cs)                           # las q[i,j] nacen fijas en 0
+read_cns("m6.cns", slots)                         # free / fijar / compartir / x=y*z
+f = fit(cs, slots=slots)
+```
+
+```
+# m6.dag                      # m6.cns
+EP <- EI   1 0 1              q[5,2] = free
+EI <- EU   1 0 3              omega1[1] = omega1[0] * theta_2[B^1]
+EU <- EC   2 0 1              omega3[0] = omega3[1] + omega3[2] + omega3[3]
+```
+
 ## Estado
 
-**Pasos 0, 1 y 2 — cerrados.** La entrada está validada campo a campo, el cast
+**Pasos 0 a 5 — cerrados.** La entrada está validada campo a campo, el cast
 diagonal supera la puerta (−767.424341, dif. 3.9e-07 con la suma de fue), están los
 dos casts de transferencia —por resta y **empotrado**, este el defecto— con
-estimación conjunta, y la identificación de (b, r, s) por preblanqueo + CCF. Todo
-homologado contra el binario C a ~1e-7, con un test que lo **relanza en vivo**.
-**52 tests**, verdes.
+estimación conjunta, la identificación de (b, r, s) por preblanqueo + CCF, y la
+**red**: el `.dag`, la tabla de slots del `.cns` (fijos, compartidos, productos y
+combinaciones lineales) y la covarianza no diagonal. Todo homologado contra el
+binario C a ~1e-7, con tests que lo **relanzan en vivo**. **67 tests**, verdes.
 
-**Falta:** red de transferencias (`-n`), DAG y `expand_params`; el resto de los
-diagnósticos de `diagnose.c`; previsión y CLI. Detalle en [`TODO.md`](TODO.md).
+**Falta:** identificación de la red (`-i`/`-g`), el resto de los diagnósticos de
+`diagnose.c`, previsión y CLI. Y el m6 canónico, que está bloqueado por un bug de
+fue Python ajeno al puerto. Detalle en [`TODO.md`](TODO.md).
 
 > **[`docs/PORTE.md`](docs/PORTE.md) — el registro del proceso.** Cómo se hizo,
 > qué decisiones no son traducción y por qué, las cifras de homologación, los tres

@@ -26,19 +26,25 @@ factoriza, así que la conjunta debe reproducir la **suma** de las univariantes.
 Si no coincide, el cast está mal.
 """
 
-from .cast import Link, build_cast_spec, cast_diagonal, compute_irf, x0_from_pre
+from .cast import (Link, build_cast_spec, build_sigma, cast_diagonal,
+                   compute_irf, x0_from_pre)
 from .embed import cast_embedded, loglik_embedded, normalize_phi0
-from .estimate import Fit, fit, loglik, unpack
+from .estimate import Fit, fit, loglik, unpack, x0_full
 from .identify import Identificacion, identify, prewhiten, report
+from .network import check_acyclic, find_cycle, read_dag, write_dag
 from .pre import PreSpec, check_scale, load_pre
+from .slots import Slot, SlotTable, build_slots, read_cns
 
 __version__ = "0.0.1"
 
 __all__ = [
     "PreSpec", "load_pre", "check_scale",
-    "Link", "build_cast_spec", "cast_diagonal", "compute_irf", "x0_from_pre",
+    "Link", "build_cast_spec", "build_sigma", "cast_diagonal", "compute_irf",
+    "x0_from_pre",
     "cast_embedded", "loglik_embedded", "normalize_phi0",
-    "Fit", "fit", "loglik", "unpack",
+    "Fit", "fit", "loglik", "unpack", "x0_full",
     "Identificacion", "identify", "prewhiten", "report",
+    "read_dag", "write_dag", "find_cycle", "check_acyclic",
+    "Slot", "SlotTable", "build_slots", "read_cns",
     "__version__",
 ]

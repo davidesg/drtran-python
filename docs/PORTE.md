@@ -40,9 +40,9 @@ De las **12.615** líneas de C, la mayor parte no se porta: se reutiliza.
 | `diagnose.c` | parcialmente en `identify.py`; el resto pendiente | 1.687 |
 | `drtran.c` | CLI y orquestación; pendiente, se encoge mucho | 4.201 |
 
-El puerto ocupa hoy **1.243 líneas** de Python en `src/drtran/` (`cast.py` 335,
-`identify.py` 321, `embed.py` 263, `estimate.py` 171, `pre.py` 109) y **593** de
-tests, con **52 tests**.
+El puerto ocupa hoy **1.910 líneas** de Python en `src/drtran/` (`slots.py` 440,
+`cast.py` 373, `identify.py` 321, `embed.py` 262, `estimate.py` 215,
+`network.py` 140, `pre.py` 109) y **1.110** de tests, con **67 tests**.
 
 ## 3. Los escalones, con su evidencia
 
@@ -153,6 +153,81 @@ Se replican **a propósito** las dos decisiones del C que evitan disparates:
 Revisado contra Haugh–Box (1977) y Tsay (1985). Tests: `test_identificacion.py`
 (12), incluida una transferencia sintética con retardo conocido (b = 3).
 
+### Paso 5 — la red, el DAG y `expand_params`
+
+Hasta aquí el modelo era una salida y sus entradas. La **red** es lo general: una
+serie puede recibir transferencias y ser a la vez entrada de otra, que es lo que
+son de verdad los sistemas de la escuela (m6-1: EC → EU → EI → EP, más EC → EP).
+Y con la red llega lo que hacía a mano el `shootx` del legacy: parámetros
+compartidos entre la transferencia y el ARMA de la entrada, numeradores
+factorizados, factores fijos.
+
+Son tres piezas, deliberadamente separadas:
+
+| pieza | fichero | qué dice |
+|---|---|---|
+| **el grafo** | `.dag` → `network.py` | quién mueve a quién, con qué (b, r, s) |
+| **los parámetros** | `.cns` → `slots.py` | qué es libre, fijo, compartido o una expresión |
+| **la contemporaneidad** | `.cns`, `q[i,j]` | qué se mueve junto en el mismo instante |
+
+Separar el grafo de los parámetros no es orden por el orden: el DAG dice
+**dinámica con retardo** y Σ dice **simultaneidad**. Mezclarlas es justo el error
+que el aviso de casi-colinealidad del C persigue — una transferencia
+contemporánea (b=0) y la covarianza de esas dos innovaciones explican lo mismo en
+el retardo cero.
+
+**El `.dag`** son líneas `SALIDA <- ENTRADA b r s`, con las series por su
+**nombre**, no por su posición: un `.dag` no debe depender del orden de la línea
+de órdenes. Un ciclo se rechaza, y el mensaje **dice cuál es** — sin orden
+topológico el sistema deja de ser un DAG recursivo y pasa a ser un modelo de
+ecuaciones simultáneas, que no es lo que este cast representa.
+
+**La tabla de slots** es el DSL. Cada posición del vector completo tiene un nombre
+estable y una de cinco naturalezas: `free`, `fixed`, `alias` (COMPARTIDO),
+`product` (`x = -y * z`) y `lincomb` (`x = t1 + t2 - t3`, con cada término un slot
+o un producto de dos). El optimizador ve sólo los libres:
+
+```
+xfree ──expand──▶ xfull ──cast──▶ Φ, Θ, μ, w, Σ ──elf──▶ ℓ
+```
+
+`expand` va **dentro** del objetivo, así que el gradiente sale por diferencias
+finitas sin regla de la cadena: añadir expresiones al DSL no toca el optimizador.
+Es la decisión del C, y es la razón de que el producto y la combinación lineal
+cupieran sin tocar `_qnewt`.
+
+Dos cosas del diseño que conviene no perder:
+
+- **El orden de los slots no es el del C, los nombres sí.** El C agrupa por clase
+  (todos los ARMA, luego todos los deterministas); aquí se agrupa por serie,
+  porque el bloque univariante lo produce `fue._build_initial_x` y el orden lo
+  manda fue. Da igual, porque **el `.cns` va por nombres** — los mismos `.cns` del
+  repo C se leen aquí. Lo que sí se comprueba es que el total cuadre con
+  `cast_spec.npar`: si las dos enumeraciones se separaran, los nombres dejarían de
+  corresponder a las posiciones y el `.cns` restringiría el parámetro equivocado,
+  **en silencio**.
+- **Las covarianzas nacen fijas en cero.** Entran siempre al mapa, pero la
+  covarianza diagonal es el caso por defecto y liberar una es una decisión del
+  analista (`q[5,2] = free`), no algo que se active en bloque: el legacy m6-1
+  libera **tres** de sus quince. Fuera de la región donde Q es definida positiva
+  el punto se rechaza (el objetivo devuelve 1.0 y la búsqueda se aleja), que es la
+  estrategia de Mauricio (1995 §3); esa frontera no ha mordido nunca en los casos
+  reales.
+
+Homologación, sobre cinco series de m6 con cadena EC → EU → EP, una entrada con
+dos salidas, un denominador r=1 y dos covarianzas libres:
+
+| | drtran C | puerto | dif |
+|---|---|---|---|
+| red libre (40 libres de 48 slots) | −1434.696068 | −1434.696068 | 1.9e-10 |
+| + producto + combinación lineal (38 libres) | −1439.505804 | −1439.505804 | 9.4e-08 |
+
+y `expand` reconstruye los slots derivados partiendo **sólo de los libres** del
+óptimo del C (dif 3e-07, que es el redondeo a 6 decimales de su informe). Eso
+prueba el cast; que la **búsqueda** llegue es otra cosa, y se prueba aparte: red
+de 3 series con 24 libres, el puerto converge a **−912.244333 en 180 iteraciones**
+contra las 181 del C.
+
 ## 4. Decisiones de porte que no son traducción
 
 | decisión | por qué |
@@ -223,11 +298,36 @@ construcción**, la estricta lo tumbaba.
 Arreglado en drvarma (`fix(as311): porta fielmente la Cholesky MODIFICADA del C`),
 y de paso cerró los tres tests de paridad con el C que su suite arrastraba.
 
+### 5.4. `compimp` degradado a `pulse` (bug de fue Python) — ABIERTO
+
+Buscando reproducir los objetivos de m6 apareció una discrepancia de 1.9 en el
+escalón diagonal, que no era de drtran. La bisección la puso donde estaba:
+
+1. la conjunta diagonal de m6 no coincidía con el C ni evaluando en su óptimo;
+2. con Σ estrictamente diagonal tampoco ⇒ no era la covarianza ni la red;
+3. serie a serie, evaluando **en el óptimo de fue C**, cinco de las seis clavaban
+   a 5e-8 y sólo **EI** difería: −292.495 frente a −290.613.
+
+EI es la única de las seis con un determinista **`compimp`**, el impulso
+*compensado*: +1 en la fecha y **−1 en la siguiente** (`fue_pre_reader.c:194`,
+`fue.c:317`). El lector de fue Python lo mapea a `pulse` a secas
+(`fue/inp.py:276`), y se come el −1.
+
+Confirmado con respuesta conocida: reconstruyendo a mano el regresor compensado
+(+1, −1) sobre el mismo `.pre` y los mismos coeficientes, fue Python da
+**−290.613205**, exactamente fue C.
+
+Está **abierto**: el arreglo va en el paquete `fue`, que comparten ART y multiart,
+y esa es una decisión de alcance, no del puerto. Mientras tanto los objetivos
+canónicos de m6 (diagonal −1709.511575, red libre −1697.613401) no se pueden
+reproducir, y la red se valida sobre las cinco series limpias de m6, que ejercitan
+exactamente la misma maquinaria.
+
 ## 6. Homologación con el binario
 
-`test_homologacion_c.py` (12) **relanza el binario en vivo** en vez de comparar
-contra referencias guardadas, para no arrastrar cifras obsoletas cuando el C
-cambia.
+`test_homologacion_c.py` (12) y `test_red.py` (15) **relanzan el binario en vivo**
+en vez de comparar contra referencias guardadas, para no arrastrar cifras
+obsoletas cuando el C cambia.
 
 Caso canónico `ES_CPI_m10` ← `WTI_ar1` (entrada con μ = 0):
 
@@ -252,11 +352,27 @@ Y la cadena entera en el diagonal de ese mismo caso: fue C (−7.3917271 +
 11.2056885) = **3.8139613** = fue Python = drtran C (3.813961) = drtran Python
 (3.8139611).
 
+**La RED**, sobre cinco series de m6 (EP, EU, EC, EA, P) con el DAG
+EP ← EU, EP ← EC, EU ← EC (cadena EC → EU → EP, una entrada con dos salidas y un
+denominador r=1) y dos covarianzas libres:
+
+| | drtran C | puerto | dif |
+|---|---|---|---|
+| red libre (40 libres / 48 slots) | −1434.696068 | −1434.696068 | 1.9e-10 |
+| + producto + comb. lineal (38 libres) | −1439.505804 | −1439.505804 | 9.4e-08 |
+| red de 3 series, **optimizada** (24 libres) | −912.244333 (181 it) | −912.244333 (180 it) | 9.0e-08 |
+
+Las dos primeras filas evalúan **en el óptimo del C** y prueban el *cast*; la
+tercera arranca en el escalón diagonal y prueba la *búsqueda*. Son cosas
+distintas y conviene no confundirlas: un cast correcto con un optimizador que no
+llega, y un optimizador que llega sobre un cast torcido, fallan de maneras muy
+diferentes.
+
 ## 7. Cómo reproducirlo
 
 ```sh
 # el puerto
-cd ~/Dropbox/SRC/drtran-python && python -m pytest -q          # 52 passed, ~3 min
+cd ~/Dropbox/SRC/drtran-python && python -m pytest -q          # 67 passed, ~5 min
 
 # el original
 cd ~/Dropbox/SRC/drtran && make && ./test_battery.sh           # 296 PASS, 0 FAIL
@@ -279,10 +395,13 @@ cd ~/Dropbox/SRC/drtran && make && ./test_battery.sh           # 296 PASS, 0 FAI
 ## 8. Lo que falta
 
 - **Round-trip de escritura**: `estimar → .pre → releer` (§3.1).
-- **Red de transferencias** (`-n`), DAG y `expand_params`: parámetros fijos,
-  **compartidos**, productos y combinaciones lineales, con la tabla de slots del
-  `.cns` por nombres (`omega1[1]`, `theta_2[B^1]`, `q[5,2]`). Dianas del C:
-  m6 diagonal **−1709.511575**, red libre **−1697.613401**.
+- **El m6 canónico**, bloqueado por el `compimp` de fue Python (§5.4). Dianas del
+  C para cuando se desbloquee: diagonal **−1709.511575**, red libre
+  **−1697.613401**. La maquinaria de la red ya está validada sobre las cinco
+  series limpias de m6 (§3, paso 5).
+- **Identificación de la red** (`-i` / `-g` del C): leer las CCF de los residuos
+  del diagonal para PROPONER el DAG y las covarianzas, y escribir el `.dag` y el
+  `.cns` de arranque. `identify.py` ya hace la parte bivariante.
 - **Diagnósticos** de `diagnose.c`: portmanteau de la transferencia (k ≥ 0, incluye
   el contemporáneo) y de exogeneidad (k < 0, detecta retroalimentación Y → X).
 - **Previsión y CLI.**

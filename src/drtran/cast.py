@@ -166,6 +166,46 @@ def build_cast_spec(specs, links=None):
     return cs
 
 
+def build_sigma(x, idx, m):
+    """Bloque de covarianza del vector: `(Q, idx, ifault)`.
+
+    Q lleva las RAZONES de varianza, no las varianzas: Q[0][0] = 1 y
+    Q[i][i] = exp(x), con la escala concentrada en sigma2 (ver la nota de
+    cabecera). Las covarianzas fuera de la diagonal van **crudas**, en el orden
+    del triángulo inferior por filas — `q[2,1]`, `q[3,1]`, `q[3,2]`, … — que es
+    el de la tabla de slots.
+
+    Sólo se leen si el vector las trae: sin tabla de slots el vector termina en
+    las razones y el modelo es de covarianza diagonal, que es el caso por
+    defecto. Liberar una covarianza es una decisión del analista (`q[5,2] = free`
+    en el `.cns`), no algo que se active en bloque.
+
+    **Rechazo si Q no es definida positiva.** Las covarianzas crudas no están
+    reparametrizadas, así que el optimizador puede pisar la región donde Q deja
+    de serlo; allí la verosimilitud no existe. Se devuelve `ifault` y el objetivo
+    responde 1.0, que es la estrategia del propio Mauricio (1995 §3): el punto no
+    mejora sobre el arranque y la búsqueda se aleja de él. Es lo mismo que hace el
+    C, y en los casos reales esa frontera nunca ha mordido — la correlación más
+    fuerte de m6 (−0.41) converge sin acercarse.
+    """
+    var = np.ones(m)
+    for i in range(1, m):
+        var[i] = math.exp(x[idx]); idx += 1
+    Q = np.diag(var)
+
+    n_off = m * (m - 1) // 2
+    if len(x) - idx >= n_off:
+        for i in range(1, m):
+            for j in range(i):
+                Q[i, j] = Q[j, i] = x[idx]; idx += 1
+        if n_off and np.any(Q[np.triu_indices(m, 1)] != 0.0):
+            try:
+                np.linalg.cholesky(Q)
+            except np.linalg.LinAlgError:
+                return None, idx, 1
+    return Q, idx, 0
+
+
 def cast_diagonal(x, cast_spec):
     """Vector de parámetros → estructura VARMA diagonal (sin transferencia).
 
@@ -204,11 +244,9 @@ def cast_diagonal(x, cast_spec):
         phis.append(np.asarray(phi, float)); thetas.append(np.asarray(theta, float))
         mus.append(float(mu)); ws.append(np.asarray(w, float))
 
-    # Covarianza: Q[0][0] = 1, el resto exp(x) (positividad garantizada).
-    var = np.ones(m)
-    for i in range(1, m):
-        var[i] = math.exp(x[idx]); idx += 1
-    sigma = np.diag(var)
+    sigma, idx, ifa_q = build_sigma(x, idx, m)
+    if ifa_q:
+        return None, None, None, None, None, int(ifa_q)
 
     # Alineación: si las series tienen distinto d/D sus w tienen distinta
     # longitud. Se alinean por el FINAL (la última observación es la misma fecha)

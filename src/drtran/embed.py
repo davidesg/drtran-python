@@ -46,7 +46,7 @@ import math
 
 import numpy as np
 
-from .cast import compute_irf
+from .cast import build_sigma, compute_irf
 
 
 def poly_mul(a, b):
@@ -129,10 +129,9 @@ def cast_embedded(x, cast_spec):
         phis.append(np.asarray(phi, float)); thetas.append(np.asarray(theta, float))
         mus.append(float(mu)); ws.append(np.asarray(w, float))
 
-    var = np.ones(m)
-    for i in range(1, m):
-        var[i] = math.exp(x[idx]); idx += 1
-    sigma = np.diag(var)
+    sigma, idx, ifa_q = build_sigma(x, idx, m)
+    if ifa_q:
+        return None, None, None, None, None, int(ifa_q)
 
     # --- Fila por fila: polinomios en forma llana --------------------------
     P = [[np.zeros(1) for _ in range(m)] for _ in range(m)]

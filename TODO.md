@@ -103,12 +103,49 @@ encontró al original.
       = drtran Python = 3.8139613 en el diagonal, y con transferencia C ≡ Python en
       (0,0,0) 24.408974, (0,0,1) 35.487981, (0,1,1) 35.555382.
       Tests: `tests/test_transferencia.py`, dos nuevos.
-- [ ] Red de transferencias (`-n`), DAG y `expand_params` (fijos, compartidos,
-      productos, combinaciones lineales). Objetivos del C para cuando llegue:
-      m6 diagonal −1709.511575, red libre −1697.613401.
-- [ ] `expand_params`: parámetros fijos, COMPARTIDOS, productos y combinaciones
-      lineales (la tabla de slots del `.cns`, por nombres: `omega1[1]`,
-      `theta_2[B^1]`, `q[5,2]`).
+- [x] **RED de transferencias, DAG y `expand_params` — HECHO y homologado.**
+      Tres piezas nuevas:
+      * `network.py` — el `.dag` (`SALIDA <- ENTRADA b r s`, series por NOMBRE) y
+        el rechazo de ciclos, que **dice cuál es el ciclo**. Con un ciclo no hay
+        orden topológico: dejaría de ser un DAG recursivo para ser un sistema de
+        ecuaciones simultáneas, que no es lo que el cast representa.
+      * `slots.py` — la tabla de slots con los NOMBRES del C (`omega1[1]`,
+        `theta_2[B^1]`, `q[5,2]`, `log(var3/var1)`), el `.cns` y `expand_params`
+        con las cinco naturalezas: libre, fijo, **compartido**, **producto**
+        (`x = -y * z`) y **combinación lineal** (`x = t1 + t2 - t3`, cada término
+        slot o slot·slot). El gradiente no necesita regla de la cadena: `expand`
+        va DENTRO del objetivo y `cdgrad` lo deriva por diferencias finitas, la
+        misma decisión del C.
+      * covarianza **no diagonal** en los dos casts (`build_sigma`): las `q[i,j]`
+        entran siempre al mapa pero **nacen fijas en cero**, y liberarlas es una
+        decisión del analista (`q[5,2] = free`), no un interruptor global — el
+        legacy m6-1 libera TRES de sus 15. Fuera de la región PSD se rechaza el
+        punto (objetivo 1.0) en vez de evaluar lo imposible.
+
+      El orden de los slots NO es el del C (él agrupa por clase, aquí por serie,
+      porque el bloque univariante lo produce fue), pero los NOMBRES sí — y el
+      `.cns` va por nombres. `build_slots` verifica el total contra
+      `cast_spec.npar`: si la enumeración se separara de la de fue, los nombres
+      dejarían de corresponder a las posiciones **en silencio**.
+
+      Homologado con el binario sobre una red de 5 series con cadena
+      EC → EU → EP, una entrada con dos salidas, un denominador r=1 y dos
+      covarianzas libres: **−1434.696068** (dif 1.9e-10); con un producto y una
+      combinación lineal, **−1439.505804** (dif 9.4e-08), y `expand` reconstruye
+      los slots derivados desde sólo los libres (dif 3e-07, que es el redondeo a
+      6 decimales del informe del C). El **optimizador** también llega: red de
+      3 series, 24 libres, **−912.244333 en 180 iteraciones** contra las 181 del
+      C. Tests: `tests/test_red.py` (15).
+- [ ] **El m6 canónico sigue sin poder validarse — no por drtran.** Los objetivos
+      del C (diagonal −1709.511575, red libre −1697.613401) no se reproducen
+      porque **fue Python degrada el determinista `compimp` a un `pulse`**: el
+      impulso compensado es +1 en la fecha y **−1 en la siguiente**
+      (`fue_pre_reader.c:194`), y `fue/inp.py:276` lo mapea a `pulse` a secas.
+      Sólo `M6_EI.pre` lo usa, y sólo por eso: evaluando en el óptimo de fue C,
+      cinco de las seis series clavan a 5e-8 y EI da **−292.495 en vez de
+      −290.613**. Reconstruyendo a mano el impulso compensado, fue Python da
+      −290.613205, **exactamente** fue C. Arreglarlo toca el paquete `fue`, que
+      comparten ART y multiart: decisión pendiente. Ver `docs/PORTE.md` §5.4.
 
 ## Paso 2 — la puerta — SUPERADA
 

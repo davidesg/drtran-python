@@ -42,6 +42,8 @@ class Fit:
     nit: int
     cast_spec: object
     converged: bool
+    slots: object = None          # SlotTable, si la estimación va restringida
+    xfree: object = None          # lo que vio el optimizador (x es el completo)
 
     # termcode del optimizador (raxopt / qnewtopt.c), con la clasificación que
     # fijó drtran en su hito M1: 1-2 convergencia, 3 parada SIN MEJORA (normal si
@@ -92,8 +94,25 @@ def loglik(x, cast_spec, xitol=-1e-3, embed=False):
     return float(ll), int(ifa)
 
 
+def x0_full(cast_spec, slots):
+    """Semillas del `.pre` en el espacio COMPLETO de la tabla de slots.
+
+    `x0_from_pre` llega hasta las razones de varianza; la tabla añade detrás las
+    covarianzas, que arrancan en cero — o sea, en el modelo de covarianza
+    diagonal, que es el escalón anterior de la escalera.
+    """
+    from .cast import x0_from_pre
+
+    x0 = np.asarray(x0_from_pre(cast_spec), float)
+    falta = len(slots) - len(x0)
+    if falta < 0:
+        raise ValueError(f"la tabla tiene {len(slots)} slots y las semillas "
+                         f"{len(x0)}: ¿es la tabla de este cast?")
+    return np.concatenate([x0, np.zeros(falta)])
+
+
 def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
-        sptol=1e-7, embed=True):
+        sptol=1e-7, embed=True, slots=None):
     """Estima el modelo conjunto y devuelve un `Fit`.
 
     `embed=True` (por defecto, como en el C) mete la transferencia DENTRO del
@@ -103,6 +122,13 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     fue) con las transferencias en cero — es decir, se arranca en el escalón
     diagonal y se deja que el optimizador añada la dinámica.
 
+    `slots` es una `SlotTable` (ver `drtran.slots`). Con ella el optimizador
+    trabaja en el espacio de los parámetros **libres** y cada evaluación expande
+    a la estructura completa: es lo que permite fijar, compartir y expresar unos
+    coeficientes en función de otros. Sin ella el vector es el completo y todo es
+    libre, salvo lo que el `.pre` ya diera por fijo. `Fit.x` es siempre el vector
+    completo; `Fit.xfree` lo que vio el optimizador.
+
     Sobre `termcode`: 1-2 es convergencia (gradiente / paso), **3 es parada sin
     mejora**, que aquí es NORMAL cuando se arranca en el óptimo — el caso del
     escalón diagonal, donde las semillas del `.pre` ya lo son. 4-5 es fallo real.
@@ -111,30 +137,47 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
 
     from .cast import x0_from_pre
 
-    x0 = np.asarray(x0_from_pre(cast_spec) if x0 is None else x0, float)
-    npar = len(x0)
+    if slots is None:
+        x_ini = np.asarray(x0_from_pre(cast_spec) if x0 is None else x0, float)
+        expandir = lambda v: v                                    # noqa: E731
+    else:
+        xfull0 = np.asarray(x0_full(cast_spec, slots) if x0 is None else x0, float)
+        if len(xfull0) != len(slots):
+            raise ValueError(f"con tabla de slots, x0 es el vector COMPLETO: "
+                             f"esperaba {len(slots)}, recibí {len(xfull0)}")
+        x_ini = slots.pack(xfull0)
+        expandir = slots.expand
 
-    f1_0, f2_0, ifa0 = _f1f2(x0, cast_spec, xitol, embed)
+    npar = len(x_ini)
+
+    def _ll(v):
+        return loglik(expandir(v), cast_spec, xitol, embed)
+
+    def _empaquetar(v, ll, ifa, termcode, nit):
+        return Fit(x=np.asarray(expandir(v), float), loglik=ll, ifault=int(ifa),
+                   termcode=int(termcode), nit=int(nit), cast_spec=cast_spec,
+                   converged=int(termcode) in (1, 2), slots=slots,
+                   xfree=np.asarray(v, float))
+
+    f1_0, f2_0, ifa0 = _f1f2(expandir(x_ini), cast_spec, xitol, embed)
     if ifa0 or f1_0 is None or not (f1_0 > 0.0 and f2_0 > 0.0):
-        return Fit(x=x0, loglik=float("-inf"), ifault=int(ifa0 or 5),
-                   termcode=0, nit=0, cast_spec=cast_spec, converged=False)
+        return _empaquetar(x_ini, float("-inf"), ifa0 or 5, 0, 0)
 
     m = cast_spec.m
 
     def objetivo(xv):
-        f1, f2, ifa = _f1f2(np.asarray(xv, float), cast_spec, xitol, embed)
+        f1, f2, ifa = _f1f2(expandir(np.asarray(xv, float)), cast_spec, xitol, embed)
         if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
             return 1.0                       # punto rechazado: no mejora
         return (f1 / f1_0) ** m * (f2 / f2_0)
 
     if npar == 0:
-        ll, ifa = loglik(x0, cast_spec, xitol, embed)
-        return Fit(x=x0, loglik=ll, ifault=ifa, termcode=1, nit=0,
-                   cast_spec=cast_spec, converged=True)
+        ll, ifa = _ll(x_ini)
+        return _empaquetar(x_ini, ll, ifa, 1, 0)
 
     # raxopt trabaja sobre un vector 1-indexado (hueco inicial sin usar)
     xk = np.zeros(npar + 1)
-    xk[1:] = x0
+    xk[1:] = x_ini
 
     def func1(xk1):
         return objetivo(xk1[1:npar + 1])
@@ -142,18 +185,17 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     _fk, _bfac, nit, termcode = _qnewt.raxopt(func1, npar, xk, maxits, grtol, sptol)
     x_hat = xk[1:npar + 1].copy()
 
-    ll, ifa = loglik(x_hat, cast_spec, xitol, embed)
-    return Fit(x=x_hat, loglik=ll, ifault=int(ifa), termcode=int(termcode),
-               nit=int(nit), cast_spec=cast_spec,
-               converged=int(termcode) in (1, 2))
+    ll, ifa = _ll(x_hat)
+    return _empaquetar(x_hat, ll, ifa, termcode, nit)
 
 
 def unpack(fit_or_x, cast_spec=None):
     """Separa el vector estimado en sus bloques, en el orden de `shootx`.
 
     Devuelve un dict con `links` (lista de (omega, delta) por enlace), `series`
-    (el trozo univariante de cada serie, tal como lo entiende fue) y
-    `log_var_ratio`.
+    (el trozo univariante de cada serie, tal como lo entiende fue),
+    `log_var_ratio` y `cov` (las covarianzas del triángulo inferior, vacío si el
+    vector no las trae).
     """
     if hasattr(fit_or_x, "x"):
         x, cast_spec = fit_or_x.x, fit_or_x.cast_spec
@@ -168,4 +210,6 @@ def unpack(fit_or_x, cast_spec=None):
     series = []
     for sc in cast_spec.series:
         series.append(x[idx:idx + sc.npar]); idx += sc.npar
-    return {"links": links, "series": series, "log_var_ratio": x[idx:]}
+    razones = x[idx:idx + cast_spec.m - 1]; idx += cast_spec.m - 1
+    return {"links": links, "series": series,
+            "log_var_ratio": razones, "cov": x[idx:]}
