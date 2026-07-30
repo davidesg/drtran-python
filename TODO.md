@@ -136,16 +136,16 @@ encontró al original.
       6 decimales del informe del C). El **optimizador** también llega: red de
       3 series, 24 libres, **−912.244333 en 180 iteraciones** contra las 181 del
       C. Tests: `tests/test_red.py` (15).
-- [ ] **El m6 canónico sigue sin poder validarse — no por drtran.** Los objetivos
-      del C (diagonal −1709.511575, red libre −1697.613401) no se reproducen
-      porque **fue Python degrada el determinista `compimp` a un `pulse`**: el
-      impulso compensado es +1 en la fecha y **−1 en la siguiente**
-      (`fue_pre_reader.c:194`), y `fue/inp.py:276` lo mapea a `pulse` a secas.
-      Sólo `M6_EI.pre` lo usa, y sólo por eso: evaluando en el óptimo de fue C,
-      cinco de las seis series clavan a 5e-8 y EI da **−292.495 en vez de
-      −290.613**. Reconstruyendo a mano el impulso compensado, fue Python da
-      −290.613205, **exactamente** fue C. Arreglarlo toca el paquete `fue`, que
-      comparten ART y multiart: decisión pendiente. Ver `docs/PORTE.md` §5.4.
+- [x] **El m6 canónico — VALIDADO** (tras arreglar fue, 2026-07-30). Estuvo
+      bloqueado porque **fue Python degradaba el determinista `compimp` a un
+      `pulse`**: el impulso compensado es +1 en la fecha y **−1 en la siguiente**,
+      y el lector se comía el −1. Sólo `M6_EI.pre` lo usa, y sólo por eso:
+      evaluando en el óptimo de fue C, cinco de las seis series clavaban a 5e-8 y
+      EI daba −292.495 en vez de −290.613. Arreglado en **fue 0.1.9**
+      (BUG-0006/0007); ahora el puerto reproduce las dos dianas del C:
+      **diagonal −1709.511575** (dif 5.0e-07) y **red libre −1697.613401**
+      (dif 5.9e-07), más las variantes con productos y con la estructura completa.
+      Tests: `tests/test_red.py`. Ver `docs/PORTE.md` §5.4.
 
 ## Paso 2 — la puerta — SUPERADA
 

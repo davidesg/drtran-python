@@ -96,9 +96,11 @@ estimación conjunta, la identificación de (b, r, s) por preblanqueo + CCF, y l
 combinaciones lineales) y la covarianza no diagonal. Todo homologado contra el
 binario C a ~1e-7, con tests que lo **relanzan en vivo**. **67 tests**, verdes.
 
+El sistema **m6** de Relloso (1997) se reproduce entero: diagonal −1709.511575 y
+red libre −1697.613401, las dianas del C.
+
 **Falta:** identificación de la red (`-i`/`-g`), el resto de los diagnósticos de
-`diagnose.c`, previsión y CLI. Y el m6 canónico, que está bloqueado por un bug de
-fue Python ajeno al puerto. Detalle en [`TODO.md`](TODO.md).
+`diagnose.c`, previsión y CLI. Detalle en [`TODO.md`](TODO.md).
 
 > **[`docs/PORTE.md`](docs/PORTE.md) — el registro del proceso.** Cómo se hizo,
 > qué decisiones no son traducción y por qué, las cifras de homologación, los tres

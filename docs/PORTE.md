@@ -298,7 +298,7 @@ construcción**, la estricta lo tumbaba.
 Arreglado en drvarma (`fix(as311): porta fielmente la Cholesky MODIFICADA del C`),
 y de paso cerró los tres tests de paridad con el C que su suite arrastraba.
 
-### 5.4. `compimp` degradado a `pulse` (bug de fue Python) — ABIERTO
+### 5.4. `compimp` degradado a `pulse` (bug de fue Python) — CORREGIDO
 
 Buscando reproducir los objetivos de m6 apareció una discrepancia de 1.9 en el
 escalón diagonal, que no era de drtran. La bisección la puso donde estaba:
@@ -317,11 +317,17 @@ Confirmado con respuesta conocida: reconstruyendo a mano el regresor compensado
 (+1, −1) sobre el mismo `.pre` y los mismos coeficientes, fue Python da
 **−290.613205**, exactamente fue C.
 
-Está **abierto**: el arreglo va en el paquete `fue`, que comparten ART y multiart,
-y esa es una decisión de alcance, no del puerto. Mientras tanto los objetivos
-canónicos de m6 (diagonal −1709.511575, red libre −1697.613401) no se pueden
-reproducir, y la red se valida sobre las cinco series limpias de m6, que ejercitan
-exactamente la misma maquinaria.
+**Corregido en fue 0.1.9** (BUG-0006), junto con otros dos huecos que la revisión
+de los nueve deterministas destapó: `easter` y `trend` no existían en el puerto, y
+—esto en el propio fue C, BUG-0007— su escritor del `.pre` los perdía, de modo que
+**fue C no podía releer su propio `.pre`**. De paso se unificó el vocabulario:
+`impulse` es el nombre canónico, porque fue C **no rechaza** una palabra que no
+conoce, la toma por variable no estándar y estima otra cosa en silencio.
+
+Con eso, los objetivos canónicos de m6 se reproducen: **diagonal −1709.511575**
+(dif 5.0e-07) y **red libre −1697.613401** (dif 5.9e-07). La validación sobre las
+cinco series limpias se conserva: ejercita la misma maquinaria sin depender de la
+versión de fue que haya instalada.
 
 ## 6. Homologación con el binario
 

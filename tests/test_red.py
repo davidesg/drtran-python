@@ -329,6 +329,56 @@ def test_los_productos_y_la_combinacion_lineal_homologan(tmp_path):
 
 
 @pytest.mark.skipif(not os.path.exists(BIN), reason="falta el binario C")
+@pytest.mark.parametrize("cns,diana,tol", [
+    # numeradores libres: se evalúa en los mismos números que imprime el C
+    ("m6_net.cns", -1697.613401, 1e-4),
+    # con EXPRESIONES la tolerancia sube: el informe del C redondea a 6 decimales
+    # y los slots derivados se reconstruyen a partir de factores ya redondeados,
+    # así que el error de entrada se propaga por el producto
+    ("m6_net_prod.cns", None, 1e-3),       # + los 2 productos de MA compartida
+    ("m6_net_full.cns", None, 1e-3),       # + el factor fijo (1−B) de EI←EU
+])
+def test_el_m6_canonico(cns, diana, tol, tmp_path):
+    """El sistema de Relloso (1997, Tabla 4) entero, con las SEIS series.
+
+    Estuvo bloqueado: la serie EI lleva un determinista `compimp` —el impulso
+    compensado— que fue Python leía como un impulso a secas, y eso movía la
+    verosimilitud 1.88 antes de que drtran entrara en juego. Arreglado en fue
+    0.1.9 (BUG-0006), el puerto reproduce las dianas del C.
+    """
+    dag = os.path.join(DATA, "m6_net.dag")
+    cs, t, x, ll_C = _optimo_del_C(dag, os.path.join(DATA, cns), tmp_path,
+                                   ["EP", "EI", "EU", "EC", "EA", "P"])
+    if diana is not None:
+        assert ll_C == pytest.approx(diana, abs=1e-5), "cambió el binario C"
+    ll, ifault = loglik(x, cs, embed=True)
+    assert ifault == 0
+    assert ll == pytest.approx(ll_C, abs=tol)
+
+
+@pytest.mark.skipif(not os.path.exists(BIN), reason="falta el binario C")
+def test_el_m6_diagonal_canonico(tmp_path):
+    """El escalón anterior: seis univariantes juntos, Σ no diagonal, sin red."""
+    import re
+    import subprocess
+
+    pre = [os.path.join(DATA, f"M6_{n}.pre")
+           for n in ("EP", "EI", "EU", "EC", "EA", "P")]
+    out = str(tmp_path / "diag.out")
+    r = subprocess.run([BIN, *pre, "-0", "-c", os.path.join(DATA, "m6.cns"),
+                        "-o", out], capture_output=True, text=True, timeout=900)
+    assert r.returncode == 0, r.stderr
+    ll_C = float(re.search(r"^Log-likelihood\s*=\s*(-?\d+\.\d+)",
+                           open(out).read(), re.M).group(1))
+    assert ll_C == pytest.approx(-1709.511575, abs=1e-5), "cambió el binario C"
+
+    cs = _cs(nombres=["EP", "EI", "EU", "EC", "EA", "P"])
+    t = build_slots(cs)
+    read_cns(os.path.join(DATA, "m6.cns"), t)
+    assert t.n_free == 56, "el -0 del C libera las 15 covarianzas"
+
+
+@pytest.mark.skipif(not os.path.exists(BIN), reason="falta el binario C")
 def test_el_optimizador_llega_al_mismo_optimo_que_el_C(tmp_path):
     """Homologar en el óptimo del C prueba el CAST; esto prueba la BÚSQUEDA.
 
