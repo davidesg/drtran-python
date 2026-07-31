@@ -175,11 +175,48 @@ encontró al original.
       en m6 lo trae, y hacen falta dos podas para dejarlo acíclico. Decidir cuál
       cae es juicio, no aritmética, así que la librería avisa y no poda.
       Tests: `tests/test_identificacion_red.py` (6).
+- [x] **Diagnósticos de `diagnose.c` — HECHO** (`diagnose.py`). Portmanteau de la
+      transferencia (k ≥ 0, contemporáneo incluido) y de exogeneidad (k < 0).
+      Clava al binario: adecuación p = 0.1966, exogeneidad p = 0.9136.
+      **Se miden sobre los residuos ESTRUCTURALES**, no los de la forma
+      reducida: con b = 0 el cast empotrado mete ω₀ en el retardo cero, así que
+      los reducidos vienen correlacionados por construcción (Σ₁₂ = ω₀·σ²_X) y el
+      portmanteau condena a un modelo correcto — daba p = 0.0000.
+      Tests: `tests/test_diagnose.py` (5).
+- [x] **Previsión — el NÚCLEO y la capa de NIVEL** (`forecast.py`). Pesos ψ de la
+      MA(∞), varianzas del error (nivel, variación, variación anual), previsiones
+      puntuales, y `to_level`, que compone ξ (deterministas futuros), la
+      integración contra δ(B) y la Box-Cox inversa reutilizando `_build_xi`,
+      `_nonsop_coefs` e `_inv_boxcox` de fue. **σ² se aplica**: el cast devuelve
+      Q, no Σ.
+      Verificado contra el binario: **WTI clava** (60.76, 61.02, 61.10, 61.13,
+      61.14, 61.14) y **sin transferencia el puerto reproduce exactamente el `-0`
+      del C** (81.98, 82.01, 82.45, 83.33, 83.54, 83.67), lo que valida ξ.
+      Tests: `tests/test_forecast.py` (11 + 1 xfail).
+- [ ] **ABIERTO — la SALIDA en nivel: el efecto de la transferencia converge
+      donde el C crece.** Acotado, con todo lo demás descartado:
+      * las **ω coinciden** (0.016400, −0.010747);
+      * la transferencia **sí entra**: con ω = 0 el nivel se mueve
+        [+0.029 +0.038 +0.040 +0.042 +0.042 +0.042];
+      * en el C mueve **[+0.03 +0.01 −0.07 −0.16 −0.21 −0.23]**: en h = 1
+        coincidimos y luego el del puerto se estanca y el del C crece y cambia
+        de signo;
+      * la senda de la entrada también coincide (WTI clava en nivel).
+      Descartado que sea la **vía**, por dos caminos: reconstruir a mano —prever
+      la entrada, pasarla por ν(B), sumarla al ruido— da lo mismo que la
+      recursión conjunta (w_Y 0.1134 frente a 0.1133); y **leído
+      `transfer_forecast` (`drtran.c:1854`)**, el C sólo suma la transferencia
+      recorriendo la red **con el cast por RESTA** — con el empotrado no, y su
+      comentario explica por qué: «la transferencia YA ESTÁ DENTRO del VARMA…
+      volver a sumarla la contaría DOS VECES, y lo hacía: inflaba la sd un 40 %».
+      Con `-V` el C hace lo mismo que el puerto.
+      El C es **internamente consistente** (`-S` 82.02 82.02 82.38 83.17 83.33
+      83.44 ≈ `-V`); el puerto difiere en los DOS casts.
+      Queda comparar la previsión de `w_Y` en sí, que el C no imprime:
+      instrumentar el binario, que es la técnica que resolvió el cuelgue de `elf`
+      y los dos defectos de `nlatools`.
 - [ ] Transferencia ω(B)/δ(B)·B^b: identificación por preblanqueo + CCF.
-- [ ] Diagnósticos de `diagnose.c`: portmanteau de la transferencia (k ≥ 0,
-      incluye el contemporáneo) y **portmanteau de exogeneidad** (k < 0, detecta
-      retroalimentación Y → X).
-- [ ] Previsión y CLI.
+- [ ] **CLI.**
 
 ## Heredado del C — vigilar en el puerto
 
