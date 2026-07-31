@@ -180,22 +180,34 @@ def test_a_series_with_no_incoming_transfer_matches_the_C(ajuste):
     assert nivel[-1] == pytest.approx(61.14, abs=0.01)
 
 
-@pytest.mark.xfail(reason="la aportación de la transferencia a la previsión del "
-                          "nivel de la SALIDA no reproduce al C todavía; ver TODO",
+@pytest.mark.xfail(reason="la transferencia entra en la previsión, pero su "
+                          "efecto converge a una constante mientras que en el C "
+                          "crece; ver TODO",
                    strict=True)
 def test_the_output_level_matches_the_C(ajuste):
     """ES_CPI receives the transfer, and there the port does not reach the C.
 
-    El C publica 82.01 82.02 82.38 83.17 83.33 83.44; el puerto da 81.99 82.01
-    82.45 83.32 83.52 83.64 con el cast empotrado y 81.92 81.93 82.37 ... con el
-    de resta. El primero queda casi encima del univariante de fue (81.98 82.01
-    82.45 83.33 83.54 83.67), o sea que la transferencia apenas entra en la
-    previsión, mientras que en el C pesa bastante más.
+    Lo medido, que acota el problema a una sola cosa:
 
-    La capa de nivel no es la sospechosa: con WTI clava al C. Lo que falta es
-    cómo entra el futuro de la ENTRADA en la previsión de la salida -- el propio
-    informe del C lo dice: "forecasting an output requires forecasting its
-    inputs: the transfer needs their future".
+    * las omega COINCIDEN con las del C (0.016400, -0.010747);
+    * sin transferencia el puerto reproduce EXACTAMENTE el `-0` del C
+      (81.98 82.01 82.45 83.33 83.54 83.67), luego xi, la integración y la
+      Box-Cox son correctas;
+    * la transferencia SÍ entra: poniendo omega a cero el nivel se mueve
+      [+0.029 +0.038 +0.040 +0.042 +0.042 +0.042];
+    * y en el C mueve [+0.03 +0.01 -0.07 -0.16 -0.21 -0.23].
+
+    O sea: en h=1 coincidimos (+0.03), y a partir de ahí el efecto del puerto
+    CONVERGE a una constante mientras que el del C crece y cambia de signo. La
+    entrada prevista decae rápido (WTI es AR(1) sobre Δlog: 1.46, 0.44, 0.13,
+    0.04...), así que su aportación acumulada al nivel tiende a una constante.
+    Que en el C no lo haga dice que alimenta a nu(B) con otra senda.
+
+    Comprobado además que no es la vía: reconstruir la previsión a mano
+    --prever la entrada, pasarla por nu(B) y sumarla al ruido-- da exactamente
+    lo mismo que la recursión conjunta del VARMA (w_Y = 0.1134 frente a 0.1133),
+    como debe ser. La hipótesis de que el C hiciera eso y el puerto no, no
+    explica la diferencia.
     """
     from drtran.forecast import to_level
 
