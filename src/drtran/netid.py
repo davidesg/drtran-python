@@ -38,15 +38,26 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .identify import ccf
+
 from .cast import Link
 
 
-def residuals(x, cast_spec, embed=True, xitol=-1e-3):
+def residuals(x, cast_spec, embed=True, xitol=-1e-3, structural=False):
     """Los residuos `a` del modelo, (n, m). Es `elf` con `atf=True`.
 
     No se recalculan a mano: los devuelve el mismo `elf` que puntúa la
     verosimilitud, así que son los residuos EXACTOS del filtro, con su
     inicialización pre-muestral, y no una aproximación truncada.
+
+    `structural=True` deshace la normalización de Φ(0): `a ← Φ(0)·a`. Lo piden
+    los DIAGNÓSTICOS de la transferencia. Con un enlace contemporáneo (b=0) el
+    cast empotrado mete ω₀ en el retardo cero, de modo que Φ(0) ≠ I y los
+    residuos de la forma reducida salen correlacionados **por construcción**
+    (Σ₁₂ = ω₀·σ²_X). Medir la adecuación sobre ésos es medir la correlación que
+    la propia transferencia genera y llamarla mala especificación: el
+    portmanteau se dispara y condena a un modelo correcto. Para leer las CCF de
+    la identificación de red da igual, porque ahí no hay enlaces todavía.
     """
     from drvarma import _as311
     from drvarma.estimate_py import _to_1based_cube
@@ -54,8 +65,16 @@ def residuals(x, cast_spec, embed=True, xitol=-1e-3):
     from .cast import cast_diagonal
     from .embed import cast_embedded
 
-    hacer = cast_embedded if embed else cast_diagonal
-    phi, theta, mu, w, sigma, ifault = hacer(np.asarray(x, float), cast_spec)
+    phi0 = None
+    if embed:
+        out = cast_embedded(np.asarray(x, float), cast_spec, with_phi0=structural)
+        if structural:
+            phi, theta, mu, w, sigma, ifault, phi0 = out
+        else:
+            phi, theta, mu, w, sigma, ifault = out
+    else:
+        phi, theta, mu, w, sigma, ifault = cast_diagonal(np.asarray(x, float),
+                                                         cast_spec)
     if ifault:
         return None, int(ifault)
 
@@ -71,22 +90,10 @@ def residuals(x, cast_spec, embed=True, xitol=-1e-3):
                                        1.0, xitol, True)
     if ifa:
         return None, int(ifa)
-    return np.asarray(a)[1:, 1:], 0
-
-
-def _ccf(d1, d2, nlags):
-    """corr(d1_t, d2_{t+k}) para k = 0..nlags. La convención de `Ccf`."""
-    d1 = np.asarray(d1, float); d2 = np.asarray(d2, float)
-    n = len(d1)
-    x1 = d1 - d1.mean(); x2 = d2 - d2.mean()
-    s1 = math.sqrt(float((x1 * x1).sum()) / n)
-    s2 = math.sqrt(float((x2 * x2).sum()) / n)
-    out = np.zeros(nlags + 1)
-    if s1 < 1e-12 or s2 < 1e-12:
-        return out
-    for k in range(nlags + 1):
-        out[k] = float((x1[:n - k] * x2[k:]).sum()) / (n * s1 * s2)
-    return out
+    res = np.asarray(a)[1:, 1:]
+    if structural and phi0 is not None:
+        res = res @ np.asarray(phi0, float).T
+    return res, 0
 
 
 def _bs_de_un_lado(c, nlags, thr):
@@ -190,8 +197,8 @@ def identify_network(cast_spec, x=None, nlags=None, embed=True):
 
     for i in range(m):
         for j in range(i + 1, m):
-            cpos = _ccf(a[:, i], a[:, j], nlags)      # k ≥ 0: lado i → j
-            cneg = _ccf(a[:, j], a[:, i], nlags)      # k ≥ 0 de (j,i): lado j → i
+            cpos = ccf(a[:, i], a[:, j], nlags)      # k ≥ 0: lado i → j
+            cneg = ccf(a[:, j], a[:, i], nlags)      # k ≥ 0 de (j,i): lado j → i
             if not np.any(cpos) and not np.any(cneg):
                 continue                              # serie degenerada
 

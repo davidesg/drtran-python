@@ -100,12 +100,18 @@ def normalize_phi0(phi, theta, sigma):
     return ph, th, sg, phi0
 
 
-def cast_embedded(x, cast_spec):
+def cast_embedded(x, cast_spec, with_phi0=False):
     """Vector de parámetros → estructura VARMA con la transferencia EMPOTRADA.
 
     Misma firma que `cast.cast_diagonal`: devuelve
     `(phi, theta, mu, w, sigma, ifault)` listos para `elf`, con `phi`/`theta` ya
     normalizados (Φ₀ = I) y `w` **sin restar nada**.
+
+    `with_phi0=True` añade Φ(0) al final. Lo piden los DIAGNÓSTICOS: `elf`
+    devuelve los residuos de la FORMA REDUCIDA, y con una transferencia
+    contemporánea (b=0) esos vienen correlacionados **por construcción**
+    (Σ₁₂ = ω₀·σ²_X). Los estructurales, que son los que el modelo supone
+    ortogonales, salen de deshacer la normalización: a_estructural = Φ(0)·a.
     """
     from fue.cast_us import cast_us_py
 
@@ -220,7 +226,9 @@ def cast_embedded(x, cast_spec):
         if ps[i] >= 1 and abs(phis[i][0]) >= 0.999:
             return None, None, None, None, None, 1
 
-    ph, th, sg, _phi0 = normalize_phi0(PHI, THETA, sigma)
+    ph, th, sg, phi0 = normalize_phi0(PHI, THETA, sigma)
+    if with_phi0:
+        return ph, th, MU, W, sg, 0, phi0
     return ph, th, MU, W, sg, 0
 
 

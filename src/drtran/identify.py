@@ -126,8 +126,12 @@ def prewhiten(w, phi, theta):
     return a
 
 
-def _ccf(d1, d2, nlags):
-    """corr(d1_t, d2_{t+k}) para k = 0..nlags (la convención de `diagnose.c:Ccf`)."""
+def ccf(d1, d2, nlags):
+    """corr(d1_t, d2_{t+k}) para k = 0..nlags (la convención de `diagnose.c:Ccf`).
+
+    Vive aquí, y los demás módulos la IMPORTAN. Tenerla copiada en cada sitio
+    que mira una CCF es cómo un arreglo se aplica en uno y se olvida en otros.
+    """
     d1 = np.asarray(d1, float)
     d2 = np.asarray(d2, float)
     n = len(d1)
@@ -141,6 +145,12 @@ def _ccf(d1, d2, nlags):
     for k in range(nlags + 1):
         out[k] = float((x1[:n - k] * x2[k:]).sum()) / (n * s1 * s2)
     return out
+
+
+#: Alias interno de `ccf`. Dentro de `identify` la variable local `ccf` -- el
+#: array de correlaciones -- tapa a la funcion del modulo, asi que las
+#: llamadas de ahi dentro pasan por aqui.
+_ccf = ccf
 
 
 def identify(cast_spec, link, x=None, nlags=None, banda="constante"):

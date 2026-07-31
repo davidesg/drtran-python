@@ -28,6 +28,8 @@ Si no coincide, el cast está mal.
 
 from .cast import (Link, build_cast_spec, build_sigma, cast_diagonal,
                    compute_irf, x0_from_pre)
+from .diagnose import (Adequacy, chi_test, report_adequacy,
+                       transfer_adequacy)
 from .embed import cast_embedded, loglik_embedded, normalize_phi0
 from .estimate import Fit, fit, loglik, unpack, x0_full
 from .identify import Identificacion, identify, prewhiten, report
@@ -44,6 +46,7 @@ __all__ = [
     "Link", "build_cast_spec", "build_sigma", "cast_diagonal", "compute_irf",
     "x0_from_pre",
     "cast_embedded", "loglik_embedded", "normalize_phi0",
+    "Adequacy", "transfer_adequacy", "report_adequacy", "chi_test",
     "Fit", "fit", "loglik", "unpack", "x0_full",
     "Identificacion", "identify", "prewhiten", "report",
     "Candidato", "RedIdentificada", "identify_network", "report_network",

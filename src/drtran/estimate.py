@@ -77,6 +77,11 @@ def _f1f2(x, cast_spec, xitol, embed=False):
     phi, theta, mu, w, sigma, ifault = hacer(x, cast_spec)
     if ifault:
         return None, None, int(ifault)
+    # Camino de Python PURO, a proposito por ahora. drvarma expone ya un `elf`
+    # compilado (`_engine.elf_c`, ~100x mas rapido y identico al 1e-13), pero
+    # CUELGA con la estructura empotrada de m6 (m=6, p=1, q=4), donde este
+    # devuelve -1753.432433 en 132 ms. Hasta que eso se aclare, la correccion
+    # manda sobre la velocidad.
     f1, f2, ifa = _elf_f1f2(w, mu, phi, theta, sigma, xitol)
     return float(f1), float(f2), int(ifa)
 
