@@ -393,7 +393,13 @@ def test_el_optimizador_llega_al_mismo_optimo_que_el_C(tmp_path):
 
     f = drtran.fit(cs, slots=t, embed=True)
     assert f.ifault == 0
-    assert f.termcode in (1, 2), f"no convergió: {f.estado}"
+    # El criterio es LLEGAR, no cómo se para. `termcode` 3 es "paró sin mejora",
+    # que en el óptimo es lo normal -- el propio C reporta ahí "STOPPED AT A
+    # POINT WITH NO IMPROVEMENT" -- y basta un cambio al nivel del épsilon (aquí,
+    # pasar del elf de Python puro al compilado, idénticos a 1e-13) para que la
+    # búsqueda lineal deje de encontrar mejora y el 2 se vuelva 3. Fallo real es
+    # 4-5. Lo que se exige es el valor, que es lo que se compara con el C.
+    assert f.termcode in (1, 2, 3), f"no convergió: {f.estado}"
     assert f.loglik == pytest.approx(ll_C, abs=1e-5)
     assert len(f.xfree) == 24 and len(f.x) == 26
 

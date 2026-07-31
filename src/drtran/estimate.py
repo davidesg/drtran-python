@@ -71,18 +71,18 @@ def _f1f2(x, cast_spec, xitol, embed=False):
     transferencia dentro del VARMA sin restar nada, así que no hay truncamiento
     pre-muestral.
     """
-    from drvarma.estimate_py import _elf_f1f2
+    from drvarma._engine import elf_c
 
     hacer = cast_embedded if embed else cast_diagonal
     phi, theta, mu, w, sigma, ifault = hacer(x, cast_spec)
     if ifault:
         return None, None, int(ifault)
-    # Camino de Python PURO, a proposito por ahora. drvarma expone ya un `elf`
-    # compilado (`_engine.elf_c`, ~100x mas rapido y identico al 1e-13), pero
-    # CUELGA con la estructura empotrada de m6 (m=6, p=1, q=4), donde este
-    # devuelve -1753.432433 en 132 ms. Hasta que eso se aclare, la correccion
-    # manda sobre la velocidad.
-    f1, f2, ifa = _elf_f1f2(w, mu, phi, theta, sigma, xitol)
+    # El `elf` COMPILADO de drvarma, expuesto para esto: el puerto necesita
+    # PUNTUAR una estructura que construye el cast, no ajustar un VARMA libre.
+    # Identico al de Python puro (1e-13) y ~100x mas rapido.
+    n, m = w.shape
+    _lg, f1, f2, _a, ifa = elf_c(m, n, phi.shape[0], theta.shape[0],
+                                 mu, phi, theta, sigma, w, 1.0, xitol, False)
     return float(f1), float(f2), int(ifa)
 
 

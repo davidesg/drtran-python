@@ -59,8 +59,7 @@ def residuals(x, cast_spec, embed=True, xitol=-1e-3, structural=False):
     portmanteau se dispara y condena a un modelo correcto. Para leer las CCF de
     la identificación de red da igual, porque ahí no hay enlaces todavía.
     """
-    from drvarma import _as311
-    from drvarma.estimate_py import _to_1based_cube
+    from drvarma._engine import elf_c
 
     from .cast import cast_diagonal
     from .embed import cast_embedded
@@ -79,15 +78,8 @@ def residuals(x, cast_spec, embed=True, xitol=-1e-3, structural=False):
         return None, int(ifault)
 
     n, m = w.shape
-    p, q = phi.shape[0], theta.shape[0]
-    Mu = np.zeros(m + 1); Mu[1:] = mu
-    Phi = _to_1based_cube(phi, p, m) if p else np.zeros((1, m + 1, m + 1))
-    Theta = _to_1based_cube(theta, q, m) if q else np.zeros((1, m + 1, m + 1))
-    Qq = np.zeros((m + 1, m + 1)); Qq[1:, 1:] = sigma
-    W = np.zeros((n + 1, m + 1)); W[1:, 1:] = w
-
-    _ll, _f1, _f2, a, ifa = _as311.elf(m, n, p, q, Mu, Phi, Theta, Qq, W,
-                                       1.0, xitol, True)
+    _ll, _f1, _f2, a, ifa = elf_c(m, n, phi.shape[0], theta.shape[0],
+                                  mu, phi, theta, sigma, w, 1.0, xitol, True)
     if ifa:
         return None, int(ifa)
     res = np.asarray(a)[1:, 1:]
