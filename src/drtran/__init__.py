@@ -32,6 +32,9 @@ from .diagnose import (Adequacy, chi_test, report_adequacy,
                        transfer_adequacy)
 from .embed import cast_embedded, loglik_embedded, normalize_phi0
 from .estimate import Fit, fit, loglik, unpack, x0_full
+from .forecast import (Forecast, error_variance, forecast,
+                       forecast_mean, integrated_weights, psi_weights,
+                       report_forecast)
 from .identify import Identificacion, identify, prewhiten, report
 from .netid import (Candidato, RedIdentificada, identify_network,
                     report_network, residuals, write_guided)
@@ -49,6 +52,8 @@ __all__ = [
     "Adequacy", "transfer_adequacy", "report_adequacy", "chi_test",
     "Fit", "fit", "loglik", "unpack", "x0_full",
     "Identificacion", "identify", "prewhiten", "report",
+    "Forecast", "forecast", "report_forecast", "psi_weights",
+    "error_variance", "integrated_weights", "forecast_mean",
     "Candidato", "RedIdentificada", "identify_network", "report_network",
     "residuals", "write_guided",
     "read_dag", "write_dag", "find_cycle", "check_acyclic",
