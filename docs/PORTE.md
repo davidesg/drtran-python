@@ -40,9 +40,10 @@ De las **12.615** líneas de C, la mayor parte no se porta: se reutiliza.
 | `diagnose.c` | parcialmente en `identify.py`; el resto pendiente | 1.687 |
 | `drtran.c` | CLI y orquestación; pendiente, se encoge mucho | 4.201 |
 
-El puerto ocupa hoy **1.910 líneas** de Python en `src/drtran/` (`slots.py` 440,
-`cast.py` 373, `identify.py` 321, `embed.py` 262, `estimate.py` 215,
-`network.py` 140, `pre.py` 109) y **1.110** de tests, con **67 tests**.
+El puerto ocupa hoy **2.229 líneas** de Python en `src/drtran/` (`slots.py` 440,
+`cast.py` 373, `identify.py` 321, `netid.py` 315, `embed.py` 262,
+`estimate.py` 215, `network.py` 140, `pre.py` 109) y **1.361** de tests, con
+**77 tests**.
 
 ## 3. Los escalones, con su evidencia
 
@@ -228,6 +229,44 @@ prueba el cast; que la **búsqueda** llegue es otra cosa, y se prueba aparte: re
 de 3 series con 24 libres, el puerto converge a **−912.244333 en 180 iteraciones**
 contra las 181 del C.
 
+### Paso 6 — identificar la red
+
+Cerrado el escalón diagonal, la escalera dice: **leer las CCF de sus residuos**
+para descubrir las relaciones dinámicas del sistema (Muñoz Polo 2001, §2.6).
+`netid.py` lo porta:
+
+| k | lectura | propuesta |
+|---|---|---|
+| k > 0 | a_i antecede a a_j | enlace i → j, con b y s del bloque contiguo |
+| k < 0 | a_j antecede a a_i | enlace j → i |
+| k = 0 | contemporáneo | liberar q[i,j] |
+| ambos | retroalimentación | no cabe en un DAG: se toma el dominante, avisando |
+
+Los residuos **no se recalculan**: los devuelve el mismo `elf` que puntúa la
+verosimilitud (`atf=True`), así que son los exactos, con su inicialización
+pre-muestral. Reconstruirlos con un filtro a mano habría sido crear una segunda
+fuente de verdad para algo que ya existe — el mismo criterio que con `fue.load()`
+(§3.1) y con `cast_us_py`.
+
+Homologa con el binario **línea por línea** en m6: las tres covarianzas
+(EI·EU +0.358, EI·EA −0.314, EC·EA −0.408), los ocho enlaces con sus picos y sus
+(b, s), y el mismo orden.
+
+**Una trampa que costó un rato:** `-i` a secas **no** identifica desde el
+diagonal. Monta su propio modelo —en m6, 61 slots, 46 libres, logL −1716.36, con
+Σ diagonal— y lee las CCF de *esos* residuos. Comparando contra él, las cifras
+del puerto no cuadraban y parecía un fallo; pidiéndole `-0 -i` con las mismas
+restricciones, coinciden exactamente. Comparar dos ajustes distintos es la forma
+más fácil de inventarse un bug.
+
+**La propuesta puede salir cíclica, y en m6 sale.** Leer las CCF par a par no
+impone aciclicidad: el borrador trae EP → EC → EA → EP, y hacen falta **dos**
+podas para dejarlo estimable. El modo guiado escribe el `.dag` igualmente, con el
+ciclo anotado en cabecera, y `read_dag` lo rechaza mientras siga ahí. La librería
+avisa y no poda: cuál de los enlaces cae es juicio, no aritmética, y podar en
+silencio invita a estimar el borrador — que es exactamente lo que la doctrina de
+la escuela dice que no se haga.
+
 ## 4. Decisiones de porte que no son traducción
 
 | decisión | por qué |
@@ -378,7 +417,7 @@ diferentes.
 
 ```sh
 # el puerto
-cd ~/Dropbox/SRC/drtran-python && python -m pytest -q          # 67 passed, ~5 min
+cd ~/Dropbox/SRC/drtran-python && python -m pytest -q          # 77 passed, ~7 min
 
 # el original
 cd ~/Dropbox/SRC/drtran && make && ./test_battery.sh           # 296 PASS, 0 FAIL

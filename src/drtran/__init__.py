@@ -31,6 +31,8 @@ from .cast import (Link, build_cast_spec, build_sigma, cast_diagonal,
 from .embed import cast_embedded, loglik_embedded, normalize_phi0
 from .estimate import Fit, fit, loglik, unpack, x0_full
 from .identify import Identificacion, identify, prewhiten, report
+from .netid import (Candidato, RedIdentificada, identify_network,
+                    report_network, residuals, write_guided)
 from .network import check_acyclic, find_cycle, read_dag, write_dag
 from .pre import PreSpec, check_scale, load_pre
 from .slots import Slot, SlotTable, build_slots, read_cns
@@ -44,6 +46,8 @@ __all__ = [
     "cast_embedded", "loglik_embedded", "normalize_phi0",
     "Fit", "fit", "loglik", "unpack", "x0_full",
     "Identificacion", "identify", "prewhiten", "report",
+    "Candidato", "RedIdentificada", "identify_network", "report_network",
+    "residuals", "write_guided",
     "read_dag", "write_dag", "find_cycle", "check_acyclic",
     "Slot", "SlotTable", "build_slots", "read_cns",
     "__version__",

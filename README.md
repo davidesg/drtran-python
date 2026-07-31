@@ -94,13 +94,19 @@ dos casts de transferencia —por resta y **empotrado**, este el defecto— con
 estimación conjunta, la identificación de (b, r, s) por preblanqueo + CCF, y la
 **red**: el `.dag`, la tabla de slots del `.cns` (fijos, compartidos, productos y
 combinaciones lineales) y la covarianza no diagonal. Todo homologado contra el
-binario C a ~1e-7, con tests que lo **relanzan en vivo**. **67 tests**, verdes.
+binario C a ~1e-7, con tests que lo **relanzan en vivo**. **77 tests**, verdes.
 
 El sistema **m6** de Relloso (1997) se reproduce entero: diagonal −1709.511575 y
 red libre −1697.613401, las dianas del C.
 
-**Falta:** identificación de la red (`-i`/`-g`), el resto de los diagnósticos de
-`diagnose.c`, previsión y CLI. Detalle en [`TODO.md`](TODO.md).
+Y la **identificación de la red** (`-i`/`-g`): leídas las CCF de los residuos del
+diagonal, `identify_network(cs, x=f.x)` propone los enlaces con su (b, s), las
+covarianzas contemporáneas y los pares con retroalimentación; `write_guided`
+escribe el `.dag` y el `.cns` del borrador. Es una **guía**: hay que podar por
+exogeneidad, aciclicidad y verosimilitud del retardo antes de estimar.
+
+**Falta:** el resto de los diagnósticos de `diagnose.c`, previsión y CLI.
+Detalle en [`TODO.md`](TODO.md).
 
 > **[`docs/PORTE.md`](docs/PORTE.md) — el registro del proceso.** Cómo se hizo,
 > qué decisiones no son traducción y por qué, las cifras de homologación, los tres

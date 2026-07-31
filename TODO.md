@@ -156,6 +156,25 @@ encontró al original.
 
 ## Paso 3 — lo demás
 
+- [x] **Identificación de la RED (`-i`/`-g`) — HECHA** (`netid.py`). Leídas las
+      CCF de los residuos del modelo **diagonal**, propone los enlaces dirigidos
+      (con su b y su s), las covarianzas contemporáneas y el par con
+      retroalimentación. Los residuos los da `elf` con `atf=True`: son los
+      EXACTOS, con su inicialización pre-muestral, no un filtro a mano.
+      Homologa con el binario **línea por línea** en m6: mismas covarianzas
+      (EI·EU +0.358, EI·EA −0.314, EC·EA −0.408), mismos ocho enlaces con los
+      mismos picos y las mismas propuestas de (b, s), y en el mismo orden.
+      **Ojo al comparar:** `-i` a secas NO identifica desde el diagonal — monta
+      su propio modelo (61 slots, 46 libres, logL −1716.36) y lee las CCF de
+      ESOS residuos. Hay que pedirle `-0 -i` con las mismas restricciones;
+      confundirlos hace que las cifras no cuadren y parezca un fallo del puerto.
+      El modo guiado escribe el `.dag` y el `.cns` **sin podar**, con las
+      covarianzas por índice numérico (el `.cns` no lee nombres en las `q`, y el
+      `-i` del C las imprime con nombre bajo un rótulo que dice «pégalo en un
+      fichero -c»). Si la propuesta trae un ciclo se escribe igual, **anotado**:
+      en m6 lo trae, y hacen falta dos podas para dejarlo acíclico. Decidir cuál
+      cae es juicio, no aritmética, así que la librería avisa y no poda.
+      Tests: `tests/test_identificacion_red.py` (6).
 - [ ] Transferencia ω(B)/δ(B)·B^b: identificación por preblanqueo + CCF.
 - [ ] Diagnósticos de `diagnose.c`: portmanteau de la transferencia (k ≥ 0,
       incluye el contemporáneo) y **portmanteau de exogeneidad** (k < 0, detecta
