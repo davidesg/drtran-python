@@ -209,8 +209,33 @@ encontró al original.
       del puerto (0.1133308248 0.1326379020 0.1381367427 …), lo que dejó a la
       capa de nivel como único sospechoso. Misma técnica que resolvió el cuelgue
       de `elf` y los dos defectos de `nlatools`.
-- [ ] Transferencia ω(B)/δ(B)·B^b: identificación por preblanqueo + CCF.
-- [ ] **CLI.**
+- [x] **CLI — HECHO** (`cli.py`, `__main__.py`). Las **mismas letras de opción**
+      que el C, cadena de `getopt` incluida y con el alias de un guion `-estwin`:
+      una línea de órdenes escrita para el C corre aquí sin tocarla, o no es un
+      porte. Se usa `gnu_getopt` (permuta) porque los `.pre` van delante.
+      Hechos: `-b/-r/-s` (listas), `-0`, `-V/-S`, `-n`, `-c`, `-f`, `-O`, `-i`,
+      `-g`, `-p`, `-m`, `-o` (`-` a stdout), `-N/-X/-D/-E/-M`, `-v`, `-h`.
+      Los conmutadores en bloque fijan **por índice, no por nombre**: los nombres
+      se repiten (dos factores AR dan dos `phi_1[B^1]`) y `set_fixed` sólo llega
+      al primero.
+      **Lo no portado se rechaza con código 2, no se ignora**: `-a`, `-estwin/-R`,
+      `-C`, `-L`. Una opción caída en silencio es como un script empieza a
+      publicar números que responden a otra pregunta.
+      El ejecutable se llama **`drtran-py`**, NO `drtran`: ese nombre es el del
+      binario C en esta máquina y pisarlo es justo la trampa que mordió a `fue`.
+      Verificado contra el binario en el caso canónico: logL −718.287406, ω
+      0.016400/−0.010747, y la tabla de previsión con fechas y errores estándar
+      igual a la del C (82.01/0.24 … 83.44/0.95; WTI 60.76/8.29 … 61.14/27.10).
+      `-0` da −767.424341. Tests: `tests/test_cli.py` (16).
+- [ ] **Errores estándar.** No se calcula el hessiano, así que la tabla de
+      parámetros sale sin columna de `s.e.`/`t`. El C sí la da. Es lo que falta
+      para que el informe sea comparable renglón a renglón.
+- [ ] Lo que el C imprime y el CLI todavía no: descomposición de la varianza del
+      error de previsión, la columna de variación mensual y la de variación
+      anual, y los pesos ν(k) estimados con sus errores.
+- [ ] **Barrido de idioma**: `identify.py`, `netid.py`, `network.py`, `slots.py`,
+      `cast.py`, `embed.py`, `estimate.py`, `pre.py` y sus tests siguen en
+      español. El informe de `-p` sale en español desde un CLI en inglés.
 
 ## Heredado del C — vigilar en el puerto
 

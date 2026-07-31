@@ -30,6 +30,11 @@ dependencies = [
     "drvarma>=0.1.1",
 ]
 
+[project.scripts]
+# NOT `drtran`: that name is the C binary's on this system, and
+# shadowing it is exactly the trap that bit `fue` once.
+drtran-py = "drtran.cli:main"
+
 [project.optional-dependencies]
 plots = ["matplotlib>=3.6", "pyfug>=2.0"]
 test = ["pytest>=7"]

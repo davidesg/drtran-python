@@ -48,11 +48,11 @@ class Fit:
     # termcode del optimizador (raxopt / qnewtopt.c), con la clasificación que
     # fijó drtran en su hito M1: 1-2 convergencia, 3 parada SIN MEJORA (normal si
     # se arranca en el óptimo, o si se llega a él), 4-5 fallo real.
-    _ESTADO = {1: "CONVERGIÓ (gradiente)",
-               2: "CONVERGIÓ (paso)",
-               3: "paró sin mejora",
-               4: "límite de iteraciones",
-               5: "pasos de longitud máxima"}
+    _ESTADO = {1: "CONVERGED (gradient)",
+               2: "CONVERGED (step)",
+               3: "stopped without improvement",
+               4: "iteration limit",
+               5: "steps of maximum length"}
 
     @property
     def estado(self):
