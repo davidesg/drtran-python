@@ -34,7 +34,7 @@ from .embed import cast_embedded, loglik_embedded, normalize_phi0
 from .estimate import Fit, fit, loglik, unpack, x0_full
 from .forecast import (Forecast, error_variance, forecast,
                        forecast_mean, integrated_weights, psi_weights,
-                       report_forecast)
+                       report_forecast, to_level)
 from .identify import Identificacion, identify, prewhiten, report
 from .netid import (Candidato, RedIdentificada, identify_network,
                     report_network, residuals, write_guided)
@@ -53,7 +53,7 @@ __all__ = [
     "Fit", "fit", "loglik", "unpack", "x0_full",
     "Identificacion", "identify", "prewhiten", "report",
     "Forecast", "forecast", "report_forecast", "psi_weights",
-    "error_variance", "integrated_weights", "forecast_mean",
+    "error_variance", "integrated_weights", "forecast_mean", "to_level",
     "Candidato", "RedIdentificada", "identify_network", "report_network",
     "residuals", "write_guided",
     "read_dag", "write_dag", "find_cycle", "check_acyclic",

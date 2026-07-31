@@ -161,3 +161,45 @@ def test_the_scale_is_applied_not_left_in_Q(ajuste):
     magnitude, which is the classic misreading of Q as Sigma."""
     fc = forecast(ajuste, L=3)
     assert 0.05 < fc.se("level", 0)[0] < 1.0, "orden de magnitud de sigma, no de Q"
+
+
+# ── back to the level ────────────────────────────────────────────────────────
+def test_a_series_with_no_incoming_transfer_matches_the_C(ajuste):
+    """WTI receives nothing, so its level forecast must be the univariate one —
+    and the C reports 60.76, 61.02, 61.10 from 12/2019.
+
+    This is what exonerates the level layer: the future deterministic effect,
+    the integration against delta(B) and the inverse Box-Cox are all exercised
+    here, and they land on the C's own numbers.
+    """
+    from drtran.forecast import to_level
+
+    fc = forecast(ajuste, L=6)
+    nivel = to_level(fc, ajuste.cast_spec, serie=1)
+    assert nivel[:3] == pytest.approx([60.76, 61.02, 61.10], abs=0.01)
+    assert nivel[-1] == pytest.approx(61.14, abs=0.01)
+
+
+@pytest.mark.xfail(reason="la aportación de la transferencia a la previsión del "
+                          "nivel de la SALIDA no reproduce al C todavía; ver TODO",
+                   strict=True)
+def test_the_output_level_matches_the_C(ajuste):
+    """ES_CPI receives the transfer, and there the port does not reach the C.
+
+    El C publica 82.01 82.02 82.38 83.17 83.33 83.44; el puerto da 81.99 82.01
+    82.45 83.32 83.52 83.64 con el cast empotrado y 81.92 81.93 82.37 ... con el
+    de resta. El primero queda casi encima del univariante de fue (81.98 82.01
+    82.45 83.33 83.54 83.67), o sea que la transferencia apenas entra en la
+    previsión, mientras que en el C pesa bastante más.
+
+    La capa de nivel no es la sospechosa: con WTI clava al C. Lo que falta es
+    cómo entra el futuro de la ENTRADA en la previsión de la salida -- el propio
+    informe del C lo dice: "forecasting an output requires forecasting its
+    inputs: the transfer needs their future".
+    """
+    from drtran.forecast import to_level
+
+    fc = forecast(ajuste, L=6)
+    nivel = to_level(fc, ajuste.cast_spec, serie=0)
+    assert nivel == pytest.approx([82.01, 82.02, 82.38, 83.17, 83.33, 83.44],
+                                  abs=0.01)

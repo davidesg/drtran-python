@@ -260,3 +260,63 @@ def report_forecast(fc, serie=0, which="level"):
                  f"[{v - 1.96 * e:10.4f}, {v + 1.96 * e:10.4f}]")
     L.append("=" * 61)
     return "\n".join(L)
+
+
+# ── back to the level ────────────────────────────────────────────────────────
+def to_level(fc, cast_spec, serie=0, origin=None):
+    """Turn the forecast of `w` into a forecast of the LEVEL, in original units.
+
+    The cast models `w`, which is the series after Box-Cox, differencing and
+    with the deterministic part removed. Three things stand between that and a
+    number a reader can use::
+
+        w = delta(B) (z - xi),      z = boxcox(level),   xi = deterministic part
+
+    so the level comes back by undoing them in order: integrate `w` against the
+    observed history of `z - xi`, add the deterministic effect evaluated **at the
+    forecast dates**, and invert the Box-Cox.
+
+    The middle step is the one that is easy to forget and impossible to notice:
+    without it the forecast decays to `mu` and looks perfectly reasonable, just
+    without the seasonality. The C had that very bug filed once.
+
+    The pieces come from `fue` — `_build_xi`, `_nonsop_coefs`, `_inv_boxcox` —
+    rather than being rewritten here: the deterministic calendar, the individual
+    seasonal factors and the Box-Cox with its `refactor` are exactly the kind of
+    delicate detail that must have a single source of truth.
+    """
+    from fue.forecast import _build_xi, _inv_boxcox, _nonsop_coefs
+
+    sc = cast_spec.series[serie]
+    model = sc.spec.model
+    ts = model.series
+    nobs = ts.nobs
+    freq = ts.freq if ts.freq > 0 else 1
+    L = fc.L
+
+    itv_omega = [list(i.omega) for i in model.interventions]
+    itv_delta = [list(i.delta) for i in model.interventions]
+    xi = _build_xi(model, nobs, freq, L, itv_omega, itv_delta)   # 1-indexado
+
+    from fue.cast_us import _boxcox
+    z = np.array([_boxcox(v, model.boxlam, model.refactor) for v in ts.data])
+
+    # u = z - xi, la parte estocastica del NIVEL, sobre la que actua delta(B)
+    u = np.zeros(nobs + L)
+    u[:nobs] = z - xi[1:nobs + 1]
+
+    # delta(B): sus coeficientes vienen de fue, que ya trata los factores
+    # estacionales individuales (ifadf). La convencion es la de `rnsop`:
+    # u_t = w_t + sum_k r_k u_(t-k).
+    r = np.asarray(_nonsop_coefs(model.d, model.D, freq,
+                                 ifadf=(model.ifadf or None)), float)
+    o = nobs if origin is None else origin
+
+    for l in range(1, L + 1):
+        acc = fc.f[l - 1, serie]
+        for k in range(1, len(r) + 1):
+            acc += r[k - 1] * u[o + l - 1 - k]
+        u[o + l - 1] = acc
+
+    z_f = np.array([u[o + l - 1] + xi[o + l] for l in range(1, L + 1)])
+    return np.array([_inv_boxcox(v, model.boxlam, model.refactor) for v in z_f])
