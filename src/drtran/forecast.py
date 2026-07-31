@@ -155,6 +155,7 @@ class Forecast:
     var_diff: np.ndarray = None        # (L+1, m, m) of (1-B) level
     var_annual: np.ndarray = None      # (L+1, m, m) of (1-B^s) level
     names: list = field(default_factory=list)
+    x: np.ndarray = None               # the fitted vector, for `to_level`
 
     @property
     def L(self):
@@ -242,7 +243,8 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
         var_annual = None
 
     return Forecast(f=f, var_w=var_w, var_level=var_level, var_diff=var_diff,
-                    var_annual=var_annual, names=list(cast_spec.names))
+                    var_annual=var_annual, names=list(cast_spec.names),
+                    x=np.asarray(x, float))
 
 
 def report_forecast(fc, serie=0, which="level"):
@@ -263,6 +265,46 @@ def report_forecast(fc, serie=0, which="level"):
 
 
 # ── back to the level ────────────────────────────────────────────────────────
+def _fitted_deterministics(fc, cast_spec, serie):
+    """The deterministic coefficients **as estimated by the cast**, not as seeded.
+
+    This is the one thing that cannot be taken from the `.pre` file. The cast
+    re-estimates every free parameter jointly, and the deterministic ones move:
+    on the canonical case the two `omega_d1` go from the univariate seeds to
+    -0.040867 / -0.094588, which is what the C reports for the joint fit.
+
+    Using the seeds instead produces a level forecast that is silently *the
+    univariate one*: the stochastic part is right, the calendar effect is the
+    one from before the transfer was there. It looks reasonable, it matches the
+    C's `-0` run, and it is wrong.
+
+    The free parameters live at the head of the series' univariate block, in
+    `build_slots` order: every free omega of every intervention first, then
+    every free delta. The fixed ones keep their declared value.
+    """
+    from .estimate import unpack
+
+    model = cast_spec.series[serie].spec.model
+    if getattr(fc, "x", None) is None:
+        raise ValueError("la previsión no trae el vector estimado: no se pueden "
+                         "recuperar los deterministas ajustados")
+    xs = unpack(np.asarray(fc.x, float), cast_spec)["series"][serie]
+
+    itv_omega = [list(i.omega) for i in model.interventions]
+    itv_delta = [list(i.delta) for i in model.interventions]
+
+    k = 0
+    for iv, itv in enumerate(model.interventions):
+        for j in range(len(itv.omega)):
+            if itv.omega_free[j]:
+                itv_omega[iv][j] = float(xs[k]); k += 1
+    for iv, itv in enumerate(model.interventions):
+        for j in range(len(itv.delta)):
+            if itv.delta_free[j]:
+                itv_delta[iv][j] = float(xs[k]); k += 1
+    return itv_omega, itv_delta
+
+
 def to_level(fc, cast_spec, serie=0, origin=None):
     """Turn the forecast of `w` into a forecast of the LEVEL, in original units.
 
@@ -294,8 +336,7 @@ def to_level(fc, cast_spec, serie=0, origin=None):
     freq = ts.freq if ts.freq > 0 else 1
     L = fc.L
 
-    itv_omega = [list(i.omega) for i in model.interventions]
-    itv_delta = [list(i.delta) for i in model.interventions]
+    itv_omega, itv_delta = _fitted_deterministics(fc, cast_spec, serie)
     xi = _build_xi(model, nobs, freq, L, itv_omega, itv_delta)   # 1-indexado
 
     from fue.cast_us import _boxcox

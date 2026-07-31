@@ -189,32 +189,26 @@ encontró al original.
       integración contra δ(B) y la Box-Cox inversa reutilizando `_build_xi`,
       `_nonsop_coefs` e `_inv_boxcox` de fue. **σ² se aplica**: el cast devuelve
       Q, no Σ.
-      Verificado contra el binario: **WTI clava** (60.76, 61.02, 61.10, 61.13,
-      61.14, 61.14) y **sin transferencia el puerto reproduce exactamente el `-0`
-      del C** (81.98, 82.01, 82.45, 83.33, 83.54, 83.67), lo que valida ξ.
-      Tests: `tests/test_forecast.py` (11 + 1 xfail).
-- [ ] **ABIERTO — la SALIDA en nivel: el efecto de la transferencia converge
-      donde el C crece.** Acotado, con todo lo demás descartado:
-      * las **ω coinciden** (0.016400, −0.010747);
-      * la transferencia **sí entra**: con ω = 0 el nivel se mueve
-        [+0.029 +0.038 +0.040 +0.042 +0.042 +0.042];
-      * en el C mueve **[+0.03 +0.01 −0.07 −0.16 −0.21 −0.23]**: en h = 1
-        coincidimos y luego el del puerto se estanca y el del C crece y cambia
-        de signo;
-      * la senda de la entrada también coincide (WTI clava en nivel).
-      Descartado que sea la **vía**, por dos caminos: reconstruir a mano —prever
-      la entrada, pasarla por ν(B), sumarla al ruido— da lo mismo que la
-      recursión conjunta (w_Y 0.1134 frente a 0.1133); y **leído
-      `transfer_forecast` (`drtran.c:1854`)**, el C sólo suma la transferencia
-      recorriendo la red **con el cast por RESTA** — con el empotrado no, y su
-      comentario explica por qué: «la transferencia YA ESTÁ DENTRO del VARMA…
-      volver a sumarla la contaría DOS VECES, y lo hacía: inflaba la sd un 40 %».
-      Con `-V` el C hace lo mismo que el puerto.
-      El C es **internamente consistente** (`-S` 82.02 82.02 82.38 83.17 83.33
-      83.44 ≈ `-V`); el puerto difiere en los DOS casts.
-      Queda comparar la previsión de `w_Y` en sí, que el C no imprime:
-      instrumentar el binario, que es la técnica que resolvió el cuelgue de `elf`
-      y los dos defectos de `nlatools`.
+      **Verificado contra el binario en las dos series**: WTI (60.76 61.02 61.10
+      61.13 61.14 61.14) y ES_CPI, la que recibe la transferencia (82.01 82.02
+      82.38 83.17 83.33 83.44). Coincide a los dos decimales que publica el C.
+      Tests: `tests/test_forecast.py` (13).
+- [x] **CERRADO — la salida en nivel.** Era un defecto del puerto, en la capa de
+      nivel y no en el modelo. `to_level` construía ξ con los **ω deterministas
+      del `.pre`** (las semillas univariantes) en vez de con los **reestimados
+      conjuntamente**: en el caso canónico los dos `omega_d1` se mueven a
+      −0.040867 y −0.094588 cuando la transferencia se ajusta a su lado.
+      Arreglado con `_fitted_deterministics`, que los recupera del vector
+      estimado — encabezan el bloque univariante de la serie, en el orden de
+      `build_slots`: primero todas las ω libres, luego todas las δ.
+      Silencioso por construcción: con las semillas la previsión es **la
+      univariante**, que hasta cuadra con el `-0` del propio C. Sólo se ve
+      comparando contra un ajuste que sí tenga transferencia dentro.
+      Lo localizó **instrumentar el binario** (un `fprintf` temporal en
+      `transfer_forecast`, ya revertido): el `f1` del C resultó ser idéntico al
+      del puerto (0.1133308248 0.1326379020 0.1381367427 …), lo que dejó a la
+      capa de nivel como único sospechoso. Misma técnica que resolvió el cuelgue
+      de `elf` y los dos defectos de `nlatools`.
 - [ ] Transferencia ω(B)/δ(B)·B^b: identificación por preblanqueo + CCF.
 - [ ] **CLI.**
 
