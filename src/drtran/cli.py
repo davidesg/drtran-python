@@ -199,7 +199,7 @@ def report_fit(fit, table, names):
            "=" * 64,
            f"  series      : {', '.join(names)}",
            f"  log-likelihood: {fit.loglik:.6f}",
-           f"  status      : {fit.estado}  (termcode={fit.termcode}, "
+           f"  status      : {fit.status}  (termcode={fit.termcode}, "
            f"iterations={fit.nit})",
            "",
            "  parameter                     estimate    ",
@@ -244,17 +244,17 @@ def _forecast_block(fit, cast_spec, horizon, origin):
     fc = forecast(fit, L=horizon, origin=origin)
     out = []
     for i, sc in enumerate(cast_spec.series):
-        nivel = to_level(fc, cast_spec, serie=i, origin=origin)
+        level = to_level(fc, cast_spec, series=i, origin=origin)
         se = fc.se("level", i)
-        fechas = _dates(sc.spec.model.series, origin, horizon)
+        dates = _dates(sc.spec.model.series, origin, horizon)
         out += ["", "=" * 64,
                 f"  FORECAST — {sc.name}  (original units)",
                 "=" * 64,
                 "   h   date       forecast       s.e.       95% interval",
                 "  " + "-" * 60]
         for l in range(horizon):
-            v, e = nivel[l], se[l]
-            out.append(f"  {l + 1:3d}  {fechas[l]:>8s}  {v:12.4f}  {e:9.4f}   "
+            v, e = level[l], se[l]
+            out.append(f"  {l + 1:3d}  {dates[l]:>8s}  {v:12.4f}  {e:9.4f}   "
                        f"[{v - 1.96 * e:10.4f}, {v + 1.96 * e:10.4f}]")
         out.append("=" * 64)
     out.append("")
@@ -413,18 +413,18 @@ def _run(o, files):
     if f.ifault:
         raise CliError(f"the likelihood could not be evaluated: ifault={f.ifault}")
 
-    partes = [report_fit(f, table, names)]
+    parts = [report_fit(f, table, names)]
 
     # ── network identification (-i / -g) ─────────────────────────────────────
     if o["net_ident"]:
         from .netid import identify_network, report_network, write_guided
 
         red = identify_network(cs, x=f.x, embed=o["embed"])
-        partes.append("")
-        partes.append(report_network(red))
+        parts.append("")
+        parts.append(report_network(red))
         if o["guide"]:
             dag, cns = write_guided(red, o["guide"])
-            partes += ["", f"  wrote {dag} and {cns}",
+            parts += ["", f"  wrote {dag} and {cns}",
                        f"  next:  drtran {' '.join(files)} -n {dag} -c {cns}"]
 
     # ── diagnostics ──────────────────────────────────────────────────────────
@@ -433,26 +433,26 @@ def _run(o, files):
 
         for k in range(len(links)):
             ad = transfer_adequacy(f, link_index=k, embed=o["embed"])
-            partes.append("")
-            partes.append(report_adequacy(ad))
+            parts.append("")
+            parts.append(report_adequacy(ad))
 
     # ── forecast ─────────────────────────────────────────────────────────────
     if o["horizon"] > 0:
-        partes.append(_forecast_block(f, cs, o["horizon"], o["origin"]))
+        parts.append(_forecast_block(f, cs, o["horizon"], o["origin"]))
 
-    texto = "\n".join(partes) + "\n"
+    text = "\n".join(parts) + "\n"
 
-    destino = o["outfile"]
-    if destino is None:
-        nombre = o["model_name"] or f"{names[0]}_{names[1]}"
-        destino = f"{nombre}.out"
-    if destino == "-":
-        sys.stdout.write(texto)
+    target = o["outfile"]
+    if target is None:
+        name = o["model_name"] or f"{names[0]}_{names[1]}"
+        target = f"{name}.out"
+    if target == "-":
+        sys.stdout.write(text)
     else:
-        with open(destino, "w") as fh:
-            fh.write(texto)
-        sys.stdout.write(texto)
-        sys.stderr.write(f"drtran: results written to {destino}\n")
+        with open(target, "w") as fh:
+            fh.write(text)
+        sys.stdout.write(text)
+        sys.stderr.write(f"drtran: results written to {target}\n")
     return 0
 
 
@@ -479,11 +479,11 @@ def _prewhiten_report(specs, names):
 
     provisional = [Link(0, j, b=0, r=0, s=0) for j in range(1, len(specs))]
     cs = build_cast_spec(specs, links=provisional)
-    partes = []
+    parts = []
     for lk in provisional:
         idt = identify(cs, lk)
-        partes.append(report(idt, nombres=(names[lk.inp], names[lk.out])))
-    return "\n\n".join(partes)
+        parts.append(report(idt, names=(names[lk.inp], names[lk.out])))
+    return "\n\n".join(parts)
 
 
 if __name__ == "__main__":                                 # pragma: no cover

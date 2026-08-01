@@ -1,81 +1,83 @@
 # drtran (Python)
 
-**Modelos de transferencia de Box–Jenkins por máxima verosimilitud exacta.**
+**Box–Jenkins transfer function models by exact maximum likelihood.**
 
-Puerto a Python de [`drtran`](../drtran) (C). Es el **puente** entre dos programas
-que ya funcionan:
+A Python port of [`drtran`](../drtran) (C). It is the **bridge** between two
+programs that already work:
 
-- **[fue]** — identifica y estima modelos **univariantes** (ARIMA + Box–Cox +
-  deterministas). Produce un `.pre` por serie.
-- **[drvarma]** — evalúa la **verosimilitud exacta VARMA** de Mauricio (`elf`) y
-  la maximiza con BFGS factorizado.
+- **[fue]** — identifies and estimates **univariate** models (ARIMA + Box–Cox +
+  deterministics). Produces one `.pre` per series.
+- **[drvarma]** — evaluates Mauricio's **exact VARMA likelihood** (`elf`) and
+  maximises it with factored BFGS.
 
-drtran lee los `.pre` ya especificados en fue —una salida y una o varias
-entradas— y los estima **conjuntamente**, todos los parámetros a la vez:
-
-```
-Y_t  =  Σⱼ  ωⱼ(B)/δⱼ(B) · B^bⱼ · Xⱼ,t  +  N_t
-```
-
-## El `.pre` es el contrato, no un formato de entrada
-
-fue deja en el `.pre` el mejor modelo univariante estimado de cada serie; drtran
-lo toma como semilla. `.pre` e `.inp` comparten formato — la diferencia es que las
-semillas del `.pre` son las estimaciones de la última iteración. Por eso la cadena
-es **iterativa y con continuidad**: la salida de un escalón alimenta el siguiente.
+drtran reads the `.pre` files already specified in fue — one output and one or
+more inputs — and estimates them **jointly**, every parameter at once:
 
 ```
-fue → .pre → drtran (diagonal) → CCF de residuos → .dag/.cns → drtran (red) → …
+Y_t  =  SUM_j  omega_j(B)/delta_j(B) * B^b_j * X_j,t  +  N_t
 ```
 
-Los artefactos son ficheros de texto inspeccionables **a propósito**: el punto de
-intervención del analista entre escalones es parte del método (la red identificada
-es una guía, no la final), no una limitación a abstraer.
+## The `.pre` is the contract, not an input format
 
-## Principio de diseño, no negociable
+fue leaves each series' best estimated univariate model in the `.pre`; drtran
+takes it as a seed. `.pre` and `.inp` share a format — the difference is that a
+`.pre`'s seeds are the estimates of the last iteration. That is what makes the
+chain **iterative and continuous**: one rung's output feeds the next.
 
-> El `elf` de drvarma se usa **tal cual**. No se modifica, no se parchea, no se
-> caso-especializa. Es la implementación de referencia de la verosimilitud exacta.
-> Cualquier discrepancia con fue es un bug del cast de drtran, **nunca** de `elf`.
+```
+fue -> .pre -> drtran (diagonal) -> residual CCFs -> .dag/.cns -> drtran (network) -> ...
+```
 
-## Criterio de validación (puerta de entrada a todo lo demás)
+The artifacts are inspectable text files **on purpose**: the analyst's
+intervention between rungs is part of the method (the identified network is a
+guide, not the final one), not a limitation to be abstracted away.
 
-**Estimación conjunta diagonal ≡ fue por separado.** Con estructura diagonal la
-verosimilitud exacta se factoriza, así que la conjunta debe reproducir la suma de
-las univariantes. Caso canónico `ES_CPI_m10` ← `WTI_ar1`:
+## Design principle, non-negotiable
 
-| | φ | logL |
+> drvarma's `elf` is used **as it is**. Not modified, not patched, not
+> special-cased. It is the reference implementation of the exact likelihood. Any
+> discrepancy with fue is a bug of drtran's cast, **never** of `elf`.
+
+## Validation criterion (the gate to everything else)
+
+**Diagonal joint estimation == fue run separately.** With a diagonal structure
+the exact likelihood factorises, so the joint fit must reproduce the sum of the
+univariate ones. Canonical case `ES_CPI_m10` <- `WTI_ar1`:
+
+| | phi | logL |
 |---|---|---|
 | ES_CPI | 0.402839 | −7.3917 |
 | WTI | 0.299193 | −760.0326 |
-| **suma = objetivo conjunto** | | **−767.424341** |
+| **sum = joint target** | | **−767.424341** |
 
-## Un ejemplo
+## An example
 
 ```python
 import drtran
 from drtran.cast import build_cast_spec, Link
 from drtran.estimate import fit, unpack
 
-Y = drtran.load_pre("ES_CPI_m10.pre")       # la salida
-X = drtran.load_pre("WTI_ar1.pre")          # la entrada
+Y = drtran.load_pre("ES_CPI_m10.pre")       # the output
+X = drtran.load_pre("WTI_ar1.pre")          # the input
 
 cs = build_cast_spec([Y, X], links=[Link(out=0, inp=1, b=0, r=0, s=1)])
-f  = fit(cs)                                # empotrado por defecto, como en el C
+f  = fit(cs)                                # embedded by default, as in the C
 print(f.loglik, unpack(f)["links"])
 ```
 
-`identify(cs, link)` propone (b, r, s) por preblanqueo y CCF antes de estimar.
+`identify(cs, link)` proposes (b, r, s) by prewhitening and the CCF before
+estimating. `forecast(f, L=12)` and `to_level(fc, cs, serie=0)` give the forecast
+back in the original units.
 
-Y una **red** de transferencias, con sus restricciones:
+And a **network** of transfers, with its constraints:
 
 ```python
 from drtran import build_slots, read_cns, read_dag
 
-cs = build_cast_spec(specs)                       # las m series
+cs = build_cast_spec(specs)                       # the m series
 cs = build_cast_spec(specs, links=read_dag("m6.dag", cs.names))
-slots = build_slots(cs)                           # las q[i,j] nacen fijas en 0
-read_cns("m6.cns", slots)                         # free / fijar / compartir / x=y*z
+slots = build_slots(cs)                           # the q[i,j] are born fixed at 0
+read_cns("m6.cns", slots)                         # free / fix / share / x=y*z
 f = fit(cs, slots=slots)
 ```
 
@@ -86,39 +88,56 @@ EI <- EU   1 0 3              omega1[1] = omega1[0] * theta_2[B^1]
 EU <- EC   2 0 1              omega3[0] = omega3[1] + omega3[2] + omega3[3]
 ```
 
-## Estado
+## The command line
 
-**Pasos 0 a 5 — cerrados.** La entrada está validada campo a campo, el cast
-diagonal supera la puerta (−767.424341, dif. 3.9e-07 con la suma de fue), están los
-dos casts de transferencia —por resta y **empotrado**, este el defecto— con
-estimación conjunta, la identificación de (b, r, s) por preblanqueo + CCF, y la
-**red**: el `.dag`, la tabla de slots del `.cns` (fijos, compartidos, productos y
-combinaciones lineales) y la covarianza no diagonal. Todo homologado contra el
-binario C a ~1e-7, con tests que lo **relanzan en vivo**. **77 tests**, verdes.
+The C's own options, verbatim — a command line written for the binary runs here
+unchanged. The executable is `drtran-py` (not `drtran`: that name belongs to the
+C binary), and `python -m drtran` works too.
 
-El sistema **m6** de Relloso (1997) se reproduce entero: diagonal −1709.511575 y
-red libre −1697.613401, las dianas del C.
+```
+drtran-py ES_CPI_m10.pre WTI_ar1.pre -b 0 -r 0 -s 1 -V -f 6
+```
 
-Y la **identificación de la red** (`-i`/`-g`): leídas las CCF de los residuos del
-diagonal, `identify_network(cs, x=f.x)` propone los enlaces con su (b, s), las
-covarianzas contemporáneas y los pares con retroalimentación; `write_guided`
-escribe el `.dag` y el `.cns` del borrador. Es una **guía**: hay que podar por
-exogeneidad, aciclicidad y verosimilitud del retardo antes de estimar.
+What is not ported yet (`-a`, `-estwin`/`-R`, `-C`, `-L`) is **refused with exit
+code 2, not ignored**: a silently dropped option is how a script starts
+publishing numbers that answer a different question.
 
-**Falta:** el resto de los diagnósticos de `diagnose.c`, previsión y CLI.
-Detalle en [`TODO.md`](TODO.md).
+## Status
 
-> **[`docs/PORTE.md`](docs/PORTE.md) — el registro del proceso.** Cómo se hizo,
-> qué decisiones no son traducción y por qué, las cifras de homologación, los tres
-> defectos que el porte le encontró al original (entre ellos que **μ es la media,
-> no un intercepto**) y las trampas al comparar contra el binario.
+**Steps 0 to 7 — closed.** The input is validated field by field, the diagonal
+cast passes the gate (−767.424341, differing by 3.9e-07 from fue's sum), both
+transfer casts are in — by subtraction and **embedded**, the latter the default —
+with joint estimation, the identification of (b, r, s) by prewhitening + CCF, and
+the **network**: the `.dag`, the `.cns` slot table (fixed, shared, products and
+linear combinations) and the non-diagonal covariance. Then the diagnostics, the
+forecast — core and level layer — and the CLI. All homologated against the C
+binary to ~1e-7, with tests that **relaunch it live**. **111 tests**, green.
 
-## Alcance del puerto
+Relloso's **m6** system (1997) is reproduced in full: diagonal −1709.511575 and
+free network −1697.613401, the C's own targets.
 
-La mayor parte del C **no se porta**, se reutiliza: `elfvarma` + `drvmlest` +
-`qnewtopt` + `nlatools` ya están en drvarma Python; `gnuplot_i` → matplotlib; el
-lector de `.pre` → `fue.load()`. Son ~5.800 de las 12.615 líneas del C.
+The **network identification** (`-i`/`-g`) is there too: having read the CCFs of
+the diagonal model's residuals, `identify_network(cs, x=f.x)` proposes the links
+with their (b, s), the contemporaneous covariances and the pairs with feedback;
+`write_guided` writes the draft `.dag` and `.cns`. It is a **guide**: prune by
+exogeneity, acyclicity and how plausible the delay is before estimating.
 
-Portado: `tran_shootx.c` (el cast, 668) → `cast.py` + `embed.py`, y la parte de
-identificación de `diagnose.c` → `identify.py`. Queda el resto de `diagnose.c`
-(1687) y `drtran.c` (CLI/orquestación, 4201 — se encoge mucho en Python).
+**Missing:** standard errors (the Hessian is not computed), the forecast-error
+variance decomposition, and the C-only options above. Details in
+[`TODO.md`](TODO.md).
+
+> **[`docs/PORTE.md`](docs/PORTE.md) — the record of the process.** How it was
+> done, which decisions are not translation and why, the homologation figures,
+> the three defects the port found in the original (among them that **mu is the
+> mean, not an intercept**) and the traps in comparing against the binary.
+
+## Scope of the port
+
+Most of the C is **not ported**, it is reused: `elfvarma` + `drvmlest` +
+`qnewtopt` + `nlatools` are already in drvarma Python; `gnuplot_i` -> matplotlib;
+the `.pre` reader -> `fue.load()`. That is ~5,800 of the C's 12,615 lines.
+
+Ported: `tran_shootx.c` (the cast, 668) -> `cast.py` + `embed.py`, `diagnose.c`
+-> `identify.py` + `diagnose.py` + `netid.py`, `forecast.c` -> `forecast.py`, and
+`drtran.c`'s CLI/orchestration -> `cli.py` (4201 lines of C become 490 of
+Python).

@@ -1,21 +1,21 @@
-"""Entrada de drtran: los ficheros `.pre` de fue.
+"""drtran's input: fue's `.pre` files.
 
-El `.pre` NO es un detalle de E/S: es el **contrato de continuidad** de la escalera
-metodológica. fue identifica y estima el mejor modelo univariante de cada serie y
-deja sus parámetros en un `.pre`; drtran los toma como semillas y estima todo
-conjuntamente. `.pre` e `.inp` comparten formato — la diferencia es que las
-semillas del `.pre` son las estimaciones de la última iteración. Por eso la cadena
-es iterativa y tiene continuidad: la salida de un escalón alimenta el siguiente.
+The `.pre` is NOT an I/O detail: it is the **continuity contract** of the
+methodological ladder. fue identifies and estimates the best univariate model for
+each series and leaves its parameters in a `.pre`; drtran takes them as seeds and
+estimates everything jointly. `.pre` and `.inp` share a format — the difference is
+that a `.pre`'s seeds are the estimates of the last iteration. That is what makes
+the chain iterative and continuous: one rung's output feeds the next.
 
-**No se reimplementa el lector.** `fue.load()` ya parsea `.inp` y `.pre`, y se ha
-verificado campo a campo que preserva todo lo que drtran necesita (ver
-`tests/test_pre_roundtrip.py`). Portar `fue_pre_reader.c` (601 líneas) sería
-duplicar una fuente de verdad que ya existe — exactamente el error que se paga
-caro cuando las dos copias divergen.
+**The reader is not reimplemented.** `fue.load()` already parses `.inp` and
+`.pre`, and it has been verified field by field that it preserves everything
+drtran needs (see `tests/test_pre_roundtrip.py`). Porting `fue_pre_reader.c` (601
+lines) would duplicate a source of truth that already exists — exactly the
+mistake that gets expensive when the two copies drift apart.
 
-Lo que aporta este módulo es la **validación**: comprobar que un `.pre` trae lo
-que la estimación conjunta necesita, y fallar con un mensaje claro si no, en vez
-de propagar un modelo incompleto hasta que la verosimilitud no cuadre.
+What this module adds is **validation**: checking that a `.pre` carries what the
+joint estimation needs, and failing with a clear message if it does not, instead
+of propagating an incomplete model until the likelihood fails to add up.
 """
 
 from __future__ import annotations
@@ -23,25 +23,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-# Campos que la estimación conjunta necesita del .pre. Si alguno faltase, el cast
-# construiría una estructura VARMA distinta de la que fue estimó y la
-# homologación (conjunta diagonal == fue por separado) fallaría sin motivo
-# aparente. `refactor` está aquí a propósito: con refactor=1 el optimizador se
-# cuelga por mal condicionamiento (drtran TODO, 2026-07-23).
-_CAMPOS_MODELO = ("boxlam", "d", "D", "refactor", "mu0", "estimate_mu",
-                  "ar", "ar_free", "ar_s", "ar_s_free",
-                  "ma", "ma_free", "ma_s", "ma_s_free",
-                  "ar_f", "ma_f", "interventions")
-_CAMPOS_SERIE = ("data", "freq", "nobs", "start", "name")
+# Fields the joint estimation needs from the .pre. If one were missing, the cast
+# would build a VARMA structure different from the one fue estimated and the
+# homologation (joint diagonal == fue run separately) would fail for no apparent
+# reason. `refactor` is here on purpose: with refactor=1 the optimizer hangs on
+# ill conditioning (drtran TODO, 2026-07-23).
+_MODEL_FIELDS = ("boxlam", "d", "D", "refactor", "mu0", "estimate_mu",
+                 "ar", "ar_free", "ar_s", "ar_s_free",
+                 "ma", "ma_free", "ma_s", "ma_s_free",
+                 "ar_f", "ma_f", "interventions")
+_SERIES_FIELDS = ("data", "freq", "nobs", "start", "name")
 
 
 @dataclass(frozen=True)
 class PreSpec:
-    """Lo que drtran lee de un `.pre`: la serie y su modelo univariante estimado.
+    """What drtran reads from a `.pre`: the series and its estimated model.
 
-    Es deliberadamente un envoltorio fino sobre los objetos de fue: `ts` y `model`
-    son `fue.TimeSeries` y `fue.Model` tal cual, no copias. Reempaquetarlos
-    crearía una segunda representación que habría que mantener sincronizada.
+    It is deliberately a thin wrapper around fue's objects: `ts` and `model` are
+    a `fue.TimeSeries` and a `fue.Model` as they come, not copies. Repackaging
+    them would create a second representation to keep in sync.
     """
 
     ts: object            # fue.TimeSeries
@@ -68,42 +68,42 @@ class PreSpec:
 
 
 def load_pre(path):
-    """Lee un `.pre` (o `.inp`) de fue y valida que sirve para la conjunta.
+    """Read a fue `.pre` (or `.inp`) and check that it serves the joint fit.
 
-    Devuelve un `PreSpec`. Lanza `ValueError` si el fichero no trae algún campo
-    que la estimación conjunta necesita, y avisa si `refactor` es 1, que es la
-    escala con la que el optimizador se degrada.
+    Returns a `PreSpec`. Raises `ValueError` if the file is missing a field the
+    joint estimation needs, and warns if `refactor` is 1, which is the scale at
+    which the optimizer degrades.
     """
     import fue
 
     ts, model = fue.load(str(path))
 
-    faltan = [c for c in _CAMPOS_MODELO if not hasattr(model, c)]
-    faltan += [f"series.{c}" for c in _CAMPOS_SERIE if not hasattr(ts, c)]
-    if faltan:
+    missing = [c for c in _MODEL_FIELDS if not hasattr(model, c)]
+    missing += [f"series.{c}" for c in _SERIES_FIELDS if not hasattr(ts, c)]
+    if missing:
         raise ValueError(
-            f"{path}: el modelo leído no expone {faltan}. drtran necesita esos "
-            "campos para construir el cast; sin ellos la estimación conjunta no "
-            "puede homologar con fue.")
+            f"{path}: the model read does not expose {missing}. drtran needs "
+            "those fields to build the cast; without them the joint estimation "
+            "cannot homologate with fue.")
     return PreSpec(ts=ts, model=model, path=str(path))
 
 
-def check_scale(spec, minimo=10.0):
-    """Devuelve un aviso si la escala del `.pre` es la que degrada al optimizador.
+def check_scale(spec, minimum=10.0):
+    """Return a warning if the `.pre`'s scale is the one that degrades the fit.
 
-    Mauricio recomienda reescalar siempre (`refactor=100`) porque el optimizador
-    trabaja mejor. Medido en drtran sobre el C: el mismo modelo y los mismos datos
-    con `refactor=1` (Δlog ~0.002) cuelgan >2 min sin converger, y con
-    `refactor=100` (Δlog ~0.2) convergen en 23 iteraciones y 1 segundo. La causa
-    es el paso de diferencias finitas de `cdgrad`, ~6e-6 absoluto: a escala cruda
-    la relación señal/paso es pésima.
+    Mauricio recommends always rescaling (`refactor=100`) because the optimizer
+    works better. Measured in drtran against the C: the same model on the same
+    data with `refactor=1` (Delta-log ~0.002) hangs for over 2 minutes without
+    converging, and with `refactor=100` (Delta-log ~0.2) converges in 23
+    iterations and one second. The cause is `cdgrad`'s finite-difference step,
+    ~6e-6 absolute: at raw scale the signal-to-step ratio is terrible.
 
-    Devuelve None si no hay problema, o el texto del aviso.
+    Returns None if there is no problem, or the text of the warning.
     """
     r = float(getattr(spec.model, "refactor", 1.0) or 1.0)
-    if r < minimo:
-        return (f"{spec.name}: refactor={r:g}. A esta escala el gradiente por "
-                f"diferencias finitas (paso ~6e-6) tiene mala relación "
-                f"señal/paso y el optimizador puede no converger. Regenera el "
-                f".pre con refactor=100.")
+    if r < minimum:
+        return (f"{spec.name}: refactor={r:g}. At this scale the "
+                f"finite-difference gradient (step ~6e-6) has a poor "
+                f"signal-to-step ratio and the optimizer may not converge. "
+                f"Regenerate the .pre with refactor=100.")
     return None

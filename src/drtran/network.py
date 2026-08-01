@@ -1,31 +1,32 @@
-"""La RED de transferencias: el `.dag` y su validación.
+"""The transfer NETWORK: the `.dag` file and its validation.
 
-Puerto de `read_network` (`drtran.c`). Un enlace bivariante Y ← X es el caso de
-una serie; la red es lo general: **una serie puede recibir transferencias y ser a
-la vez entrada de otra**, que es lo que son de verdad los sistemas de la escuela
-(m6-1 de Mauricio: EC → EU → EI → EP, más EC → EP).
+Port of `read_network` (`drtran.c`). A bivariate link Y <- X is the one-series
+case; the network is the general one: **a series may receive transfers and be an
+input to another at the same time**, which is what the school's systems really
+are (Mauricio's m6-1: EC -> EU -> EI -> EP, plus EC -> EP).
 
-El fichero, una línea por enlace y `#` para comentarios::
+The file, one line per link and `#` for comments::
 
-    # salida  <-  entrada    b  r  s
+    # output  <-  input    b  r  s
     EP <- EI   1 0 1
     EP <- EC   1 0 2
     EI <- EU   1 0 3
     EU <- EC   2 0 1
 
-Las series van por su NOMBRE (el del `.pre`, tal como lo devuelve `load_pre`), no
-por posición: un `.dag` no debe depender del orden de la línea de órdenes. Las
-covarianzas contemporáneas NO viven aquí — son parámetros, y se liberan en el
-`.cns` (`q[5,2] = free`). Separar las dos cosas es deliberado: el DAG dice quién
-mueve a quién con retardo, y Σ dice qué se mueve junto en el mismo instante.
+Series go by NAME (the one in the `.pre`, as `load_pre` returns it), not by
+position: a `.dag` must not depend on the order of the command line.
+Contemporaneous covariances do NOT live here — they are parameters, and they are
+freed in the `.cns` (`q[5,2] = free`). Keeping the two apart is deliberate: the
+DAG says who moves whom with a delay, and Sigma says what moves together within
+the same instant.
 
-Por qué se rechaza un ciclo
----------------------------
-El cast empotrado multiplica la fila de cada salida por los denominadores de sus
-enlaces entrantes y ordena las series topológicamente; con un ciclo no hay orden
-topológico y el sistema deja de ser un DAG recursivo: sería un modelo de
-ecuaciones simultáneas, que no es lo que este cast representa. El C lo asume; aquí
-se comprueba y se dice cuál es el ciclo.
+Why a cycle is rejected
+-----------------------
+The embedded cast multiplies each output's row by the denominators of its
+incoming links and orders the series topologically; with a cycle there is no
+topological order and the system stops being a recursive DAG: it would be a
+simultaneous-equations model, which is not what this cast represents. The C
+assumes it; here it is checked, and the cycle itself is reported.
 """
 
 from __future__ import annotations
@@ -33,99 +34,99 @@ from __future__ import annotations
 from .cast import Link
 
 
-def _indice_serie(nombre, names):
-    """Índice 0-based de una serie por nombre, o por posición 1-based si es un número."""
-    nombre = nombre.strip()
-    if nombre in names:
-        return names.index(nombre)
-    if nombre.isdigit():
-        i = int(nombre) - 1
+def _series_index(name, names):
+    """0-based index of a series by name, or by 1-based position if it is a number."""
+    name = name.strip()
+    if name in names:
+        return names.index(name)
+    if name.isdigit():
+        i = int(name) - 1
         if 0 <= i < len(names):
             return i
     return -1
 
 
 def find_cycle(links, m):
-    """Un ciclo del grafo de enlaces como lista de índices, o `None` si es un DAG.
+    """A cycle of the link graph as a list of indices, or `None` if it is a DAG.
 
-    Se devuelve el ciclo, no un booleano: un mensaje que dice «hay un ciclo» sin
-    decir cuál obliga al usuario a buscarlo a mano.
+    The cycle is returned, not a boolean: a message that says "there is a cycle"
+    without saying which one leaves the user to find it by hand.
     """
-    sucesores = {i: [] for i in range(m)}
+    successors = {i: [] for i in range(m)}
     for l in links:
-        sucesores[l.inp].append(l.out)          # la entrada precede a la salida
+        successors[l.inp].append(l.out)          # the input precedes the output
 
-    estado = {}                                  # 0 = en curso, 1 = cerrado
-    camino = []
+    state = {}                                   # 0 = in progress, 1 = closed
+    path = []
 
-    def visita(u):
-        estado[u] = 0
-        camino.append(u)
-        for v in sucesores[u]:
-            if estado.get(v) == 0:               # arista hacia atrás: ciclo
-                return camino[camino.index(v):] + [v]
-            if v not in estado:
-                c = visita(v)
+    def visit(u):
+        state[u] = 0
+        path.append(u)
+        for v in successors[u]:
+            if state.get(v) == 0:                # back edge: a cycle
+                return path[path.index(v):] + [v]
+            if v not in state:
+                c = visit(v)
                 if c:
                     return c
-        camino.pop()
-        estado[u] = 1
+        path.pop()
+        state[u] = 1
         return None
 
     for i in range(m):
-        if i not in estado:
-            c = visita(i)
+        if i not in state:
+            c = visit(i)
             if c:
                 return c
     return None
 
 
 def check_acyclic(links, m, names=None):
-    """Levanta `ValueError` si los enlaces forman un ciclo."""
+    """Raise `ValueError` if the links form a cycle."""
     c = find_cycle(links, m)
     if c is None:
         return
-    etiqueta = (lambda i: names[i]) if names else str
-    raise ValueError("la red tiene un ciclo, y un DAG no lo admite: "
-                     + " → ".join(etiqueta(i) for i in c))
+    label = (lambda i: names[i]) if names else str
+    raise ValueError("the network has a CYCLE, and a DAG does not admit one: "
+                     + " -> ".join(label(i) for i in c))
 
 
 def read_dag(path, names):
-    """Lee el fichero de red y devuelve la lista de `Link`. Puerto de `read_network`.
+    """Read the network file and return the list of `Link`. Port of `read_network`.
 
-    `names` son los nombres de las series **en el orden en que se pasaron al
-    cast** (`cast_spec.names`). Se valida que el grafo sea acíclico.
+    `names` are the series names **in the order they were passed to the cast**
+    (`cast_spec.names`). The graph is checked to be acyclic.
     """
     names = list(names)
     links = []
     with open(path) as f:
-        for nlin, linea in enumerate(f, 1):
-            linea = linea.split("#", 1)[0].strip()
-            if not linea:
+        for nline, line in enumerate(f, 1):
+            line = line.split("#", 1)[0].strip()
+            if not line:
                 continue
-            campos = linea.split()
-            if len(campos) != 6:
+            fields = line.split()
+            if len(fields) != 6:
                 raise ValueError(
-                    f"{path}:{nlin}: se esperaba 'SALIDA <- ENTRADA b r s': {linea!r}")
-            lhs, flecha, rhs, b, r, s = campos
-            if flecha != "<-":
-                raise ValueError(f"{path}:{nlin}: se esperaba '<-', encontré {flecha!r}")
-            io, ii = _indice_serie(lhs, names), _indice_serie(rhs, names)
+                    f"{path}:{nline}: expected 'OUTPUT <- INPUT b r s': {line!r}")
+            lhs, arrow, rhs, b, r, s = fields
+            if arrow != "<-":
+                raise ValueError(f"{path}:{nline}: expected '<-', found {arrow!r}")
+            io, ii = _series_index(lhs, names), _series_index(rhs, names)
             if io < 0 or ii < 0:
-                desconocida = lhs if io < 0 else rhs
+                unknown = lhs if io < 0 else rhs
                 raise ValueError(
-                    f"{path}:{nlin}: serie desconocida {desconocida!r}; "
-                    f"las cargadas son {names}")
+                    f"{path}:{nline}: unknown series {unknown!r}; "
+                    f"the ones loaded are {names}")
             if io == ii:
-                raise ValueError(f"{path}:{nlin}: una serie no puede alimentarse "
-                                 f"a sí misma ({lhs})")
+                raise ValueError(f"{path}:{nline}: a series cannot feed itself "
+                                 f"({lhs})")
             try:
                 b, r, s = int(b), int(r), int(s)
             except ValueError:
-                raise ValueError(f"{path}:{nlin}: b, r, s deben ser enteros: "
-                                 f"{linea!r}") from None
+                raise ValueError(f"{path}:{nline}: b, r, s must be integers: "
+                                 f"{line!r}") from None
             if b < 0 or r < 0 or s < 0:
-                raise ValueError(f"{path}:{nlin}: b, r, s no pueden ser negativos")
+                raise ValueError(f"{path}:{nline}: b, r, s cannot be negative")
             links.append(Link(out=io, inp=ii, b=b, r=r, s=s))
 
     check_acyclic(links, len(names), names)
@@ -133,8 +134,8 @@ def read_dag(path, names):
 
 
 def write_dag(path, links, names):
-    """Escribe un `.dag` legible. La contraparte de `read_dag`, para el `-g` del C."""
+    """Write a readable `.dag`. The counterpart of `read_dag`, for the C's `-g`."""
     with open(path, "w") as f:
-        f.write("# salida  <-  entrada    b  r  s\n")
+        f.write("# output  <-  input    b  r  s\n")
         for l in links:
             f.write(f"{names[l.out]} <- {names[l.inp]}   {l.b} {l.r} {l.s}\n")

@@ -127,7 +127,7 @@ def forecast_mean(phi, theta, mu, w, a, L, origin=None):
     if origin is None:
         origin = n
     if not 1 <= origin <= n:
-        raise ValueError(f"origen fuera de la muestra: {origin} de {n}")
+        raise ValueError(f"origin outside the sample: {origin} of {n}")
 
     f = np.zeros((L, m))
     for l in range(1, L + 1):
@@ -161,13 +161,13 @@ class Forecast:
     def L(self):
         return self.f.shape[0]
 
-    def se(self, which="level", serie=0):
+    def se(self, which="level", series=0):
         """Standard errors per horizon, `sqrt` of the diagonal."""
         v = {"w": self.var_w, "level": self.var_level,
              "diff": self.var_diff, "annual": self.var_annual}[which]
         if v is None:
-            raise ValueError(f"no se calculó la varianza '{which}'")
-        return np.array([math.sqrt(max(v[l][serie, serie], 0.0))
+            raise ValueError(f"the '{which}' variance was not computed")
+        return np.array([math.sqrt(max(v[l][series, series], 0.0))
                          for l in range(1, self.L + 1)])
 
     def __repr__(self):                                    # pragma: no cover
@@ -187,7 +187,7 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
         cast_spec = x.cast_spec
         x = x.x
     if cast_spec is None:
-        raise TypeError("hace falta el cast_spec (o pasa un Fit)")
+        raise TypeError("the cast_spec is required (or pass a Fit)")
 
     from .cast import cast_diagonal
     from .embed import cast_embedded
@@ -195,22 +195,22 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
     hacer = cast_embedded if embed else cast_diagonal
     phi, theta, mu, w, sigma, ifault = hacer(np.asarray(x, float), cast_spec)
     if ifault:
-        raise RuntimeError(f"el cast falló: ifault={ifault}")
+        raise RuntimeError(f"the cast failed: ifault={ifault}")
 
     a, ifa = residuals(x, cast_spec, embed=embed, xitol=xitol)
     if ifa:
-        raise RuntimeError(f"no se pueden obtener los residuos: ifault={ifa}")
+        raise RuntimeError(f"cannot obtain the residuals: ifault={ifa}")
 
-    # LA ESCALA. El cast devuelve Q, no Sigma: la verosimilitud es CONCENTRADA
-    # y sigma2 sale aparte (drvmlest.c:est). Sin multiplicar por el, las
-    # varianzas salen con la forma correcta y la magnitud equivocada -- que es
-    # exactamente el error que se comete al leer Q como si fuera Sigma.
+    # THE SCALE. The cast returns Q, not Sigma: the likelihood is CONCENTRATED
+    # and sigma2 comes out separately (drvmlest.c:est). Without multiplying by
+    # it, the variances come out with the right shape and the wrong magnitude --
+    # which is exactly the error of reading Q as if it were Sigma.
     from drvarma._engine import elf_c
     n_, m_ = w.shape
     _lg, f1, _f2, _a2, ifa2 = elf_c(m_, n_, phi.shape[0], theta.shape[0],
                                     mu, phi, theta, sigma, w, 1.0, xitol, False)
     if ifa2 or not f1 > 0:
-        raise RuntimeError(f"no se puede concentrar sigma2: ifault={ifa2}")
+        raise RuntimeError(f"cannot concentrate sigma2: ifault={ifa2}")
     sigma2 = float(f1) / (n_ * m_)
     sigma = np.asarray(sigma, float) * sigma2
 
@@ -218,8 +218,8 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
     psi = psi_weights(phi, theta, L)
     var_w = error_variance(psi, sigma, L)
 
-    # El nivel: se deshace la diferenciación de CADA serie. d, D y s salen del
-    # `.pre`, no del cast — el cast trabaja siempre sobre la serie estacionaria.
+    # The level: EACH series' differencing is undone. d, D and s come from the
+    # `.pre`, not from the cast — the cast always works on the stationary series.
     m0 = cast_spec.series[0].spec.model
     d = int(getattr(m0, "d", 0))
     D = int(getattr(m0, "D", 0))
@@ -247,17 +247,17 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
                     x=np.asarray(x, float))
 
 
-def report_forecast(fc, serie=0, which="level"):
+def report_forecast(fc, series=0, which="level"):
     """The forecast table for one series, with its 95 % band."""
-    nombre = fc.names[serie] if fc.names else f"serie {serie + 1}"
-    se = fc.se(which, serie)
+    name = fc.names[series] if fc.names else f"series {series + 1}"
+    se = fc.se(which, series)
     L = ["=" * 61,
-         f"  FORECAST — {nombre}  ({which})",
+         f"  FORECAST — {name}  ({which})",
          "=" * 61,
          "   h    forecast      s.e.        95% interval",
          "  " + "-" * 55]
     for l in range(fc.L):
-        v, e = fc.f[l, serie], se[l]
+        v, e = fc.f[l, series], se[l]
         L.append(f"  {l + 1:2d}  {v:11.4f}  {e:9.4f}   "
                  f"[{v - 1.96 * e:10.4f}, {v + 1.96 * e:10.4f}]")
     L.append("=" * 61)
@@ -265,7 +265,7 @@ def report_forecast(fc, serie=0, which="level"):
 
 
 # ── back to the level ────────────────────────────────────────────────────────
-def _fitted_deterministics(fc, cast_spec, serie):
+def _fitted_deterministics(fc, cast_spec, series):
     """The deterministic coefficients **as estimated by the cast**, not as seeded.
 
     This is the one thing that cannot be taken from the `.pre` file. The cast
@@ -284,11 +284,11 @@ def _fitted_deterministics(fc, cast_spec, serie):
     """
     from .estimate import unpack
 
-    model = cast_spec.series[serie].spec.model
+    model = cast_spec.series[series].spec.model
     if getattr(fc, "x", None) is None:
-        raise ValueError("la previsión no trae el vector estimado: no se pueden "
-                         "recuperar los deterministas ajustados")
-    xs = unpack(np.asarray(fc.x, float), cast_spec)["series"][serie]
+        raise ValueError("the forecast does not carry the estimated vector: the "
+                         "fitted deterministics cannot be recovered")
+    xs = unpack(np.asarray(fc.x, float), cast_spec)["series"][series]
 
     itv_omega = [list(i.omega) for i in model.interventions]
     itv_delta = [list(i.delta) for i in model.interventions]
@@ -305,7 +305,7 @@ def _fitted_deterministics(fc, cast_spec, serie):
     return itv_omega, itv_delta
 
 
-def to_level(fc, cast_spec, serie=0, origin=None):
+def to_level(fc, cast_spec, series=0, origin=None):
     """Turn the forecast of `w` into a forecast of the LEVEL, in original units.
 
     The cast models `w`, which is the series after Box-Cox, differencing and
@@ -329,32 +329,32 @@ def to_level(fc, cast_spec, serie=0, origin=None):
     """
     from fue.forecast import _build_xi, _inv_boxcox, _nonsop_coefs
 
-    sc = cast_spec.series[serie]
+    sc = cast_spec.series[series]
     model = sc.spec.model
     ts = model.series
     nobs = ts.nobs
     freq = ts.freq if ts.freq > 0 else 1
     L = fc.L
 
-    itv_omega, itv_delta = _fitted_deterministics(fc, cast_spec, serie)
+    itv_omega, itv_delta = _fitted_deterministics(fc, cast_spec, series)
     xi = _build_xi(model, nobs, freq, L, itv_omega, itv_delta)   # 1-indexado
 
     from fue.cast_us import _boxcox
     z = np.array([_boxcox(v, model.boxlam, model.refactor) for v in ts.data])
 
-    # u = z - xi, la parte estocastica del NIVEL, sobre la que actua delta(B)
+    # u = z - xi, the stochastic part of the LEVEL, which delta(B) acts on
     u = np.zeros(nobs + L)
     u[:nobs] = z - xi[1:nobs + 1]
 
-    # delta(B): sus coeficientes vienen de fue, que ya trata los factores
-    # estacionales individuales (ifadf). La convencion es la de `rnsop`:
+    # delta(B): its coefficients come from fue, which already handles the
+    # individual seasonal factors (ifadf). The convention is `rnsop`'s:
     # u_t = w_t + sum_k r_k u_(t-k).
     r = np.asarray(_nonsop_coefs(model.d, model.D, freq,
                                  ifadf=(model.ifadf or None)), float)
     o = nobs if origin is None else origin
 
     for l in range(1, L + 1):
-        acc = fc.f[l - 1, serie]
+        acc = fc.f[l - 1, series]
         for k in range(1, len(r) + 1):
             acc += r[k - 1] * u[o + l - 1 - k]
         u[o + l - 1] = acc

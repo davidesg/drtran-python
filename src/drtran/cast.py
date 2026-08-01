@@ -1,34 +1,34 @@
-"""El cast: vector de parámetros → estructura VARMA.
+"""The cast: parameter vector -> VARMA structure.
 
-Puerto de `tran_shootx.c` (`shootx`). Empieza por el caso **diagonal sin
-transferencia**, que es la puerta de entrada del diseño: con estructura diagonal
-la verosimilitud exacta se factoriza, así que la conjunta debe reproducir la SUMA
-de las univariantes de fue. Si eso no cuadra, el cast está mal — nunca `elf`.
+Port of `tran_shootx.c` (`shootx`). It starts from the **diagonal case with no
+transfer**, which is the design's gate: with a diagonal structure the exact
+likelihood factorises, so the joint fit must reproduce the SUM of fue's
+univariate ones. If that does not add up, the cast is wrong — never `elf`.
 
-Qué se replica del C y qué no
------------------------------
-Se replica la SEMÁNTICA y las CONVENCIONES, no la ingeniería:
+What is replicated from the C and what is not
+---------------------------------------------
+The SEMANTICS and the CONVENTIONS are replicated, not the engineering:
 
-* El **orden del vector de parámetros** de `shootx`: transferencias (ω, δ) por
-  enlace → ARMA por serie → deterministas → medias → covarianza. Mantenerlo no es
-  un contrato externo (el `.cns` va por nombres, no por posición), pero hace que
-  una discrepancia con el C se localice comparando posición a posición.
-* La **normalización de la covarianza**: `Q[1][1] = 1` y `var_i = exp(x_i)` para
-  i>1, con la escala concentrada en `sigma2`. Es una decisión deliberada, no un
-  accidente: la verosimilitud concentrada de Mauricio (1995, ec. 3.1) depende de Q
-  sólo a través de un producto invariante ante Q → cQ, así que dejar las m
-  varianzas libres deja una dirección plana y un hessiano singular. El legacy y
-  drvarma las dejan libres; aquí no, a propósito.
+* `shootx`'s **parameter vector order**: transfers (omega, delta) per link ->
+  ARMA per series -> deterministics -> means -> covariance. Keeping it is not an
+  external contract (the `.cns` goes by name, not by position), but it makes a
+  discrepancy with the C locatable by comparing position against position.
+* The **covariance normalisation**: `Q[1][1] = 1` and `var_i = exp(x_i)` for
+  i>1, with the scale concentrated into `sigma2`. That is a deliberate decision,
+  not an accident: Mauricio's concentrated likelihood (1995, eq. 3.1) depends on
+  Q only through a product invariant under Q -> cQ, so leaving all m variances
+  free leaves a flat direction and a singular Hessian. The legacy code and
+  drvarma leave them free; here they are not, on purpose.
 
-NO se replica la gestión de memoria, los tensores, los globals ni el 1-indexado.
+Memory management, tensors, globals and 1-based indexing are NOT replicated.
 
-Lo que NO se reimplementa
+What is NOT reimplemented
 -------------------------
-La serie estacionaria. `fue.cast_us.cast_us_py()` ya devuelve `w` con Box-Cox,
-diferencias y deterministas restados — es lo que hace `build_stationary_series`
-en el C. drtran usa el cast univariante de fue por serie y sólo **ensambla** el
-VARMA. Reimplementarlo crearía una segunda fuente de verdad para la parte más
-delicada del pipeline.
+The stationary series. `fue.cast_us.cast_us_py()` already returns `w` with
+Box-Cox, differencing and the deterministics subtracted — which is what
+`build_stationary_series` does in the C. drtran uses fue's univariate cast per
+series and only **assembles** the VARMA. Reimplementing it would create a second
+source of truth for the most delicate part of the pipeline.
 """
 
 from __future__ import annotations
@@ -41,11 +41,11 @@ import numpy as np
 
 @dataclass(frozen=True)
 class Link:
-    """Un enlace de transferencia: `out` recibe de `inp` con ω(B)/δ(B)·B^b.
+    """A transfer link: `out` receives from `inp` through omega(B)/delta(B)*B^b.
 
-    Copia de `struct Tlink` del C. Índices de serie 0-based (el C los usa
-    1-based); `s` es el grado del numerador y `r` el del denominador, así que el
-    enlace aporta (s+1) + r parámetros libres.
+    A copy of the C's `struct Tlink`. Series indices are 0-based (the C uses
+    1-based); `s` is the numerator's degree and `r` the denominator's, so the
+    link contributes (s+1) + r free parameters.
     """
 
     out: int
@@ -60,17 +60,20 @@ class Link:
 
 
 def compute_irf(omega, delta, b, length):
-    """Pesos ν del filtro racional ω(B)/δ(B) con retardo b. Puerto de `compute_irf`.
+    """Weights nu of the rational filter omega(B)/delta(B) with delay b.
 
-        ν[t] = ω[t-1-b] + Σ_{j=1..r} δ[j]·ν[t-j]
+    Port of `compute_irf`::
 
-    `ν[j]` pesa la entrada en el retardo j−1 (1-based en el C; aquí `nu[0]` es el
-    peso del retardo 0).
+        nu[t] = omega[t-1-b] + SUM_{j=1..r} delta[j]*nu[t-j]
 
-    **Convención de signo de Box-Jenkins**, la misma que `calcnu` de fue: el
-    numerador es ω(B) = ω₀ − ω₁B − ω₂B² − …, o sea **el término líder suma y los
-    demás restan**. Portar esto al revés es el tipo de error de un carácter que ya
-    costó un bug en el propio C (el signo de Nyquist en `CalcNonsOp`).
+    `nu[j]` weights the input at lag j-1 (1-based in the C; here `nu[0]` is the
+    weight of lag 0).
+
+    **Box-Jenkins sign convention**, the same as fue's `calcnu`: the numerator is
+    omega(B) = omega_0 - omega_1 B - omega_2 B^2 - ..., that is, **the leading
+    term adds and the rest subtract**. Porting this the other way round is the
+    kind of one-character error that already cost a bug in the C itself (the
+    Nyquist sign in `CalcNonsOp`).
     """
     omega = np.asarray(omega, float)
     delta = np.asarray(delta, float)
@@ -91,26 +94,26 @@ def compute_irf(omega, delta, b, length):
 
 @dataclass
 class SeriesCast:
-    """El cast univariante de una serie, precomputado (lo fijo)."""
+    """One series' univariate cast, precomputed (the fixed part)."""
 
     spec: object            # PreSpec
     est_spec: object        # fue.cast_us.EstSpec
-    npar: int               # nº de parámetros libres que consume del vector x
+    npar: int               # number of free parameters it takes from x
     name: str
 
 
 @dataclass
 class CastSpec:
-    """Lo fijo del problema, precomputado una vez antes de optimizar.
+    """The fixed part of the problem, precomputed once before optimising.
 
-    Equivale a `populate_globals` del C, pero sin globals: todo el estado vive
-    aquí y se pasa explícitamente.
+    The equivalent of the C's `populate_globals`, but without globals: all the
+    state lives here and is passed explicitly.
     """
 
     series: list = field(default_factory=list)      # list[SeriesCast]
     links: list = field(default_factory=list)       # list[Link]
     m: int = 0
-    n_stat: int = 0                                  # longitud común de las w
+    n_stat: int = 0                                  # common length of the w's
     npar: int = 0
 
     @property
@@ -122,12 +125,12 @@ class CastSpec:
         return sum(l.npar for l in self.links)
 
 
-def _npar_univariante(model):
-    """Cuántos parámetros libres consume el cast univariante de fue.
+def _npar_univariate(model):
+    """How many free parameters fue's univariate cast consumes.
 
-    Se toma de la longitud del vector inicial de fue en vez de recontarlo aquí:
-    el recuento y el orden son la misma cosa (`count_npar_build_par` en el C), y
-    mantener una segunda copia del recuento es justo lo que acaba divergiendo.
+    Taken from the length of fue's initial vector rather than recounted here:
+    the count and the order are the same thing (`count_npar_build_par` in the C),
+    and keeping a second copy of the count is exactly what ends up diverging.
     """
     from fue.cast_us import _build_initial_x
 
@@ -135,58 +138,56 @@ def _npar_univariante(model):
 
 
 def build_cast_spec(specs, links=None):
-    """Precomputa el cast a partir de los `.pre` leídos (uno por serie).
+    """Precompute the cast from the `.pre` files read (one per series).
 
-    `specs[0]` es la SALIDA (la serie 1 del VARMA, la que recibe las
-    transferencias por defecto); el resto son las entradas. `links` es la lista de
-    enlaces; sin enlaces el modelo es el diagonal, que es la puerta de validación.
+    `specs[0]` is the OUTPUT (series 1 of the VARMA, the one that receives the
+    transfers by default); the rest are the inputs. `links` is the list of links;
+    with no links the model is the diagonal one, which is the validation gate.
     """
     from fue.cast_us import build_est_spec
 
     if len(specs) < 2:
-        raise ValueError("la conjunta necesita al menos 2 series")
+        raise ValueError("the joint fit needs at least 2 series")
 
     cs = CastSpec(links=list(links or []))
     for s in specs:
         m = s.model
         cs.series.append(SeriesCast(spec=s, est_spec=build_est_spec(m),
-                                    npar=_npar_univariante(m), name=s.name))
+                                    npar=_npar_univariate(m), name=s.name))
     cs.m = len(cs.series)
     for l in cs.links:
         if not (0 <= l.out < cs.m and 0 <= l.inp < cs.m):
-            raise ValueError(f"enlace fuera de rango: {l}")
+            raise ValueError(f"link out of range: {l}")
         if l.out == l.inp:
-            raise ValueError(f"un enlace no puede ir de una serie a sí misma: {l}")
-    # Orden del vector, siguiendo a shootx: transferencias → univariantes →
-    # covarianza. Covarianza: var[0] se fija en 1 (la escala la concentra
-    # sigma2), luego log(var_i/var_1) para i>0. Las covarianzas fuera de la
-    # diagonal nacen FIJAS en cero: sólo se liberan si el .cns lo pide (todavía
-    # no implementado).
+            raise ValueError(f"a link cannot go from a series to itself: {l}")
+    # Vector order, following shootx: transfers -> univariate -> covariance.
+    # Covariance: var[0] is fixed at 1 (the scale is concentrated into sigma2),
+    # then log(var_i/var_1) for i>0. The off-diagonal covariances start out FIXED
+    # at zero: they are only freed if the .cns asks for it.
     cs.npar = cs.npar_links + sum(s.npar for s in cs.series) + (cs.m - 1)
     return cs
 
 
 def build_sigma(x, idx, m):
-    """Bloque de covarianza del vector: `(Q, idx, ifault)`.
+    """The vector's covariance block: `(Q, idx, ifault)`.
 
-    Q lleva las RAZONES de varianza, no las varianzas: Q[0][0] = 1 y
-    Q[i][i] = exp(x), con la escala concentrada en sigma2 (ver la nota de
-    cabecera). Las covarianzas fuera de la diagonal van **crudas**, en el orden
-    del triángulo inferior por filas — `q[2,1]`, `q[3,1]`, `q[3,2]`, … — que es
-    el de la tabla de slots.
+    Q carries the variance RATIOS, not the variances: Q[0][0] = 1 and
+    Q[i][i] = exp(x), with the scale concentrated into sigma2 (see the header
+    note). The off-diagonal covariances go in **raw**, in lower-triangle order by
+    rows — `q[2,1]`, `q[3,1]`, `q[3,2]`, … — which is the slot table's.
 
-    Sólo se leen si el vector las trae: sin tabla de slots el vector termina en
-    las razones y el modelo es de covarianza diagonal, que es el caso por
-    defecto. Liberar una covarianza es una decisión del analista (`q[5,2] = free`
-    en el `.cns`), no algo que se active en bloque.
+    They are only read if the vector carries them: without a slot table the
+    vector ends at the ratios and the model has a diagonal covariance, which is
+    the default case. Freeing a covariance is the analyst's decision
+    (`q[5,2] = free` in the `.cns`), not something switched on in bulk.
 
-    **Rechazo si Q no es definida positiva.** Las covarianzas crudas no están
-    reparametrizadas, así que el optimizador puede pisar la región donde Q deja
-    de serlo; allí la verosimilitud no existe. Se devuelve `ifault` y el objetivo
-    responde 1.0, que es la estrategia del propio Mauricio (1995 §3): el punto no
-    mejora sobre el arranque y la búsqueda se aleja de él. Es lo mismo que hace el
-    C, y en los casos reales esa frontera nunca ha mordido — la correlación más
-    fuerte de m6 (−0.41) converge sin acercarse.
+    **Rejected if Q is not positive definite.** The raw covariances are not
+    reparametrised, so the optimizer may step into the region where Q stops being
+    so; there the likelihood does not exist. `ifault` is returned and the
+    objective answers 1.0, which is Mauricio's own strategy (1995 §3): the point
+    does not improve on the start and the search moves away from it. It is what
+    the C does, and in real cases that boundary has never bitten — m6's strongest
+    correlation (-0.41) converges without going near it.
     """
     var = np.ones(m)
     for i in range(1, m):
@@ -207,18 +208,18 @@ def build_sigma(x, idx, m):
 
 
 def cast_diagonal(x, cast_spec):
-    """Vector de parámetros → estructura VARMA diagonal (sin transferencia).
+    """Parameter vector -> diagonal VARMA structure (transfer by SUBTRACTION).
 
-    Orden de `x`, siguiendo a `shootx` (sin el bloque de transferencias, que aquí
-    está vacío):
+    Order of `x`, following `shootx`:
 
-        1. ARMA + deterministas + media de cada serie (el cast univariante de fue,
-           en el orden de `count_npar_build_par`)
-        2. covarianza: log(var_i / var_1) para i = 2..m
+        1. transfers: omega[0..s] and delta[1..r] of each link
+        2. ARMA + deterministics + mean of each series (fue's univariate cast, in
+           `count_npar_build_par` order)
+        3. covariance: log(var_i / var_1) for i = 2..m
 
-    Devuelve `(phi, theta, mu, w, sigma, ifault)` listos para `elf_varma`:
-    `phi` (p,m,m) y `theta` (q,m,m) diagonales por bloques, `w` (n,m) con las
-    series estacionarias alineadas por el final, y `sigma` diagonal.
+    Returns `(phi, theta, mu, w, sigma, ifault)` ready for `elf_varma`: `phi`
+    (p,m,m) and `theta` (q,m,m) block-diagonal, `w` (n,m) with the stationary
+    series aligned at the end, and `sigma` diagonal.
     """
     from fue.cast_us import cast_us_py
 
@@ -226,7 +227,7 @@ def cast_diagonal(x, cast_spec):
     m = cast_spec.m
     idx = 0
 
-    # --- 1. Transferencias: ω[0..s] y δ[1..r] de cada enlace ---------------
+    # --- 1. Transfers: omega[0..s] and delta[1..r] of each link -------------
     om, de = [], []
     for l in cast_spec.links:
         om.append(x[idx:idx + l.s + 1]); idx += l.s + 1
@@ -248,23 +249,24 @@ def cast_diagonal(x, cast_spec):
     if ifa_q:
         return None, None, None, None, None, int(ifa_q)
 
-    # Alineación: si las series tienen distinto d/D sus w tienen distinta
-    # longitud. Se alinean por el FINAL (la última observación es la misma fecha)
-    # y se recorta a la más corta, que es lo que hace build_stationary_series.
+    # Alignment: if the series have different d/D their w's have different
+    # lengths. They are aligned at the END (the last observation is the same
+    # date) and trimmed to the shortest, which is what build_stationary_series
+    # does.
     n = min(len(w) for w in ws)
     W = np.column_stack([w[len(w) - n:] for w in ws])
 
-    # --- Transferencias: cada enlace RESTA a su salida ---------------------
-    # tr[o][t] = Σ_k ν_j[k]·w_in[t−k+1]; la serie 1 del VARMA pasa a ser el
-    # RUIDO N_t = w_Y − Σ_j transferencia_j. Con ω = 0 no se resta nada y el
-    # modelo se parte en univariantes independientes: la prueba del puente.
+    # --- Transfers: each link SUBTRACTS from its output ---------------------
+    # tr[o][t] = SUM_k nu_j[k]*w_in[t-k+1]; series 1 of the VARMA becomes the
+    # NOISE N_t = w_Y - SUM_j transfer_j. With omega = 0 nothing is subtracted
+    # and the model splits into independent univariate ones: the bridge's test.
     if cast_spec.links:
         tr = np.zeros_like(W)
         for l, o_j, d_j in zip(cast_spec.links, om, de):
             nu = compute_irf(o_j, d_j, l.b, n)
             xin = W[:, l.inp]
             acc = np.zeros(n)
-            for t in range(n):                      # Σ_{k=0..t} ν[k]·x[t−k]
+            for t in range(n):                      # SUM_{k=0..t} nu[k]*x[t-k]
                 acc[t] = float(np.dot(nu[:t + 1], xin[t::-1]))
             tr[:, l.out] += acc
         W = W - tr
@@ -279,8 +281,8 @@ def cast_diagonal(x, cast_spec):
         for k in range(qs[i]):
             THETA[k, i, i] = thetas[i][k]
 
-    # Restricción del C (shootx [12]): un AR(1) pegado al círculo unidad se
-    # rechaza antes de llamar a elf, en vez de dejar que la verosimilitud explote.
+    # The C's constraint (shootx [12]): an AR(1) pinned to the unit circle is
+    # rejected before calling elf, rather than letting the likelihood blow up.
     for i in range(m):
         if ps[i] >= 1 and abs(phis[i][0]) >= 0.999:
             return None, None, None, None, None, 1
@@ -289,19 +291,20 @@ def cast_diagonal(x, cast_spec):
 
 
 def loglik_diagonal(x, cast_spec, xitol=-1e-3):
-    """Log-verosimilitud EXACTA CONCENTRADA de la conjunta diagonal.
+    """EXACT CONCENTRATED log-likelihood of the diagonal joint model.
 
-    `est()` del C no estima la escala: descompone Σ = sigma2·Q con Q[1][1]=1 y
-    **concentra** sigma2, que sale analíticamente de f1. Por eso `Q` sólo lleva
-    las RAZONES de varianza. Evaluar `elf_varma` con un Σ absoluto en su lugar da
-    una verosimilitud distinta — es el error de pasar la identidad como Σ cuando
-    las varianzas reales difieren en un factor 1000.
+    The C's `est()` does not estimate the scale: it decomposes Sigma = sigma2*Q
+    with Q[1][1]=1 and **concentrates** sigma2, which comes out analytically from
+    f1. That is why `Q` only carries the variance RATIOS. Evaluating `elf_varma`
+    with an absolute Sigma instead gives a different likelihood — it is the error
+    of passing the identity as Sigma when the real variances differ by a factor
+    of 1000.
 
-    Se usa `_elf_f1f2` de drvarma (el mismo que usa su estimador) y su fórmula de
-    la concentrada, sin tocar `elf`: cualquier discrepancia con fue es un bug de
-    este cast.
+    drvarma's `_elf_f1f2` is used (the same one its estimator uses) together with
+    its concentrated formula, without touching `elf`: any discrepancy with fue is
+    a bug of this cast.
 
-    `xitol = -1e-3` selecciona la verosimilitud **exacta**, no la aproximada.
+    `xitol = -1e-3` selects the **exact** likelihood, not the approximate one.
     """
     from drvarma.estimate_py import _elf_f1f2
 
@@ -312,20 +315,21 @@ def loglik_diagonal(x, cast_spec, xitol=-1e-3):
     f1, f2, ifa = _elf_f1f2(w, mu, phi, theta, sigma, xitol)
     if ifa or not (f1 > 0.0 and f2 > 0.0):
         return float("-inf"), int(ifa or 5)
-    # drvmlest.c:est [4] — verosimilitud concentrada
+    # drvmlest.c:est [4] — the concentrated likelihood
     ll = (-0.5 * m * n * (math.log(2.0 * math.pi) - math.log(m) - math.log(n) + 1.0)
           - 0.5 * n * (m * math.log(f1) + math.log(f2)))
     return float(ll), int(ifa)
 
 
-def _sigma2_univariante(sc, x_i, xitol=-1e-3):
-    """σ² de una serie en sus semillas, vía el mismo `elf` con m=1.
+def _sigma2_univariate(sc, x_i, xitol=-1e-3):
+    """One series' sigma2 at its seeds, through the same `elf` with m=1.
 
-    No reestima nada: evalúa la verosimilitud univariante en las semillas del
-    `.pre` y toma la varianza concentrada, σ² = f1/(n·m) con m=1.
+    Nothing is re-estimated: the univariate likelihood is evaluated at the
+    `.pre`'s seeds and the concentrated variance is taken, sigma2 = f1/(n*m) with
+    m=1.
     """
-    from fue.cast_us import cast_us_py
     from drvarma.estimate_py import _elf_f1f2
+    from fue.cast_us import cast_us_py
 
     p, q, phi, theta, mu, w, ifault = cast_us_py(x_i, sc.est_spec)
     if ifault:
@@ -341,33 +345,33 @@ def _sigma2_univariante(sc, x_i, xitol=-1e-3):
 
 
 def x0_from_pre(cast_spec):
-    """Vector inicial: las semillas del `.pre`, que son las estimaciones de fue.
+    """Initial vector: the `.pre`'s seeds, which are fue's estimates.
 
-    Es el punto de partida natural — y explica el `termcode 3` del C: en el
-    escalón diagonal estas semillas YA son el óptimo, así que la búsqueda lineal
-    no puede mejorar y para. No es un fallo.
+    It is the natural starting point — and it explains the C's `termcode 3`: on
+    the diagonal rung these seeds ALREADY are the optimum, so the line search
+    cannot improve and stops. That is not a failure.
 
-    Las RAZONES de varianza log(var_i/var_1) NO se siembran en cero: las escalas
-    de las series pueden diferir en órdenes de magnitud (en el caso canónico,
-    σ²=0.0627 frente a 68.84, razón 1098) y arrancar en 1 deja el punto inicial
-    lejísimos — logL −1371 en vez de −767. Se calculan con el mismo `elf`, m=1,
-    sobre las semillas de cada `.pre`.
+    The variance RATIOS log(var_i/var_1) are NOT seeded at zero: the series'
+    scales can differ by orders of magnitude (in the canonical case, sigma2 =
+    0.0627 against 68.84, a ratio of 1098) and starting at 1 leaves the initial
+    point very far off — logL -1371 instead of -767. They are computed with the
+    same `elf`, m=1, on each `.pre`'s seeds.
     """
     from fue.cast_us import _build_initial_x
 
-    # Transferencias en CERO: es el modelo diagonal, que ya sabemos que homologa
-    # con fue. Arrancar la red desde ahí es lo que hace la escalera — primero el
-    # diagonal, luego la dinámica que la CCF de sus residuos sugiera.
-    partes, s2 = [np.zeros(cast_spec.npar_links)], []
+    # Transfers at ZERO: that is the diagonal model, which we already know
+    # homologates with fue. Starting the network there is what the ladder does —
+    # first the diagonal, then whatever dynamics its residual CCF suggests.
+    parts, s2 = [np.zeros(cast_spec.npar_links)], []
     for sc in cast_spec.series:
         xi = np.asarray(_build_initial_x(sc.spec.model), float)
-        partes.append(xi)
-        s2.append(_sigma2_univariante(sc, xi))
+        parts.append(xi)
+        s2.append(_sigma2_univariate(sc, xi))
 
-    razones = np.zeros(cast_spec.m - 1)
+    ratios = np.zeros(cast_spec.m - 1)
     if s2[0]:
         for i in range(1, cast_spec.m):
             if s2[i]:
-                razones[i - 1] = math.log(s2[i] / s2[0])
-    partes.append(razones)
-    return np.concatenate(partes)
+                ratios[i - 1] = math.log(s2[i] / s2[0])
+    parts.append(ratios)
+    return np.concatenate(parts)

@@ -128,6 +128,17 @@ def test_estwin_is_the_same_option_as_R():
     assert code == 2 and "-estwin/-R" in err
 
 
+def test_prewhiten_only_reports_and_does_not_estimate():
+    """-p is the cheap look before committing to a model. It is also the only
+    path that reaches `identify.report`, and it broke once when that function's
+    keyword was renamed and nothing exercised it."""
+    code, out, _err = run(ES, WTI, "-p")
+    assert code == 0
+    assert "IDENTIFICATION" in out and "prewhitening" in out
+    assert "b=0" in out and "s=1" in out                 # the C's own proposal
+    assert "JOINT ESTIMATION" not in out, "-p must not estimate"
+
+
 def test_the_options_may_follow_the_files():
     """gnu_getopt, not getopt: every real invocation puts the .pre files first,
     and plain getopt would stop parsing at the first one."""
@@ -146,45 +157,45 @@ def test_missing_files_are_reported_by_name():
 def test_the_canonical_run_reproduces_the_C(tmp_path):
     """`drtran ES_CPI WTI -b 0 -r 0 -s 1 -V -f 6`, the case the whole port is
     homologated on. Every figure here is read off the C's own .out."""
-    salida = tmp_path / "canon.out"
+    outfile = tmp_path / "canon.out"
     code, out, _err = run(ES, WTI, "-b", "0", "-r", "0", "-s", "1",
-                          "-V", "-f", "6", "-o", str(salida))
+                          "-V", "-f", "6", "-o", str(outfile))
     assert code == 0
-    assert salida.exists(), "-o must write the file, not only print"
+    assert outfile.exists(), "-o must write the file, not only print"
 
-    texto = salida.read_text()
-    assert texto == out
+    text = outfile.read_text()
+    assert text == out
 
-    assert "-718.287406" in texto                       # the log-likelihood
-    assert "0.016400" in texto and "-0.010747" in texto  # omega(B)
+    assert "-718.287406" in text                       # the log-likelihood
+    assert "0.016400" in text and "-0.010747" in text  # omega(B)
 
     # the forecast table, level and s.e., as the C publishes them. Compared as
     # NUMBERS: the C rounds to two decimals and this prints four, so `in` would
     # pass on 82.01 and fail on 83.44 for no reason but the rounding.
-    bloques = texto.split("FORECAST —")
-    assert len(bloques) == 3, "one block per series"
+    blocks = text.split("FORECAST —")
+    assert len(blocks) == 3, "one block per series"
 
-    def leer(bloque, fecha):
+    def read_row(bloque, date):
         for l in bloque.splitlines():
-            if fecha in l:
+            if date in l:
                 campos = l.split()
                 return float(campos[2]), float(campos[3])
-        raise AssertionError(fecha)
+        raise AssertionError(date)
 
-    for fecha, nivel, se in [(" 1/2020", 82.01, 0.24),
+    for date, level, se in [(" 1/2020", 82.01, 0.24),
                              (" 2/2020", 82.02, 0.44),
                              (" 6/2020", 83.44, 0.95)]:
-        v, e = leer(bloques[1], fecha)                    # ES_CPI
-        assert v == pytest.approx(nivel, abs=0.005)
+        v, e = read_row(blocks[1], date)                    # ES_CPI
+        assert v == pytest.approx(level, abs=0.005)
         assert e == pytest.approx(se, abs=0.005)
 
-    for fecha, nivel, se in [(" 1/2020", 60.76, 8.29),
+    for date, level, se in [(" 1/2020", 60.76, 8.29),
                              (" 6/2020", 61.14, 27.10)]:
-        v, e = leer(bloques[2], fecha)                    # WTI, the input
-        assert v == pytest.approx(nivel, abs=0.005)
+        v, e = read_row(blocks[2], date)                    # WTI, the input
+        assert v == pytest.approx(level, abs=0.005)
         assert e == pytest.approx(se, abs=0.005)
 
-    assert "ADEQUATE" in texto                            # the diagnostics ran
+    assert "ADEQUATE" in text                            # the diagnostics ran
 
 
 @needs_cases
@@ -204,26 +215,26 @@ def test_the_bulk_switches_fix_the_right_series(tmp_path):
     code, out, _err = run(ES, WTI, "-b", "0", "-r", "0", "-s", "1",
                           "-N", "-M", "-o", "-")
     assert code == 0
-    lineas = {l.split()[0]: l for l in out.splitlines()
+    lines = {l.split()[0]: l for l in out.splitlines()
               if l.startswith("  ") and "[" in l}
-    assert "(fixed)" in lineas["phi_1[B^1]"]
-    assert "(fixed)" in lineas["mu[1]"]
-    assert "(fixed)" not in lineas["phi_2[B^1]"], "the INPUT's ARMA stays free"
-    assert "(fixed)" not in lineas["omega1[0]"], "the transfer stays free"
+    assert "(fixed)" in lines["phi_1[B^1]"]
+    assert "(fixed)" in lines["mu[1]"]
+    assert "(fixed)" not in lines["phi_2[B^1]"], "the INPUT's ARMA stays free"
+    assert "(fixed)" not in lines["omega1[0]"], "the transfer stays free"
 
 
 @needs_cases
 def test_guided_writes_files_that_the_program_reads_back(tmp_path):
     """-g is only useful if its output is a valid input to -n/-c. The round trip
     is the whole point of the guided mode."""
-    nombre = str(tmp_path / "guia")
-    code, out, _err = run(ES, WTI, "-g", nombre, "-o", "-")
+    name = str(tmp_path / "guide")
+    code, out, _err = run(ES, WTI, "-g", name, "-o", "-")
     assert code == 0
-    assert os.path.exists(nombre + ".dag") and os.path.exists(nombre + ".cns")
+    assert os.path.exists(name + ".dag") and os.path.exists(name + ".cns")
     assert "ES_CPI <- WTI" in out
 
-    code2, out2, _err2 = run(ES, WTI, "-n", nombre + ".dag",
-                             "-c", nombre + ".cns", "-o", "-")
+    code2, out2, _err2 = run(ES, WTI, "-n", name + ".dag",
+                             "-c", name + ".cns", "-o", "-")
     assert code2 == 0
     assert "JOINT ESTIMATION" in out2
 

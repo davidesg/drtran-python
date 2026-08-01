@@ -80,7 +80,7 @@ def test_integrating_undoes_the_differencing():
 def test_the_seasonal_operator_only_subtracts_from_lag_s():
     psi = np.zeros((6, 1, 1)); psi[0, 0, 0] = 1.0
     psis = integrated_weights(psi, d=0, D=1, s=4)
-    # (1-B^4)^-1 de [1,0,0,...] da 1,0,0,0,1,0: un uno cada s
+    # (1-B^4)^-1 of [1,0,0,...] gives 1,0,0,0,1,0: a one every s
     assert [psis[l][0, 0] for l in range(6)] == pytest.approx(
         [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
 
@@ -114,14 +114,14 @@ def test_the_ma_part_dies_after_q():
 
 # ── against the binary: the structure ────────────────────────────────────────
 @pytest.fixture(scope="module")
-def ajuste():
+def fitted():
     cs = build_cast_spec([drtran.load_pre(os.path.join(CASES, "ES_CPI_m10.pre")),
                           drtran.load_pre(os.path.join(CASES, "WTI_ar1.pre"))],
                          links=[Link(0, 1, b=0, r=0, s=1)])
     return fit(cs, embed=True)
 
 
-def test_the_ratios_of_the_standard_errors_match_the_C(ajuste):
+def test_the_ratios_of_the_standard_errors_match_the_C(fitted):
     """The C reports, for ES_CPI from 12/2019, level s.e. of
     0.24 0.44 0.60 0.74 0.85 0.95 and variation s.e. of 0.24 0.28 0.28 ...
 
@@ -129,38 +129,38 @@ def test_the_ratios_of_the_standard_errors_match_the_C(ajuste):
     the levels cannot be compared directly. The RATIOS can, and they depend on
     exactly what lives here: psi, the integration and Sigma.
     """
-    fc = forecast(ajuste, L=6)
-    nivel = fc.se("level", 0)
+    fc = forecast(fitted, L=6)
+    level = fc.se("level", 0)
     variacion = fc.se("diff", 0)
 
     c_nivel = np.array([0.24, 0.44, 0.60, 0.74, 0.85, 0.95])
     c_var = np.array([0.24, 0.28, 0.28, 0.28, 0.28, 0.28])
 
-    # el C publica con dos decimales, asi que la comparacion honesta es
-    # RELATIVA: 0.24 lleva ya un 2 % de incertidumbre de redondeo
-    assert nivel / nivel[0] == pytest.approx(c_nivel / c_nivel[0], rel=0.02)
+    # the C publishes two decimals, so the honest comparison is RELATIVE:
+    # 0.24 already carries 2% of rounding uncertainty
+    assert level / level[0] == pytest.approx(c_nivel / c_nivel[0], rel=0.02)
     assert variacion / variacion[0] == pytest.approx(c_var / c_var[0], rel=0.03)
 
 
-def test_the_level_variance_grows_and_the_variation_settles(ajuste):
+def test_the_level_variance_grows_and_the_variation_settles(fitted):
     """The signature of a differenced model: integrating gives an unbounded
     level variance, while the variation's converges."""
-    fc = forecast(ajuste, L=12)
-    nivel, variacion = fc.se("level", 0), fc.se("diff", 0)
-    assert np.all(np.diff(nivel) > 0)
+    fc = forecast(fitted, L=12)
+    level, variacion = fc.se("level", 0), fc.se("diff", 0)
+    assert np.all(np.diff(level) > 0)
     assert abs(variacion[-1] - variacion[-2]) < 1e-3
 
 
-def test_the_scale_is_applied_not_left_in_Q(ajuste):
+def test_the_scale_is_applied_not_left_in_Q(fitted):
     """The cast returns Q, not Sigma — the likelihood is concentrated and sigma2
     comes out separately. Forgetting it leaves the right shape with the wrong
     magnitude, which is the classic misreading of Q as Sigma."""
-    fc = forecast(ajuste, L=3)
-    assert 0.05 < fc.se("level", 0)[0] < 1.0, "orden de magnitud de sigma, no de Q"
+    fc = forecast(fitted, L=3)
+    assert 0.05 < fc.se("level", 0)[0] < 1.0, "sigma's order of magnitude, not Q's"
 
 
 # ── back to the level ────────────────────────────────────────────────────────
-def test_a_series_with_no_incoming_transfer_matches_the_C(ajuste):
+def test_a_series_with_no_incoming_transfer_matches_the_C(fitted):
     """WTI receives nothing, so its level forecast must be the univariate one —
     and the C reports 60.76, 61.02, 61.10 from 12/2019.
 
@@ -172,13 +172,13 @@ def test_a_series_with_no_incoming_transfer_matches_the_C(ajuste):
     """
     from drtran.forecast import to_level
 
-    fc = forecast(ajuste, L=6)
-    nivel = to_level(fc, ajuste.cast_spec, serie=1)
-    assert nivel[:3] == pytest.approx([60.76, 61.02, 61.10], abs=0.01)
-    assert nivel[-1] == pytest.approx(61.14, abs=0.01)
+    fc = forecast(fitted, L=6)
+    level = to_level(fc, fitted.cast_spec, series=1)
+    assert level[:3] == pytest.approx([60.76, 61.02, 61.10], abs=0.01)
+    assert level[-1] == pytest.approx(61.14, abs=0.01)
 
 
-def test_the_output_level_matches_the_C(ajuste):
+def test_the_output_level_matches_the_C(fitted):
     """ES_CPI receives the transfer, and this is the end-to-end check: the C
     reports 82.01 82.02 82.38 83.17 83.33 83.44 from 12/2019.
 
@@ -195,22 +195,22 @@ def test_the_output_level_matches_the_C(ajuste):
     """
     from drtran.forecast import to_level
 
-    fc = forecast(ajuste, L=6)
-    nivel = to_level(fc, ajuste.cast_spec, serie=0)
-    assert nivel == pytest.approx([82.01, 82.02, 82.38, 83.17, 83.33, 83.44],
+    fc = forecast(fitted, L=6)
+    level = to_level(fc, fitted.cast_spec, series=0)
+    assert level == pytest.approx([82.01, 82.02, 82.38, 83.17, 83.33, 83.44],
                                   abs=0.01)
 
 
-def test_the_deterministics_come_from_the_fit_not_from_the_pre(ajuste):
+def test_the_deterministics_come_from_the_fit_not_from_the_pre(fitted):
     """The guard for the above, stated directly: if `_fitted_deterministics`
     ever returns the seeds again, this fails loudly instead of quietly moving
     the forecast onto the univariate path."""
     from drtran.forecast import _fitted_deterministics
 
-    om, _de = _fitted_deterministics(forecast(ajuste, L=1),
-                                     ajuste.cast_spec, serie=0)
+    om, _de = _fitted_deterministics(forecast(fitted, L=1),
+                                     fitted.cast_spec, series=0)
     semillas = [list(i.omega) for i in
-                ajuste.cast_spec.series[0].spec.model.interventions]
+                fitted.cast_spec.series[0].spec.model.interventions]
     assert om[0][0] == pytest.approx(-0.040867, abs=1e-5)
     assert om[1][0] == pytest.approx(-0.094588, abs=1e-5)
     assert om != semillas

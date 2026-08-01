@@ -1,29 +1,30 @@
-"""drtran — modelos de transferencia de Box-Jenkins por máxima verosimilitud exacta.
+"""drtran — Box-Jenkins transfer function models by exact maximum likelihood.
 
-El puente entre dos programas que ya funcionan:
+The bridge between two programs that already work:
 
-- **fue** identifica y estima modelos **univariantes** y deja un `.pre` por serie.
-- **drvarma** evalúa la **verosimilitud exacta VARMA** de Mauricio (`elf`) y la
-  maximiza con BFGS factorizado.
+- **fue** identifies and estimates **univariate** models and leaves one `.pre`
+  per series.
+- **drvarma** evaluates Mauricio's **exact VARMA likelihood** (`elf`) and
+  maximises it with factored BFGS.
 
-drtran lee los `.pre`, construye el *cast* paramétrico (parámetros → estructura
-VARMA) y deja que drvarma estime **todos los parámetros a la vez**: la
-transferencia, los dos ARMA, los deterministas, las medias y las varianzas.
+drtran reads the `.pre` files, builds the parametric *cast* (parameters -> VARMA
+structure) and lets drvarma estimate **every parameter at once**: the transfer,
+both ARMA, the deterministics, the means and the variances.
 
-    Y_t = Σⱼ ωⱼ(B)/δⱼ(B) · B^bⱼ · Xⱼ,t + N_t
+    Y_t = SUM_j omega_j(B)/delta_j(B) * B^b_j * X_j,t + N_t
 
-Principio de diseño, no negociable
-----------------------------------
-El `elf` de drvarma se usa **tal cual**: no se modifica, no se parchea, no se
-caso-especializa. Es la implementación de referencia de la verosimilitud exacta.
-Cualquier discrepancia con fue es un bug del cast de drtran, **nunca** de `elf`.
+Design principle, non-negotiable
+--------------------------------
+drvarma's `elf` is used **as it is**: not modified, not patched, not
+special-cased. It is the reference implementation of the exact likelihood. Any
+discrepancy with fue is a bug of drtran's cast, **never** of `elf`.
 
-Criterio de validación (puerta de entrada a todo lo demás)
-----------------------------------------------------------
-**Estimación conjunta diagonal ≡ fue por separado.** Con estructura diagonal
-(AR/MA y covarianza diagonales, sin transferencia) la verosimilitud exacta se
-factoriza, así que la conjunta debe reproducir la **suma** de las univariantes.
-Si no coincide, el cast está mal.
+Validation criterion (the gate to everything else)
+--------------------------------------------------
+**Diagonal joint estimation == fue run separately.** With a diagonal structure
+(diagonal AR/MA and covariance, no transfer) the exact likelihood factorises, so
+the joint fit must reproduce the **sum** of the univariate ones. If it does not
+match, the cast is wrong.
 """
 
 from .cast import (Link, build_cast_spec, build_sigma, cast_diagonal,
@@ -35,8 +36,8 @@ from .estimate import Fit, fit, loglik, unpack, x0_full
 from .forecast import (Forecast, error_variance, forecast,
                        forecast_mean, integrated_weights, psi_weights,
                        report_forecast, to_level)
-from .identify import Identificacion, identify, prewhiten, report
-from .netid import (Candidato, RedIdentificada, identify_network,
+from .identify import Identification, identify, prewhiten, report
+from .netid import (Candidate, IdentifiedNetwork, identify_network,
                     report_network, residuals, write_guided)
 from .network import check_acyclic, find_cycle, read_dag, write_dag
 from .pre import PreSpec, check_scale, load_pre
@@ -51,10 +52,10 @@ __all__ = [
     "cast_embedded", "loglik_embedded", "normalize_phi0",
     "Adequacy", "transfer_adequacy", "report_adequacy", "chi_test",
     "Fit", "fit", "loglik", "unpack", "x0_full",
-    "Identificacion", "identify", "prewhiten", "report",
+    "Identification", "identify", "prewhiten", "report",
     "Forecast", "forecast", "report_forecast", "psi_weights",
     "error_variance", "integrated_weights", "forecast_mean", "to_level",
-    "Candidato", "RedIdentificada", "identify_network", "report_network",
+    "Candidate", "IdentifiedNetwork", "identify_network", "report_network",
     "residuals", "write_guided",
     "read_dag", "write_dag", "find_cycle", "check_acyclic",
     "Slot", "SlotTable", "build_slots", "read_cns",

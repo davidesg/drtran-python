@@ -1,34 +1,36 @@
-"""Identificación de la RED: el `-p` del sistema entero.
+"""Identifying the NETWORK: the whole system's `-p`.
 
-Puerto de `identify_network` (`drtran.c`). Es el paso 3 de la escalera de la
-escuela: estimado el modelo **diagonal**, se leen las CCF de sus RESIDUOS y de
-ahí se proponen las relaciones dinámicas del sistema — quién mueve a quién, con
-qué retardo — y las covarianzas contemporáneas (Muñoz Polo 2001, §2.6).
+Port of `identify_network` (`drtran.c`). It is step 3 of the school's ladder:
+once the **diagonal** model is estimated, the CCFs of its RESIDUALS are read and
+from them the system's dynamic relationships are proposed — who moves whom, with
+what delay — together with the contemporaneous covariances (Munoz Polo 2001,
+§2.6).
 
-Convención, la del C::
+The convention, the C's::
 
-    ccf_ij(k) = corr(a_i(t), a_j(t+k)),   con i < j,   |r| > 2/√n significativo
+    ccf_ij(k) = corr(a_i(t), a_j(t+k)),  with i < j,  |r| > 2/sqrt(n) significant
 
-    k > 0   a_i antecede a a_j   ⇒  enlace  i → j
-    k < 0   a_j antecede a a_i   ⇒  enlace  j → i
-    k = 0   contemporáneo        ⇒  liberar la covarianza q[i,j]
-    ambos lados significativos   ⇒  RETROALIMENTACIÓN
+    k > 0   a_i leads a_j        =>  link  i -> j
+    k < 0   a_j leads a_i        =>  link  j -> i
+    k = 0   contemporaneous      =>  free the covariance q[i,j]
+    both sides significant       =>  FEEDBACK
 
-Es una GUÍA, no la red
-----------------------
-Lo dice el propio C y conviene repetirlo: esto propone CANDIDATOS. Hay que podar
-por exogeneidad (a una serie exógena no le entra nada), por aciclicidad (un DAG
-no admite ciclos) y por verosimilitud del retardo. La red identificada no es la
-final: el punto de intervención del analista entre escalones es parte del método.
+It is a GUIDE, not the network
+------------------------------
+The C says so itself and it bears repeating: this proposes CANDIDATES. They must
+be pruned by exogeneity (nothing enters an exogenous series), by acyclicity (a
+DAG admits no cycles) and by how plausible the delay is. The identified network
+is not the final one: the analyst's intervention between rungs is part of the
+method.
 
-Dos decisiones heredadas, y por qué
------------------------------------
-* **La ventana de búsqueda se acota** a 2 periodos estacionales (u 8 sin
-  estacionalidad), y a n/4 y a 12: una transferencia con retardo mayor es
-  inverosímil, y cuantos más retardos se miran, más falsos positivos por
-  contraste múltiple.
-* **Con retroalimentación se toma el lado dominante**, avisando. No cabe en un
-  DAG de una vía, y elegir en silencio sería peor que decirlo.
+Two inherited decisions, and why
+--------------------------------
+* **The search window is bounded** to 2 seasonal periods (or 8 without
+  seasonality), and to n/4 and to 12: a transfer with a longer delay is
+  implausible, and the more lags are looked at, the more false positives from
+  multiple testing.
+* **With feedback the dominant side is taken**, with a warning. It does not fit
+  in a one-way DAG, and choosing silently would be worse than saying so.
 """
 
 from __future__ import annotations
@@ -44,20 +46,21 @@ from .cast import Link
 
 
 def residuals(x, cast_spec, embed=True, xitol=-1e-3, structural=False):
-    """Los residuos `a` del modelo, (n, m). Es `elf` con `atf=True`.
+    """The model's residuals `a`, (n, m). This is `elf` with `atf=True`.
 
-    No se recalculan a mano: los devuelve el mismo `elf` que puntúa la
-    verosimilitud, así que son los residuos EXACTOS del filtro, con su
-    inicialización pre-muestral, y no una aproximación truncada.
+    They are not recomputed by hand: they come from the same `elf` that scores
+    the likelihood, so they are the filter's EXACT residuals, with their
+    pre-sample initialisation, and not a truncated approximation.
 
-    `structural=True` deshace la normalización de Φ(0): `a ← Φ(0)·a`. Lo piden
-    los DIAGNÓSTICOS de la transferencia. Con un enlace contemporáneo (b=0) el
-    cast empotrado mete ω₀ en el retardo cero, de modo que Φ(0) ≠ I y los
-    residuos de la forma reducida salen correlacionados **por construcción**
-    (Σ₁₂ = ω₀·σ²_X). Medir la adecuación sobre ésos es medir la correlación que
-    la propia transferencia genera y llamarla mala especificación: el
-    portmanteau se dispara y condena a un modelo correcto. Para leer las CCF de
-    la identificación de red da igual, porque ahí no hay enlaces todavía.
+    `structural=True` undoes the Phi(0) normalisation: `a <- Phi(0)*a`. The
+    transfer DIAGNOSTICS ask for it. With a contemporaneous link (b=0) the
+    embedded cast puts omega_0 at lag zero, so Phi(0) != I and the reduced-form
+    residuals come out correlated **by construction** (Sigma_12 =
+    omega_0*sigma2_X). Measuring adequacy on those is measuring the correlation
+    the transfer itself generates and calling it misspecification: the
+    portmanteau blows up and condemns a correct model. For reading the CCFs of
+    the network identification it makes no difference, because there are no links
+    there yet.
     """
     from drvarma._engine import elf_c
 
@@ -88,15 +91,15 @@ def residuals(x, cast_spec, embed=True, xitol=-1e-3, structural=False):
     return res, 0
 
 
-def _bs_de_un_lado(c, nlags, thr):
-    """(b, s, pico) del bloque significativo de un lado, o None. Puerto de
+def _bs_from_side(c, nlags, thr):
+    """(b, s, peak) of one side's significant block, or None. Port of
     `net_bs_from_side`.
 
-    La estructura es el **bloque CONTIGUO** desde b: un pico aislado lejano es
-    ruido, y con bandas al 5 % se espera uno de cada veinte fuera por azar.
+    The structure is the **CONTIGUOUS block** from b: an isolated distant peak is
+    noise, and with 5% bands one lag in twenty is expected outside by chance.
     """
     b = last = -1
-    pico = 0.0
+    peak = 0.0
     for k in range(1, nlags + 1):
         if abs(c[k]) > thr:
             if b < 0:
@@ -104,25 +107,25 @@ def _bs_de_un_lado(c, nlags, thr):
             last = k
         elif b >= 0 and k > last + 1:
             break
-        if abs(c[k]) > abs(pico):
-            pico = c[k]
+        if abs(c[k]) > abs(peak):
+            peak = c[k]
     if b < 0:
         return None
     last = b
     while last + 1 <= nlags and abs(c[last + 1]) > thr:
         last += 1
-    return b, last - b, pico
+    return b, last - b, peak
 
 
 @dataclass
-class Candidato:
-    """Un enlace propuesto, con el pico que lo sostiene."""
+class Candidate:
+    """A proposed link, with the peak that supports it."""
 
     out: int
     inp: int
     b: int
     s: int
-    pico: float
+    peak: float
 
     @property
     def link(self):
@@ -130,51 +133,52 @@ class Candidato:
 
 
 @dataclass
-class RedIdentificada:
-    """Lo que propone la lectura de las CCF residuales."""
+class IdentifiedNetwork:
+    """What reading the residual CCFs proposes."""
 
-    enlaces: list = field(default_factory=list)      # list[Candidato]
-    covarianzas: list = field(default_factory=list)  # (i, j, r0), i < j
-    retroalimentacion: list = field(default_factory=list)
+    candidates: list = field(default_factory=list)   # list[Candidate]
+    covariances: list = field(default_factory=list)  # (i, j, r0), i < j
+    feedback: list = field(default_factory=list)
     nlags: int = 0
-    banda: float = 0.0
-    nombres: list = field(default_factory=list)
+    band: float = 0.0
+    names: list = field(default_factory=list)
 
     @property
     def links(self):
-        """Los enlaces como `Link`, listos para `build_cast_spec`."""
-        return [c.link for c in self.enlaces]
+        """The links as `Link`, ready for `build_cast_spec`."""
+        return [c.link for c in self.candidates]
 
     @property
-    def ciclo(self):
-        """El ciclo del grafo propuesto, o `None`. Se espera que a veces lo haya.
+    def cycle(self):
+        """The proposed graph's cycle, or `None`. One is expected now and then.
 
-        Leer las CCF par a par no impone aciclicidad, así que la propuesta puede
-        salir cíclica — y entonces NO es estimable como está. No es un fallo de
-        la identificación: es la parte del trabajo que le toca al analista, podar.
+        Reading the CCFs pair by pair does not impose acyclicity, so the proposal
+        may come out cyclic — and then it is NOT estimable as it stands. That is
+        not a failure of the identification: it is the part of the job that falls
+        to the analyst, pruning.
         """
         from .network import find_cycle
 
-        return find_cycle(self.links, len(self.nombres))
+        return find_cycle(self.links, len(self.names))
 
     def __repr__(self):                                    # pragma: no cover
-        return (f"RedIdentificada({len(self.enlaces)} enlaces, "
-                f"{len(self.covarianzas)} covarianzas, banda {self.banda:.3f})")
+        return (f"IdentifiedNetwork({len(self.candidates)} links, "
+                f"{len(self.covariances)} covariances, band {self.band:.3f})")
 
 
 def identify_network(cast_spec, x=None, nlags=None, embed=True):
-    """Lee las CCF de los residuos del DIAGONAL y propone la red.
+    """Read the CCFs of the DIAGONAL model's residuals and propose the network.
 
-    `x` por defecto son las semillas del `.pre`. Lo natural es pasarle el óptimo
-    del escalón diagonal (`fit(...).x`), que es lo que hace el C: la red se lee
-    en los residuos del modelo diagonal ESTIMADO.
+    `x` defaults to the `.pre`'s seeds. The natural thing is to pass it the
+    diagonal rung's optimum (`fit(...).x`), which is what the C does: the network
+    is read in the residuals of the ESTIMATED diagonal model.
     """
     from .cast import x0_from_pre
 
     x = x0_from_pre(cast_spec) if x is None else np.asarray(x, float)
     a, ifault = residuals(x, cast_spec, embed=embed)
     if ifault:
-        raise RuntimeError(f"no se pueden obtener los residuos: ifault={ifault}")
+        raise RuntimeError(f"cannot obtain the residuals: ifault={ifault}")
 
     n, m = a.shape
     thr = 2.0 / math.sqrt(n)
@@ -182,133 +186,136 @@ def identify_network(cast_spec, x=None, nlags=None, embed=True):
     if nlags is None:
         nlags = min(max(n // 4, 6), 12)
         freq = getattr(cast_spec.series[0].spec.model.series, "freq", 1) or 1
-        tope = 2 * freq if freq > 1 else 8
-        nlags = min(nlags, tope)
+        cap = 2 * freq if freq > 1 else 8
+        nlags = min(nlags, cap)
 
-    red = RedIdentificada(nlags=nlags, banda=thr, nombres=list(cast_spec.names))
+    net = IdentifiedNetwork(nlags=nlags, band=thr, names=list(cast_spec.names))
 
     for i in range(m):
         for j in range(i + 1, m):
-            cpos = ccf(a[:, i], a[:, j], nlags)      # k ≥ 0: lado i → j
-            cneg = ccf(a[:, j], a[:, i], nlags)      # k ≥ 0 de (j,i): lado j → i
+            cpos = ccf(a[:, i], a[:, j], nlags)      # k >= 0: the i -> j side
+            cneg = ccf(a[:, j], a[:, i], nlags)      # k >= 0 of (j,i): j -> i
             if not np.any(cpos) and not np.any(cneg):
-                continue                              # serie degenerada
+                continue                              # degenerate series
 
             if abs(cpos[0]) > thr:
-                red.covarianzas.append((i, j, float(cpos[0])))
+                net.covariances.append((i, j, float(cpos[0])))
 
-            pos = _bs_de_un_lado(cpos, nlags, thr)
-            neg = _bs_de_un_lado(cneg, nlags, thr)
+            pos = _bs_from_side(cpos, nlags, thr)
+            neg = _bs_from_side(cneg, nlags, thr)
 
             if pos and neg:
-                red.retroalimentacion.append((i, j, pos[0], pos[2], neg[0], neg[2]))
-                # No cabe en un DAG de una via: se toma el dominante y se avisa.
+                net.feedback.append((i, j, pos[0], pos[2], neg[0], neg[2]))
+                # It does not fit a one-way DAG: take the dominant side and warn.
                 if abs(pos[2]) >= abs(neg[2]):
                     neg = None
                 else:
                     pos = None
             if pos:
-                red.enlaces.append(Candidato(out=j, inp=i, b=pos[0], s=pos[1],
-                                             pico=pos[2]))
+                net.candidates.append(Candidate(out=j, inp=i, b=pos[0], s=pos[1],
+                                                peak=pos[2]))
             if neg:
-                red.enlaces.append(Candidato(out=i, inp=j, b=neg[0], s=neg[1],
-                                             pico=neg[2]))
+                net.candidates.append(Candidate(out=i, inp=j, b=neg[0], s=neg[1],
+                                                peak=neg[2]))
 
-    # Los enlaces reales suelen ser los mas fuertes; los picos lejanos espurios
-    # caen al fondo. Orden estable, para que empatados salgan en el orden de las
-    # series y el informe sea reproducible.
-    red.enlaces.sort(key=lambda c: -abs(c.pico))
-    return red
+    # The real links tend to be the strongest; spurious distant peaks fall to the
+    # bottom. A stable sort, so that ties come out in series order and the report
+    # is reproducible.
+    net.candidates.sort(key=lambda c: -abs(c.peak))
+    return net
 
 
-def report_network(red):
-    """El informe, en el formato del C, pero con las covarianzas por ÍNDICE.
+def report_network(net):
+    """The report, in the C's format, but with the covariances BY INDEX.
 
-    El `-i` del C imprime `q[EI,EU] = free` con NOMBRES bajo un rótulo que dice
-    «paste into a -c file» — y su `.cns` **no lee nombres** en las `q`, sólo
-    índices numéricos del triángulo inferior (`q[i,j]`, i > j), que es lo que sí
-    escribe su modo guiado `-g`. Aquí se emite directamente lo que se puede
-    pegar, con el nombre al lado en un comentario.
+    The C's `-i` prints `q[EI,EU] = free` with NAMES under a heading that says
+    "paste into a -c file" — and its `.cns` **does not read names** in the `q`,
+    only numeric lower-triangle indices (`q[i,j]`, i > j), which is what its
+    guided mode `-g` does write. Here what can be pasted is emitted directly,
+    with the name alongside in a comment.
     """
-    nb = red.nombres
+    nb = net.names
     L = ["=" * 61,
-         "  IDENTIFICACIÓN DE LA RED  (CCF de los residuos del diagonal)",
+         "  NETWORK IDENTIFICATION  (CCFs of the diagonal model's residuals)",
          "=" * 61,
-         "  Muñoz Polo (2001) §2.6: las relaciones dinámicas del sistema se leen",
-         "  en las CCF de los residuos del modelo DIAGONAL. Esto es una GUÍA de",
-         "  candidatos, no la red final: podar por exogeneidad (a una serie",
-         "  exógena no le entra nada), aciclicidad (el DAG no admite ciclos) y",
-         "  verosimilitud del retardo.",
-         f"  Búsqueda hasta k={red.nlags}; |r| > {red.banda:.3f} es significativo.",
+         "  Munoz Polo (2001) §2.6: the system's dynamic relationships are read",
+         "  in the CCFs of the DIAGONAL model's residuals. This is a GUIDE to",
+         "  candidates, not the final network: prune by exogeneity (nothing",
+         "  enters an exogenous series), acyclicity (a DAG admits no cycles) and",
+         "  how plausible the delay is.",
+         f"  Searched up to k={net.nlags}; |r| > {net.band:.3f} is significant.",
          ""]
 
-    for i, j, bp, pp, bn, pn in red.retroalimentacion:
-        L.append(f"  [retroalimentación]  {nb[i]} <-> {nb[j]} : "
-                 f"{nb[i]}→{nb[j]} k={bp}({pp:+.2f}), "
-                 f"{nb[j]}→{nb[i]} k={bn}({pn:+.2f})  -> se toma el dominante")
+    for i, j, bp, pp, bn, pn in net.feedback:
+        L.append(f"  [feedback]  {nb[i]} <-> {nb[j]} : "
+                 f"{nb[i]}->{nb[j]} k={bp}({pp:+.2f}), "
+                 f"{nb[j]}->{nb[i]} k={bn}({pn:+.2f})  -> the dominant one is taken")
 
-    L.append("  CONTEMPORÁNEAS  (k=0; liberar la covarianza de las innovaciones):")
-    if not red.covarianzas:
-        L.append("    (ninguna por encima de la banda)")
-    for i, j, r0 in red.covarianzas:
+    L.append("  CONTEMPORANEOUS  (k=0; free the innovation covariance):")
+    if not net.covariances:
+        L.append("    (none above the band)")
+    for i, j, r0 in net.covariances:
         L.append(f"    {nb[i]:<4s} - {nb[j]:<4s}   r(0) = {r0:+.3f}")
 
-    L += ["", "  ENLACES DIRIGIDOS  (transferencias candidatas, de más a menos):"]
-    if not red.enlaces:
-        L.append("    (ninguno por encima de la banda)")
-    for c in red.enlaces:
-        L.append(f"    {nb[c.inp]:<4s} -> {nb[c.out]:<4s}   pico {c.pico:+.3f}"
-                 f"   propuesta  b={c.b} r=0 s={c.s}")
+    L += ["", "  DIRECTED LINKS  (candidate transfers, strongest first):"]
+    if not net.candidates:
+        L.append("    (none above the band)")
+    for c in net.candidates:
+        L.append(f"    {nb[c.inp]:<4s} -> {nb[c.out]:<4s}   peak {c.peak:+.3f}"
+                 f"   proposal  b={c.b} r=0 s={c.s}")
 
-    if red.enlaces:
-        L += ["", "  RED PROPUESTA  (para un fichero -n / read_dag):"]
-        for c in red.enlaces:
+    if net.candidates:
+        L += ["", "  PROPOSED NETWORK  (for a -n file / read_dag):"]
+        for c in net.candidates:
             L.append(f"    {nb[c.out]} <- {nb[c.inp]}   {c.b} 0 {c.s}")
 
-    if red.covarianzas:
-        L += ["", "  COVARIANZAS PROPUESTAS  (para un fichero -c / read_cns;",
-              "  los índices son la posición en la línea de órdenes):"]
-        for i, j, _r in red.covarianzas:
-            L.append(f"    q[{j + 1},{i + 1}] = free      # {nb[i]} · {nb[j]}")
+    if net.covariances:
+        L += ["", "  PROPOSED COVARIANCES  (for a -c file / read_cns;",
+              "  the indices are the position on the command line):"]
+        for i, j, _r in net.covariances:
+            L.append(f"    q[{j + 1},{i + 1}] = free      # {nb[i]} . {nb[j]}")
 
-    if red.retroalimentacion:
-        L += ["", f"  NOTA: {len(red.retroalimentacion)} par(es) con retroalimentación",
-              "  (los dos sentidos). Un DAG de transferencias de una vía se quedó",
-              "  con el lado dominante; conviene mirarlos a mano."]
+    if net.feedback:
+        L += ["", f"  NOTE: {len(net.feedback)} pair(s) with feedback (both",
+              "  directions). A one-way transfer DAG kept the dominant side;",
+              "  they are worth looking at by hand."]
     L.append("=" * 61)
     return "\n".join(L)
 
 
-def write_guided(red, nombre):
-    """Modo GUIADO (`-g`): escribe `NOMBRE.dag` y `NOMBRE.cns` listos para estimar.
+def write_guided(net, name):
+    """GUIDED mode (`-g`): write `NAME.dag` and `NAME.cns`, ready to estimate.
 
-    Se escriben tal cual salen, **sin podar**: la poda es del analista. Si la
-    propuesta trae un ciclo se escribe igual, con el ciclo anotado en cabecera —
-    esconderlo o podarlo por cuenta propia sería peor: el fichero es el borrador
-    sobre el que se decide, y `read_dag` lo rechazará mientras el ciclo siga ahí.
+    They are written exactly as they come, **unpruned**: pruning is the analyst's.
+    If the proposal carries a cycle it is written all the same, with the cycle
+    noted in the header — hiding it, or pruning it unilaterally, would be worse:
+    the file is the draft the decision is made on, and `read_dag` will reject it
+    as long as the cycle is still there.
 
-    Devuelve las dos rutas.
+    Returns the two paths.
     """
     from .network import write_dag
 
-    dag, cns = f"{nombre}.dag", f"{nombre}.cns"
-    write_dag(dag, red.links, red.nombres)
-    c = red.ciclo
+    dag, cns = f"{name}.dag", f"{name}.cns"
+    write_dag(dag, net.links, net.names)
+    c = net.cycle
     if c is not None:
-        ruta = " -> ".join(red.nombres[i] for i in c)
+        route = " -> ".join(net.names[i] for i in c)
         with open(dag) as f:
-            cuerpo = f.read()
+            body = f.read()
         with open(dag, "w") as f:
-            f.write(f"# OJO: la propuesta tiene un CICLO y asi no es estimable:\n"
-                    f"#   {ruta}\n"
-                    f"# Un DAG no admite ciclos. Poda uno de esos enlaces --el de\n"
-                    f"# pico menor, o el que no tenga sentido -- antes de estimar.\n"
-                    + cuerpo)
+            f.write(f"# WARNING: the proposal has a CYCLE and is not estimable\n"
+                    f"# as it stands:\n"
+                    f"#   {route}\n"
+                    f"# A DAG admits no cycles. Prune one of those links -- the\n"
+                    f"# one with the smaller peak, or the one that makes no\n"
+                    f"# sense -- before estimating.\n"
+                    + body)
     with open(cns, "w") as f:
-        f.write("# Covarianzas contemporáneas propuestas por la lectura de las\n"
-                "# CCF residuales del modelo diagonal. Índices = posición en la\n"
-                "# línea de órdenes; el triángulo inferior, i > j.\n")
-        for i, j, r0 in red.covarianzas:
+        f.write("# Contemporaneous covariances proposed by reading the residual\n"
+                "# CCFs of the diagonal model. Indices = position on the command\n"
+                "# line; the lower triangle, i > j.\n")
+        for i, j, r0 in net.covariances:
             f.write(f"q[{j + 1},{i + 1}] = free      "
-                    f"# {red.nombres[i]} · {red.nombres[j]}, r(0) = {r0:+.3f}\n")
+                    f"# {net.names[i]} . {net.names[j]}, r(0) = {r0:+.3f}\n")
     return dag, cns

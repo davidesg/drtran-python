@@ -1,382 +1,426 @@
-# El porte de drtran a Python — registro del proceso
+# Porting drtran to Python — the record of the process
 
-Este documento cuenta **cómo** se hizo el porte y **con qué evidencia** se dio por
-bueno cada escalón. `../TODO.md` dice qué está hecho y qué falta; el `README.md`
-dice qué es el programa. Esto es el diario de a bordo: las decisiones, las cifras
-que las sostienen y las trampas en las que no hay que volver a caer.
+This document tells **how** the port was done and **on what evidence** each rung
+was accepted. `../TODO.md` says what is done and what is missing; the `README.md`
+says what the program is. This is the logbook: the decisions, the figures that
+support them and the traps not to fall into again.
 
-Escrito el 2026-07-29, con los pasos 0, 1 y 2 cerrados.
+Written on 2026-07-29, with steps 0, 1 and 2 closed; updated as the later rungs
+went in.
 
 ---
 
-## 1. El método: una escalera de puertas, no un porte línea a línea
+## 1. The method: a ladder of gates, not a line-by-line port
 
-El porte **no** traduce el C función a función. Traduce el *cast* —el mapa de
-parámetros a estructura VARMA— y reutiliza todo lo demás, que ya existe en Python.
-Cada escalón tiene una **puerta**: una igualdad numérica que debe cumplirse antes
-de seguir. Si no cierra, no se avanza; y la culpa es siempre del cast.
+The port does **not** translate the C function by function. It translates the
+*cast* — the map from parameters to VARMA structure — and reuses everything else,
+which already exists in Python. Every rung has a **gate**: a numerical equality
+that must hold before going on. If it does not close, nothing advances; and the
+fault always lies with the cast.
 
-> **Principio no negociable.** El `elf` de drvarma se usa **tal cual**: no se
-> modifica, no se parchea, no se caso-especializa. Cualquier discrepancia con fue
-> es un bug del cast de drtran, **nunca** de `elf`.
+> **Non-negotiable principle.** drvarma's `elf` is used **as it is**: not
+> modified, not patched, not special-cased. Any discrepancy with fue is a bug of
+> drtran's cast, **never** of `elf`.
 
-Ese principio es lo que convierte el porte en un instrumento de medida: cuando algo
-no cuadra, el sitio donde buscar está acotado de antemano.
+That principle is what turns the port into a measuring instrument: when something
+does not add up, the place to look is bounded in advance.
 
-La segunda regla, heredada del trabajo con drvarma: **antes de declarar un defecto,
-construir un caso con respuesta conocida.** Las tres discrepancias que aparecen en
-§5 se cerraron así, no leyendo código.
+The second rule, inherited from the work on drvarma: **before declaring a defect,
+build a case with a known answer.** The three discrepancies in §5 were closed
+that way, not by reading code.
 
-## 2. Qué se reutiliza y qué se porta
+## 2. What is reused and what is ported
 
-De las **12.615** líneas de C, la mayor parte no se porta: se reutiliza.
+Of the C's **12,615** lines, most is not ported: it is reused.
 
-| C | destino | líneas |
+| C | destination | lines |
 |---|---|---|
-| `elfvarma.c` + `drvmlest.c` + `qnewtopt.c` + `nlatools.c` | ya están en **drvarma** Python | 3.350 |
-| `fue_pre_reader.c` | `fue.load()` — **no se porta** (ver §3.1) | 601 |
-| `gnuplot_i.c` + `fuf_graphic.c` | matplotlib | 1.860 |
+| `elfvarma.c` + `drvmlest.c` + `qnewtopt.c` + `nlatools.c` | already in **drvarma** Python | 3,350 |
+| `fue_pre_reader.c` | `fue.load()` — **not ported** (see §3.1) | 601 |
+| `gnuplot_i.c` + `fuf_graphic.c` | matplotlib | 1,860 |
 | `tran_shootx.c` | `cast.py` + `embed.py` | 668 |
-| `diagnose.c` | parcialmente en `identify.py`; el resto pendiente | 1.687 |
-| `drtran.c` | CLI y orquestación; pendiente, se encoge mucho | 4.201 |
+| `diagnose.c` | `identify.py` + `diagnose.py` + `netid.py` | 1,687 |
+| `forecast.c` | `forecast.py` | — |
+| `drtran.c` | CLI and orchestration -> `cli.py` | 4,201 |
 
-El puerto ocupa hoy **2.229 líneas** de Python en `src/drtran/` (`slots.py` 440,
-`cast.py` 373, `identify.py` 321, `netid.py` 315, `embed.py` 262,
-`estimate.py` 215, `network.py` 140, `pre.py` 109) y **1.361** de tests, con
-**77 tests**.
+The port now occupies **2,750 lines** of Python in `src/drtran/` and about
+**1,600** of tests, with **111 tests**.
 
-## 3. Los escalones, con su evidencia
+## 3. The rungs, with their evidence
 
-### Paso 0 — la entrada llega íntegra
+### Step 0 — the input arrives intact
 
-**Puerta:** que el `.pre` que escribe fue llegue al cast **campo a campo**, y que
-fue Python reproduzca los univariantes de referencia.
+**Gate:** that the `.pre` fue writes reaches the cast **field by field**, and that
+fue Python reproduces the reference univariate models.
 
-Verificado: λ/d/D, `refactor`, μ **con su flag de fijado**, órdenes y coeficientes
-AR/MA regulares y anuales con sus *free-flags*, AR(2)/MA(2) de frecuencia fija, los
-deterministas con sus ω y sus flags, y la serie. Caso canónico: φ 0.402839 /
-0.299193, logL −7.3917 / −760.0326, **suma −767.424341** (dif. 7.6e-09 con fue).
+Verified: lambda/d/D, `refactor`, mu **with its fixed flag**, orders and
+coefficients of the regular and seasonal AR/MA with their free-flags, the
+fixed-frequency AR(2)/MA(2), the deterministics with their omegas and flags, and
+the series. Canonical case: phi 0.402839 / 0.299193, logL −7.3917 / −760.0326,
+**sum −767.424341** (differing by 7.6e-09 from fue).
 
-Tests: `test_pre_roundtrip.py` (8), `test_baseline_univariante.py` (3).
+Tests: `test_pre_roundtrip.py` (8), `test_baseline_univariate.py` (3).
 
-#### 3.1. Decisión: no se porta `fue_pre_reader.c`
+#### 3.1. Decision: `fue_pre_reader.c` is not ported
 
-601 líneas de parser. Duplicarlo sería crear una **segunda fuente de verdad** que
-se desincroniza en cuanto fue cambie una línea de su formato. `fue.load()` ya lee
-`.pre` e `.inp`. El `.pre` es el contrato entre los dos programas, y un contrato
-con dos lectores distintos no es un contrato.
+601 lines of parser. Duplicating it would create a **second source of truth** that
+falls out of sync the moment fue changes one line of its format. `fue.load()`
+already reads `.pre` and `.inp`. The `.pre` is the contract between the two
+programs, and a contract with two different readers is not a contract.
 
-Coste conocido: `model.write_pre()` exige el modelo ajustado, así que el ciclo
-`estimar → .pre → releer` sigue sin probarse. Es lo que cierra la continuidad hacia
-el siguiente escalón de la escalera metodológica; no bloquea el cast.
+Known cost: `model.write_pre()` requires the fitted model, so the cycle
+`estimate -> .pre -> reread` is still untested. That is what closes continuity
+towards the next rung of the methodological ladder; it does not block the cast.
 
-### Paso 1 — el cast diagonal
+### Step 1 — the diagonal cast
 
-`cast.py` reutiliza el cast **univariante** de fue por serie (`build_est_spec` +
-`cast_us_py`), que ya devuelve la `w` con Box–Cox aplicado, diferencias tomadas y
-deterministas restados — es el `build_stationary_series` del C. drtran sólo
-**ENSAMBLA**: Φ y Θ diagonales por bloques, μ por serie, las `w` alineadas por el
-final y Q normalizada.
+`cast.py` reuses fue's **univariate** cast per series (`build_est_spec` +
+`cast_us_py`), which already returns `w` with Box–Cox applied, differences taken
+and deterministics subtracted — it is the C's `build_stationary_series`. drtran
+only **ASSEMBLES**: block-diagonal Phi and Theta, mu per series, the `w`'s aligned
+at the end and a normalised Q.
 
-Dos cosas que no son obvias y costaron la primera tarde:
+Two things that are not obvious and cost the first afternoon:
 
-- **La verosimilitud es CONCENTRADA.** `est()` no estima la escala: descompone
-  Σ = σ²·Q con Q[1][1] = 1 y concentra σ². Evaluar `elf_varma` con un Σ absoluto da
-  otra cosa — pasar la identidad daba **−7802** en vez de −767. Se usa `_elf_f1f2`
-  de drvarma más la fórmula de `drvmlest.c:est [4]`.
-- **Las razones de varianza no se dejan en cero.** Las escalas difieren ×1098 en el
-  caso canónico; arrancar en 1 deja el punto inicial en **−1371**. Se calculan con
-  el mismo `elf`, m = 1, sobre las semillas del `.pre`.
+- **The likelihood is CONCENTRATED.** `est()` does not estimate the scale: it
+  decomposes Sigma = sigma2*Q with Q[1][1] = 1 and concentrates sigma2.
+  Evaluating `elf_varma` with an absolute Sigma gives something else — passing the
+  identity gave **−7802** instead of −767. drvarma's `_elf_f1f2` is used, plus the
+  formula from `drvmlest.c:est [4]`.
+- **The variance ratios are not left at zero.** The scales differ by a factor of
+  1098 in the canonical case; starting at 1 leaves the initial point at **−1371**.
+  They are computed with the same `elf`, m = 1, on the `.pre`'s seeds.
 
-### Paso 2 — LA PUERTA
+### Step 2 — THE GATE
 
-**Conjunta diagonal ≡ fue por separado.** Con estructura diagonal la verosimilitud
-exacta se factoriza, así que la conjunta debe reproducir la **suma** de las
-univariantes.
+**Diagonal joint fit == fue run separately.** With a diagonal structure the exact
+likelihood factorises, so the joint fit must reproduce the **sum** of the
+univariate ones.
 
 | | logL |
 |---|---|
 | ES_CPI_m10 (fue) | −7.3917 |
 | WTI_ar1 (fue) | −760.0326 |
-| **suma = diana** | **−767.424341** |
-| **conjunta diagonal (puerto)** | **−767.424341** (dif. 3.9e-07) |
+| **sum = target** | **−767.424341** |
+| **diagonal joint fit (port)** | **−767.424341** (diff. 3.9e-07) |
 
-Y se alcanza **ya en las semillas del `.pre`**, lo que confirma empíricamente por
-qué el C reporta `termcode 3` en este escalón: las semillas *son* el óptimo.
+And it is reached **already at the `.pre`'s seeds**, which confirms empirically
+why the C reports `termcode 3` on this rung: the seeds *are* the optimum.
 
 Tests: `test_cast_diagonal.py` (4).
 
-### Paso 3 — las transferencias
+### Step 3 — the transfers
 
-Dos casts, como en el C, y **no miden lo mismo**:
+Two casts, as in the C, and they **do not measure the same thing**:
 
-- **Por resta.** `Link(out, inp, b, r, s)`, `compute_irf` y la resta a la salida:
-  la serie 1 del VARMA pasa a ser el ruido `N_t = w_Y − Σⱼ transferenciaⱼ`. Modela
-  el RUIDO y **trunca** al principio de la muestra.
-- **Empotrado** (`embed.py`), el **defecto**, como en el C. Álgebra de polinomios:
-  fila i = diagonal φᵢ·Dᵢ, fuera de diagonal −φᵢ·ωₖ·B^bₖ·(Dᵢ/δₖ), MA Dᵢ·θᵢ, con
-  Dᵢ = Πₖ δₖ de los enlaces entrantes; series **sin restar**. Modela la serie
-  OBSERVADA, sin truncar.
+- **By subtraction.** `Link(out, inp, b, r, s)`, `compute_irf` and the
+  subtraction from the output: series 1 of the VARMA becomes the noise
+  `N_t = w_Y - SUM_j transfer_j`. It models the NOISE and **truncates** at the
+  start of the sample.
+- **Embedded** (`embed.py`), the **default**, as in the C. Polynomial algebra:
+  row i = diagonal phi_i*D_i, off-diagonal −phi_i*omega_k*B^b_k*(D_i/delta_k), MA
+  D_i*theta_i, with D_i = PROD_k delta_k over the incoming links; the series with
+  **nothing subtracted**. It models the OBSERVED series, without truncating.
 
-Que el empotrado **no** dé mayor verosimilitud que el de resta no es un defecto:
-son objetivos distintos sobre datos distintos. El C muestra el mismo patrón.
+That the embedded cast does **not** give a higher likelihood than the subtracting
+one is not a defect: they are different objectives on different data. The C shows
+the same pattern.
 
-Prueba de consistencia en las dos: **con ω = 0 la verosimilitud es exactamente la
-del diagonal, diferencia 0.0.** Es la misma prueba de la puerta, un escalón más
-arriba.
+A consistency check on both: **with omega = 0 the likelihood is exactly the
+diagonal one, difference 0.0.** It is the gate's own test, one rung higher.
 
-La estimación conjunta (`estimate.py`) usa el objetivo escalado de Mauricio (1995,
-ec. 3.5) normalizado a 1 en x₀ — en multivariante (f1/f1₀)^m·(f2/f2₀), porque
-ll = C − 0.5n(m·log f1 + log f2) — minimizado con el `raxopt` de drvarma. Un punto
-rechazado devuelve 1.0 y el optimizador se aleja.
+The joint estimation (`estimate.py`) uses Mauricio's scaled objective (1995, eq.
+3.5) normalised to 1 at x0 — in the multivariate case (f1/f1_0)^m*(f2/f2_0),
+because ll = C − 0.5n(m*log f1 + log f2) — minimised with drvarma's `raxopt`. A
+rejected point returns 1.0 and the optimizer moves away.
 
-Medido en el caso canónico Y ← X, (b,r,s) = (0,0,0): **ω₀ = 0.016002**, logL
-−736.774 frente a −767.424 del diagonal, **LR = 61.3** (1 gl, p = 4.9e-15), por
-gradiente en 21 iteraciones.
+Measured on the canonical case Y <- X, (b,r,s) = (0,0,0): **omega_0 = 0.016002**,
+logL −736.774 against the diagonal's −767.424, **LR = 61.3** (1 df, p = 4.9e-15),
+by gradient in 21 iterations.
 
-### Paso 4 — identificación de (b, r, s)
+### Step 4 — identifying (b, r, s)
 
-`identify.py` porta `prewhiten_and_identify`: preblanquea la entrada con SU ARMA,
-aplica **el mismo filtro** a la salida, calcula la CCF y lee ν(k) = r(k)·s_β/s_a.
+`identify.py` ports `prewhiten_and_identify`: it prewhitens the input with ITS
+ARMA, applies **the same filter** to the output, computes the CCF and reads
+nu(k) = r(k)*s_beta/s_a.
 
-Homologa con el binario: banda 0.13640, r(0) = 0.492, r(1) = 0.310, r(2) = 0.025,
-r(−1) = −0.077, r(−6) = −0.128, y la misma propuesta **b = 0, r = 0, s = 1**.
-Exogeneidad por portmanteau sobre k < 0: **Q(24) = 18.2969, p = 0.7884**, idéntico
-al C — el divisor de `ChiTestC` es n−i+1, no n−i.
+It homologates with the binary: band 0.13640, r(0) = 0.492, r(1) = 0.310,
+r(2) = 0.025, r(−1) = −0.077, r(−6) = −0.128, and the same proposal **b = 0,
+r = 0, s = 1**. Exogeneity by portmanteau over k < 0: **Q(24) = 18.2969,
+p = 0.7884**, identical to the C — `ChiTestC`'s divisor is n−i+1, not n−i.
 
-Se replican **a propósito** las dos decisiones del C que evitan disparates:
+The C's two decisions that keep the answers sane are replicated **on purpose**:
 
-1. la estructura es el **bloque CONTIGUO** desde b (hay un pico significativo en el
-   lag 24 que NO entra en la propuesta: con bandas al 5 % se espera 1 de cada 20
-   fuera);
-2. la exogeneidad se juzga por **portmanteau**, no contando cuántos cruzan.
+1. the structure is the **CONTIGUOUS block** from b (there is a significant peak
+   at lag 24 that does NOT enter the proposal: with 5% bands one lag in 20 is
+   expected outside);
+2. exogeneity is judged by **portmanteau**, not by counting how many cross.
 
-Revisado contra Haugh–Box (1977) y Tsay (1985). Tests: `test_identificacion.py`
-(12), incluida una transferencia sintética con retardo conocido (b = 3).
+Reviewed against Haugh–Box (1977) and Tsay (1985). Tests:
+`test_identification.py` (12), including a synthetic transfer with a known delay
+(b = 3).
 
-### Paso 5 — la red, el DAG y `expand_params`
+### Step 5 — the network, the DAG and `expand_params`
 
-Hasta aquí el modelo era una salida y sus entradas. La **red** es lo general: una
-serie puede recibir transferencias y ser a la vez entrada de otra, que es lo que
-son de verdad los sistemas de la escuela (m6-1: EC → EU → EI → EP, más EC → EP).
-Y con la red llega lo que hacía a mano el `shootx` del legacy: parámetros
-compartidos entre la transferencia y el ARMA de la entrada, numeradores
-factorizados, factores fijos.
+Up to here the model was one output and its inputs. The **network** is the general
+case: a series may receive transfers and be an input to another at the same time,
+which is what the school's systems really are (m6-1: EC -> EU -> EI -> EP, plus
+EC -> EP). And with the network comes what the legacy `shootx` did by hand:
+parameters shared between the transfer and the input's ARMA, factorized
+numerators, fixed factors.
 
-Son tres piezas, deliberadamente separadas:
+Three pieces, deliberately separate:
 
-| pieza | fichero | qué dice |
+| piece | file | what it says |
 |---|---|---|
-| **el grafo** | `.dag` → `network.py` | quién mueve a quién, con qué (b, r, s) |
-| **los parámetros** | `.cns` → `slots.py` | qué es libre, fijo, compartido o una expresión |
-| **la contemporaneidad** | `.cns`, `q[i,j]` | qué se mueve junto en el mismo instante |
+| **the graph** | `.dag` -> `network.py` | who moves whom, with which (b, r, s) |
+| **the parameters** | `.cns` -> `slots.py` | what is free, fixed, shared or an expression |
+| **contemporaneity** | `.cns`, `q[i,j]` | what moves together within the same instant |
 
-Separar el grafo de los parámetros no es orden por el orden: el DAG dice
-**dinámica con retardo** y Σ dice **simultaneidad**. Mezclarlas es justo el error
-que el aviso de casi-colinealidad del C persigue — una transferencia
-contemporánea (b=0) y la covarianza de esas dos innovaciones explican lo mismo en
-el retardo cero.
+Separating the graph from the parameters is not tidiness for its own sake: the
+DAG says **dynamics with a delay** and Sigma says **simultaneity**. Mixing them is
+exactly the error the C's near-collinearity warning chases — a contemporaneous
+transfer (b=0) and the covariance of those two innovations explain the same thing
+at lag zero.
 
-**El `.dag`** son líneas `SALIDA <- ENTRADA b r s`, con las series por su
-**nombre**, no por su posición: un `.dag` no debe depender del orden de la línea
-de órdenes. Un ciclo se rechaza, y el mensaje **dice cuál es** — sin orden
-topológico el sistema deja de ser un DAG recursivo y pasa a ser un modelo de
-ecuaciones simultáneas, que no es lo que este cast representa.
+**The `.dag`** is lines of `OUTPUT <- INPUT b r s`, with the series by **name**,
+not by position: a `.dag` must not depend on the order of the command line. A
+cycle is rejected, and the message **says which one it is** — without a
+topological order the system stops being a recursive DAG and becomes a
+simultaneous-equations model, which is not what this cast represents.
 
-**La tabla de slots** es el DSL. Cada posición del vector completo tiene un nombre
-estable y una de cinco naturalezas: `free`, `fixed`, `alias` (COMPARTIDO),
-`product` (`x = -y * z`) y `lincomb` (`x = t1 + t2 - t3`, con cada término un slot
-o un producto de dos). El optimizador ve sólo los libres:
+**The slot table** is the DSL. Every position of the full vector has a stable name
+and one of five natures: `free`, `fixed`, `alias` (SHARED), `product`
+(`x = -y * z`) and `lincomb` (`x = t1 + t2 - t3`, each term a slot or a product of
+two). The optimizer sees only the free ones:
 
 ```
-xfree ──expand──▶ xfull ──cast──▶ Φ, Θ, μ, w, Σ ──elf──▶ ℓ
+xfree --expand--> xfull --cast--> Phi, Theta, mu, w, Sigma --elf--> l
 ```
 
-`expand` va **dentro** del objetivo, así que el gradiente sale por diferencias
-finitas sin regla de la cadena: añadir expresiones al DSL no toca el optimizador.
-Es la decisión del C, y es la razón de que el producto y la combinación lineal
-cupieran sin tocar `_qnewt`.
+`expand` goes **inside** the objective, so the gradient comes out by finite
+differences with no chain rule: adding expressions to the DSL does not touch the
+optimizer. It is the C's decision, and it is why the product and the linear
+combination fitted without touching `_qnewt`.
 
-Dos cosas del diseño que conviene no perder:
+Two design points worth not losing:
 
-- **El orden de los slots no es el del C, los nombres sí.** El C agrupa por clase
-  (todos los ARMA, luego todos los deterministas); aquí se agrupa por serie,
-  porque el bloque univariante lo produce `fue._build_initial_x` y el orden lo
-  manda fue. Da igual, porque **el `.cns` va por nombres** — los mismos `.cns` del
-  repo C se leen aquí. Lo que sí se comprueba es que el total cuadre con
-  `cast_spec.npar`: si las dos enumeraciones se separaran, los nombres dejarían de
-  corresponder a las posiciones y el `.cns` restringiría el parámetro equivocado,
-  **en silencio**.
-- **Las covarianzas nacen fijas en cero.** Entran siempre al mapa, pero la
-  covarianza diagonal es el caso por defecto y liberar una es una decisión del
-  analista (`q[5,2] = free`), no algo que se active en bloque: el legacy m6-1
-  libera **tres** de sus quince. Fuera de la región donde Q es definida positiva
-  el punto se rechaza (el objetivo devuelve 1.0 y la búsqueda se aleja), que es la
-  estrategia de Mauricio (1995 §3); esa frontera no ha mordido nunca en los casos
-  reales.
+- **The slot order is not the C's, the names are.** The C groups by class (all the
+  ARMA, then all the deterministics); here it groups by series, because the
+  univariate block is produced by `fue._build_initial_x` and fue decides the
+  order. It does not matter, because **the `.cns` goes by name** — the C repo's
+  own `.cns` files are read here. What IS checked is that the total matches
+  `cast_spec.npar`: if the two enumerations drifted apart, the names would stop
+  matching the positions and the `.cns` would constrain the wrong parameter,
+  **silently**.
+- **The covariances are born fixed at zero.** They always enter the map, but a
+  diagonal covariance is the default case and freeing one is the analyst's
+  decision (`q[5,2] = free`), not something switched on in bulk: the legacy m6-1
+  frees **three** of its fifteen. Outside the region where Q is positive definite
+  the point is rejected (the objective returns 1.0 and the search moves away),
+  which is Mauricio's strategy (1995 §3); that boundary has never bitten in the
+  real cases.
 
-Homologación, sobre cinco series de m6 con cadena EC → EU → EP, una entrada con
-dos salidas, un denominador r=1 y dos covarianzas libres:
+Homologation, on five m6 series with the chain EC -> EU -> EP, one input with two
+outputs, a denominator with r=1 and two free covariances:
 
-| | drtran C | puerto | dif |
+| | drtran C | port | diff |
 |---|---|---|---|
-| red libre (40 libres de 48 slots) | −1434.696068 | −1434.696068 | 1.9e-10 |
-| + producto + combinación lineal (38 libres) | −1439.505804 | −1439.505804 | 9.4e-08 |
+| free network (40 free of 48 slots) | −1434.696068 | −1434.696068 | 1.9e-10 |
+| + product + linear combination (38 free) | −1439.505804 | −1439.505804 | 9.4e-08 |
 
-y `expand` reconstruye los slots derivados partiendo **sólo de los libres** del
-óptimo del C (dif 3e-07, que es el redondeo a 6 decimales de su informe). Eso
-prueba el cast; que la **búsqueda** llegue es otra cosa, y se prueba aparte: red
-de 3 series con 24 libres, el puerto converge a **−912.244333 en 180 iteraciones**
-contra las 181 del C.
+and `expand` reconstructs the derived slots starting from **only the free ones**
+of the C's optimum (diff 3e-07, which is the 6-decimal rounding of its report).
+That tests the cast; whether the **search** arrives is another matter, and it is
+tested apart: a 3-series network with 24 free, where the port converges to
+**−912.244333 in 180 iterations** against the C's 181.
 
-### Paso 6 — identificar la red
+### Step 6 — identifying the network
 
-Cerrado el escalón diagonal, la escalera dice: **leer las CCF de sus residuos**
-para descubrir las relaciones dinámicas del sistema (Muñoz Polo 2001, §2.6).
-`netid.py` lo porta:
+With the diagonal rung closed, the ladder says: **read the CCFs of its residuals**
+to discover the system's dynamic relationships (Munoz Polo 2001, §2.6).
+`netid.py` ports it:
 
-| k | lectura | propuesta |
+| k | reading | proposal |
 |---|---|---|
-| k > 0 | a_i antecede a a_j | enlace i → j, con b y s del bloque contiguo |
-| k < 0 | a_j antecede a a_i | enlace j → i |
-| k = 0 | contemporáneo | liberar q[i,j] |
-| ambos | retroalimentación | no cabe en un DAG: se toma el dominante, avisando |
+| k > 0 | a_i leads a_j | link i -> j, with b and s from the contiguous block |
+| k < 0 | a_j leads a_i | link j -> i |
+| k = 0 | contemporaneous | free q[i,j] |
+| both | feedback | does not fit a DAG: the dominant side is taken, with a warning |
 
-Los residuos **no se recalculan**: los devuelve el mismo `elf` que puntúa la
-verosimilitud (`atf=True`), así que son los exactos, con su inicialización
-pre-muestral. Reconstruirlos con un filtro a mano habría sido crear una segunda
-fuente de verdad para algo que ya existe — el mismo criterio que con `fue.load()`
-(§3.1) y con `cast_us_py`.
+The residuals are **not recomputed**: they come from the same `elf` that scores
+the likelihood (`atf=True`), so they are the exact ones, with their pre-sample
+initialisation. Rebuilding them with a hand-written filter would have created a
+second source of truth for something that already exists — the same criterion as
+with `fue.load()` (§3.1) and with `cast_us_py`.
 
-Homologa con el binario **línea por línea** en m6: las tres covarianzas
-(EI·EU +0.358, EI·EA −0.314, EC·EA −0.408), los ocho enlaces con sus picos y sus
-(b, s), y el mismo orden.
+It homologates with the binary **line by line** on m6: the three covariances
+(EI.EU +0.358, EI.EA −0.314, EC.EA −0.408), the eight links with their peaks and
+their (b, s), and the same order.
 
-**Una trampa que costó un rato:** `-i` a secas **no** identifica desde el
-diagonal. Monta su propio modelo —en m6, 61 slots, 46 libres, logL −1716.36, con
-Σ diagonal— y lee las CCF de *esos* residuos. Comparando contra él, las cifras
-del puerto no cuadraban y parecía un fallo; pidiéndole `-0 -i` con las mismas
-restricciones, coinciden exactamente. Comparar dos ajustes distintos es la forma
-más fácil de inventarse un bug.
+**A trap that cost a while:** a bare `-i` does **not** identify from the diagonal
+model. It builds its own — in m6, 61 slots, 46 free, logL −1716.36, with a
+diagonal Sigma — and reads the CCFs of *those* residuals. Compared against it the
+port's figures did not add up and it looked like a bug; asking it for `-0 -i` with
+the same constraints, they agree exactly. Comparing two different fits is the
+easiest way to invent a bug.
 
-**La propuesta puede salir cíclica, y en m6 sale.** Leer las CCF par a par no
-impone aciclicidad: el borrador trae EP → EC → EA → EP, y hacen falta **dos**
-podas para dejarlo estimable. El modo guiado escribe el `.dag` igualmente, con el
-ciclo anotado en cabecera, y `read_dag` lo rechaza mientras siga ahí. La librería
-avisa y no poda: cuál de los enlaces cae es juicio, no aritmética, y podar en
-silencio invita a estimar el borrador — que es exactamente lo que la doctrina de
-la escuela dice que no se haga.
+**The proposal may come out cyclic, and in m6 it does.** Reading the CCFs pair by
+pair does not impose acyclicity: the draft brings EP -> EC -> EA -> EP, and
+**two** prunings are needed to make it estimable. The guided mode writes the
+`.dag` all the same, with the cycle noted in the header, and `read_dag` rejects it
+as long as it is still there. The library warns and does not prune: which link
+falls is judgement, not arithmetic, and pruning silently invites estimating the
+draft — which is exactly what the school's doctrine says not to do.
 
-## 4. Decisiones de porte que no son traducción
+### Step 7 — diagnostics, forecasting and the CLI
 
-| decisión | por qué |
+`diagnose.py` ports the transfer's portmanteau (k >= 0, which includes the
+contemporaneous lag: that is where omega_0 acts) and the exogeneity one (k < 0).
+The subtlety is **which residuals it is fed**: with a contemporaneous transfer the
+reduced-form ones are correlated by construction (Sigma_12 = omega_0*sigma2_X), so
+the test must run on the **structural** ones, a = Phi(0)*a_reduced. Otherwise the
+portmanteau condemns a correct model — it gave p = 0.0000 where the C reports
+0.1966.
+
+`forecast.py` ports the MA(infinity) weights, the three error variances (level,
+variation, annual variation) and the level layer: `to_level` composes the future
+deterministic component, the integration against delta(B) and the inverse Box–Cox,
+reusing fue's `_build_xi`, `_nonsop_coefs` and `_inv_boxcox`.
+
+That level layer carried **the port's last real defect**, and it is worth
+recording because of its failure mode. `to_level` built xi from the deterministic
+omegas **in the `.pre`** — the univariate seeds — instead of from the ones
+**re-estimated jointly**: on the canonical case the two `omega_d1` move to
+−0.040867 and −0.094588 once the transfer is fitted alongside them. With the seeds
+the level forecast is silently *the univariate one*, which even matches the C's
+own `-0` run, so it only shows up against a fit that actually has a transfer in
+it. What located it was **instrumenting the binary** (a temporary `fprintf` in
+`transfer_forecast`): the C's `f1` turned out to be identical to the port's, which
+left the level layer as the only suspect.
+
+`cli.py` keeps the C's own option letters, `getopt` string included, and rewrites
+`-estwin` to `-R` before parsing exactly as the C does — a command line written for
+the binary runs here unchanged. What is not ported (`-a`, `-estwin`/`-R`, `-C`,
+`-L`) is refused with exit code 2, not ignored. The executable is `drtran-py`, not
+`drtran`: that name belongs to the C binary on a machine with both, and shadowing
+it silently is how a battery starts comparing a program against itself.
+
+## 4. Porting decisions that are not translation
+
+| decision | why |
 |---|---|
-| No portar el lector de `.pre` | una sola fuente de verdad del contrato (§3.1) |
-| Verosimilitud **concentrada** | es lo que hace `drvmlest.c:est`; con Σ absoluto sale −7802 |
-| Semilla de las razones de varianza | escalas ×1098; arrancar en 1 deja el inicio en −1371 |
-| Convención **BJR** de signos: ω(B) = ω₀ − ω₁B − … | el líder suma, los demás **restan**; es la del cast del C |
-| `normalize_phi0` (Φ₀⁻¹ por la izquierda) | una transferencia contemporánea mete ω₀ en el retardo cero y `elf` exige Φ(0) = I |
-| **μ es la media, no un intercepto** | coherencia con fue; ver §5.2 |
-| Empotrado por defecto | como en el C; no trunca la muestra |
+| Not porting the `.pre` reader | a single source of truth for the contract (§3.1) |
+| **Concentrated** likelihood | it is what `drvmlest.c:est` does; with an absolute Sigma it gives −7802 |
+| Seeding the variance ratios | scales differ x1098; starting at 1 leaves the start at −1371 |
+| **BJR** sign convention: omega(B) = omega_0 − omega_1 B − … | the leading term adds, the rest **subtract**; it is the C cast's |
+| `normalize_phi0` (Phi_0^-1 on the left) | a contemporaneous transfer puts omega_0 at lag zero and `elf` requires Phi(0) = I |
+| **mu is the mean, not an intercept** | coherence with fue; see §5.2 |
+| Embedded by default | as in the C; it does not truncate the sample |
+| Structural residuals for the diagnostics | the reduced-form ones are correlated by construction with b=0 |
 
-## 5. Lo que el porte le encontró al C
+## 5. What the port found in the C
 
-El porte resultó ser un banco de pruebas: tres discrepancias, y en dos de ellas el
-que estaba mal era el original.
+The port turned out to be a test bench: three discrepancies, and in two of them
+the one at fault was the original.
 
-### 5.1. La respuesta al impulso invertía el signo (bug del C)
+### 5.1. The impulse response inverted the sign (a C bug)
 
-El informe de `drtran.c:1371` sumaba los términos no líderes del numerador donde el
-cast resta. Publicaba ganancia 0.005610 (= ω₀+ω₁) donde la real es ω₀−ω₁ =
-**0.027195**: un factor de casi 5, en todo s > 0. **La documentación tenía el mismo
-error**, así que código y documento se confirmaban mutuamente. Corregidos los dos
-en el repo C, más una sección nueva de la batería que fija el signo.
+The report at `drtran.c:1371` added the non-leading numerator terms where the cast
+subtracts. It published a gain of 0.005610 (= omega_0+omega_1) where the real one
+is omega_0−omega_1 = **0.027195**: a factor of almost 5, for every s > 0. **The
+documentation had the same error**, so code and document confirmed each other.
+Both fixed in the C repo, plus a new battery section that pins the sign.
 
-### 5.2. La media del cast empotrado (bug del C)
+### 5.2. The embedded cast's mean (a C bug)
 
-El C hacía, en orden topológico, `mu_i += (Σₖ ωₖ/δ(1))·mu_inp`. La sospecha anotada
-en su TODO era un **signo**; el defecto era la **parametrización entera**.
+The C did, in topological order, `mu_i += (SUM_k omega_k/delta(1))*mu_inp`. The
+suspicion noted in its TODO was a **sign**; the defect was the **whole
+parametrisation**.
 
-μ es LA MEDIA de la serie, no un intercepto. Box–Jenkins escribe el modelo en
-**desviaciones**,
-
-```
-(w_Y − μ_Y) = ν(B)·(w_X − μ_X) + N_t     ⇒     E[w_Y] = μ_Y
-```
-
-así que la media de la salida **no hereda nada** de la entrada. Multiplicando por
-δ(B),
+mu is THE MEAN of the series, not an intercept. Box–Jenkins writes the model in
+**deviations**,
 
 ```
-φ_Y·δ·(w_Y − μ_Y) − φ_Y·ω·B^b·(w_X − μ_X) = δ·θ_Y·a_Y
+(w_Y - mu_Y) = nu(B)*(w_X - mu_X) + N_t     =>     E[w_Y] = mu_Y
 ```
 
-que es exactamente la fila 1 de Φ(B)(w − μ) = Θ(B)a con μ = (μ_Y, μ_X). **No hay
-término que añadir.**
+so the output's mean **inherits nothing** from the input's. Multiplying by
+delta(B),
 
-La alternativa (`w_Y = c + ν(B)·w_X + N`) es la parametrización con **intercepto**.
-Son la misma familia reparametrizada **mientras μ_Y sea libre** — verificado, mismo
-óptimo a 1e-12. Divergen cuando μ_Y está **fijada**: en desviaciones μ_Y = 0
-significa E[w_Y] = 0; con intercepto, E[w_Y] = ν(1)·μ_X ≠ 0. Manda la coherencia
-con fue: si fue fijó la media en cero es porque la serie no tiene deriva.
+```
+phi_Y*delta*(w_Y - mu_Y) - phi_Y*omega*B^b*(w_X - mu_X) = delta*theta_Y*a_Y
+```
 
-**Por qué sobrevivió tanto:** el caso canónico tiene entrada WTI con μ = 0, y ahí
-el término vale cero con cualquier convención. Hace falta **una entrada con media
-libre** para verlo. Corregido en los dos lados (`embed.py:cast_embedded` y
-`tran_shootx.c:build_embedded_varma`) y documentado en la nota técnica del C
-(observación *The means are means, not intercepts*).
+which is exactly row 1 of Phi(B)(w − mu) = Theta(B)a with mu = (mu_Y, mu_X).
+**There is no term to add.**
 
-### 5.3. La Cholesky modificada (bug del porte de drvarma)
+The alternative (`w_Y = c + nu(B)*w_X + N`) is the **intercept** parametrisation.
+They are the same family reparametrised **as long as mu_Y is free** — verified,
+the same optimum to 1e-12. They diverge when mu_Y is **fixed**: in deviations
+mu_Y = 0 means E[w_Y] = 0; with an intercept, E[w_Y] = nu(1)*mu_X != 0. Coherence
+with fue rules: if fue fixed the mean at zero it is because the series has no
+drift.
 
-El cast empotrado estuvo bloqueado: `elf` lo rechazaba con `ifault = 3`. La causa
-no estaba en drtran: `_chol_lower` de drvarma usaba `np.linalg.cholesky`
-(**estricta**) donde el C usa la Cholesky **MODIFICADA** (`nlatools.c:choldcp`),
-que acepta matrices semidefinidas. Como el empotrado produce Φ_p singular **por
-construcción**, la estricta lo tumbaba.
+**Why it survived so long:** the canonical case has WTI as its input with mu = 0,
+and there the term is zero under either convention. **An input with a free mean**
+is needed to see it. Fixed on both sides (`embed.py:cast_embedded` and
+`tran_shootx.c:build_embedded_varma`) and documented in the C's technical note
+(the observation *The means are means, not intercepts*).
 
-Arreglado en drvarma (`fix(as311): porta fielmente la Cholesky MODIFICADA del C`),
-y de paso cerró los tres tests de paridad con el C que su suite arrastraba.
+### 5.3. The modified Cholesky (a drvarma porting bug)
 
-### 5.4. `compimp` degradado a `pulse` (bug de fue Python) — CORREGIDO
+The embedded cast was blocked: `elf` rejected it with `ifault = 3`. The cause was
+not in drtran: drvarma's `_chol_lower` used `np.linalg.cholesky` (**the strict
+one**) where the C uses the **MODIFIED** Cholesky (`nlatools.c:choldcp`), which
+accepts semidefinite matrices. Since the embedded cast produces a singular Phi_p
+**by construction**, the strict one knocked it down.
 
-Buscando reproducir los objetivos de m6 apareció una discrepancia de 1.9 en el
-escalón diagonal, que no era de drtran. La bisección la puso donde estaba:
+Fixed in drvarma (`fix(as311): faithfully port the C's MODIFIED Cholesky`), and it
+closed along the way the three C-parity tests its suite had been carrying.
 
-1. la conjunta diagonal de m6 no coincidía con el C ni evaluando en su óptimo;
-2. con Σ estrictamente diagonal tampoco ⇒ no era la covarianza ni la red;
-3. serie a serie, evaluando **en el óptimo de fue C**, cinco de las seis clavaban
-   a 5e-8 y sólo **EI** difería: −292.495 frente a −290.613.
+### 5.4. `compimp` degraded to `pulse` (a fue Python bug) — FIXED
 
-EI es la única de las seis con un determinista **`compimp`**, el impulso
-*compensado*: +1 en la fecha y **−1 en la siguiente** (`fue_pre_reader.c:194`,
-`fue.c:317`). El lector de fue Python lo mapea a `pulse` a secas
-(`fue/inp.py:276`), y se come el −1.
+While trying to reproduce m6's targets a discrepancy of 1.9 appeared on the
+diagonal rung, and it was not drtran's. Bisection put it where it was:
 
-Confirmado con respuesta conocida: reconstruyendo a mano el regresor compensado
-(+1, −1) sobre el mismo `.pre` y los mismos coeficientes, fue Python da
-**−290.613205**, exactamente fue C.
+1. m6's diagonal joint fit did not match the C even when evaluated at its optimum;
+2. with a strictly diagonal Sigma it still did not => it was neither the
+   covariance nor the network;
+3. series by series, evaluating **at fue C's optimum**, five of the six matched to
+   5e-8 and only **EI** differed: −292.495 against −290.613.
 
-**Corregido en fue 0.1.9** (BUG-0006), junto con otros dos huecos que la revisión
-de los nueve deterministas destapó: `easter` y `trend` no existían en el puerto, y
-—esto en el propio fue C, BUG-0007— su escritor del `.pre` los perdía, de modo que
-**fue C no podía releer su propio `.pre`**. De paso se unificó el vocabulario:
-`impulse` es el nombre canónico, porque fue C **no rechaza** una palabra que no
-conoce, la toma por variable no estándar y estima otra cosa en silencio.
+EI is the only one of the six with a **`compimp`** deterministic, the
+*compensated* impulse: +1 at the date and **−1 at the next**
+(`fue_pre_reader.c:194`, `fue.c:317`). fue Python's reader mapped it to a plain
+`pulse` (`fue/inp.py:276`), and swallowed the −1.
 
-Con eso, los objetivos canónicos de m6 se reproducen: **diagonal −1709.511575**
-(dif 5.0e-07) y **red libre −1697.613401** (dif 5.9e-07). La validación sobre las
-cinco series limpias se conserva: ejercita la misma maquinaria sin depender de la
-versión de fue que haya instalada.
+Confirmed with a known answer: rebuilding the compensated regressor (+1, −1) by
+hand on the same `.pre` with the same coefficients, fue Python gives
+**−290.613205**, exactly fue C.
 
-## 6. Homologación con el binario
+**Fixed in fue 0.1.9** (BUG-0006), together with two other gaps the review of the
+nine deterministics uncovered: `easter` and `trend` did not exist in the port,
+and — this one in fue C itself, BUG-0007 — its `.pre` writer lost them, so that
+**fue C could not reread its own `.pre`**. The vocabulary was unified along the
+way: `impulse` is the canonical name, because fue C **does not reject** a word it
+does not know, it takes it for a non-standard variable and silently estimates
+something else.
 
-`test_homologacion_c.py` (12) y `test_red.py` (15) **relanzan el binario en vivo**
-en vez de comparar contra referencias guardadas, para no arrastrar cifras
-obsoletas cuando el C cambia.
+With that, m6's canonical targets are reproduced: **diagonal −1709.511575**
+(diff 5.0e-07) and **free network −1697.613401** (diff 5.9e-07). The validation on
+the five clean series is kept: it exercises the same machinery without depending
+on which version of fue is installed.
 
-Caso canónico `ES_CPI_m10` ← `WTI_ar1` (entrada con μ = 0):
+## 6. Homologation with the binary
 
-| (b,r,s) | cast por resta | cast empotrado |
+`test_homologation_c.py` and `test_network.py` **relaunch the binary live**
+instead of comparing against stored references, so as not to carry stale figures
+when the C changes.
+
+Canonical case `ES_CPI_m10` <- `WTI_ar1` (input with mu = 0):
+
+| (b,r,s) | subtracting cast | embedded cast |
 |---|---|---|
 | (0,0,0) | −736.774158 | −736.774158 |
 | (0,1,0) | −721.720197 | −721.801539 |
@@ -384,8 +428,8 @@ Caso canónico `ES_CPI_m10` ← `WTI_ar1` (entrada con μ = 0):
 | (1,1,1) | −756.528944 | −756.602851 |
 | diagonal | −767.424341 | −767.424341 |
 
-Caso que discrimina la convención de medias, `ES_CPI_m10` ← `DE_CPI_mar3sar`
-(**las dos con media libre**), cast empotrado:
+The case that discriminates the means convention, `ES_CPI_m10` <-
+`DE_CPI_mar3sar` (**both with a free mean**), embedded cast:
 
 | | drtran C | drtran Python |
 |---|---|---|
@@ -393,76 +437,85 @@ Caso que discrimina la convención de medias, `ES_CPI_m10` ← `DE_CPI_mar3sar`
 | (0,0,1) | 35.487981 | 35.487981 |
 | (0,1,1) | 35.555382 | 35.555382 |
 
-Y la cadena entera en el diagonal de ese mismo caso: fue C (−7.3917271 +
-11.2056885) = **3.8139613** = fue Python = drtran C (3.813961) = drtran Python
-(3.8139611).
+And the whole chain on that same case's diagonal: fue C (−7.3917271 + 11.2056885)
+= **3.8139613** = fue Python = drtran C (3.813961) = drtran Python (3.8139611).
 
-**La RED**, sobre cinco series de m6 (EP, EU, EC, EA, P) con el DAG
-EP ← EU, EP ← EC, EU ← EC (cadena EC → EU → EP, una entrada con dos salidas y un
-denominador r=1) y dos covarianzas libres:
+**THE NETWORK**, on five m6 series (EP, EU, EC, EA, P) with the DAG EP <- EU,
+EP <- EC, EU <- EC (the chain EC -> EU -> EP, one input with two outputs and a
+denominator with r=1) and two free covariances:
 
-| | drtran C | puerto | dif |
+| | drtran C | port | diff |
 |---|---|---|---|
-| red libre (40 libres / 48 slots) | −1434.696068 | −1434.696068 | 1.9e-10 |
-| + producto + comb. lineal (38 libres) | −1439.505804 | −1439.505804 | 9.4e-08 |
-| red de 3 series, **optimizada** (24 libres) | −912.244333 (181 it) | −912.244333 (180 it) | 9.0e-08 |
+| free network (40 free / 48 slots) | −1434.696068 | −1434.696068 | 1.9e-10 |
+| + product + linear comb. (38 free) | −1439.505804 | −1439.505804 | 9.4e-08 |
+| 3-series network, **optimised** (24 free) | −912.244333 (181 it) | −912.244333 (180 it) | 9.0e-08 |
 
-Las dos primeras filas evalúan **en el óptimo del C** y prueban el *cast*; la
-tercera arranca en el escalón diagonal y prueba la *búsqueda*. Son cosas
-distintas y conviene no confundirlas: un cast correcto con un optimizador que no
-llega, y un optimizador que llega sobre un cast torcido, fallan de maneras muy
-diferentes.
+The first two rows evaluate **at the C's optimum** and test the *cast*; the third
+starts on the diagonal rung and tests the *search*. They are different things and
+worth not confusing: a correct cast with an optimizer that does not arrive, and an
+optimizer that arrives on a crooked cast, fail in very different ways.
 
-## 7. Cómo reproducirlo
+**THE FORECAST**, canonical case with `-b 0 -r 0 -s 1 -V -f 6`, both series, in
+original units and against the C's own table:
+
+| | drtran C | port |
+|---|---|---|
+| ES_CPI 1–6/2020 | 82.01 82.02 82.38 83.17 83.33 83.44 | the same |
+| s.e. | 0.24 0.44 0.60 0.74 0.85 0.95 | the same |
+| WTI 1–6/2020 | 60.76 … 61.14, s.e. 8.29 … 27.10 | the same |
+
+## 7. How to reproduce it
 
 ```sh
-# el puerto
-cd ~/Dropbox/SRC/drtran-python && python -m pytest -q          # 77 passed, ~7 min
+# the port
+cd ~/Dropbox/SRC/drtran-python && python -m pytest -q          # 111 passed, ~3 min
 
-# el original
+# the original
 cd ~/Dropbox/SRC/drtran && make && ./test_battery.sh           # 296 PASS, 0 FAIL
 
-# una comparación puntual
+# a one-off comparison
 ./bin/drtran tests/cases/ES_CPI_m10.pre tests/cases/DE_CPI_mar3sar.pre \
              -b 0 -r 0 -s 1 -V -o /tmp/t.out | grep '^Log-likelihood'
 ```
 
-### Trampas al comparar con el binario
+### Traps when comparing with the binary
 
-- **No extraigas la verosimilitud con `grep -oE '[0-9]+\.[0-9]+' | tail -1`.** Eso
-  captura la **p de exogeneidad** del bloque de diagnósticos, no el logL. Un falso
-  positivo de divergencia C ↔ Python vino exactamente de ahí: parecía 0.1630 contra
-  35.487981 cuando los dos daban 35.487981. Filtra por `^Log-likelihood`.
-- `-V` es el cast **empotrado** y `-S` el de **resta**; comparar uno con otro mide
-  el truncamiento, no un error.
-- Las series con μ = 0 **no discriminan** la convención de medias (§5.2).
+- **Do not extract the likelihood with `grep -oE '[0-9]+\.[0-9]+' | tail -1`.**
+  That captures the **exogeneity p-value** from the diagnostics block, not the
+  logL. A false positive of a C <-> Python divergence came from exactly there: it
+  looked like 0.1630 against 35.487981 when both gave 35.487981. Filter by
+  `^Log-likelihood`.
+- `-V` is the **embedded** cast and `-S` the **subtracting** one; comparing one
+  with the other measures the truncation, not an error.
+- Series with mu = 0 **do not discriminate** the means convention (§5.2).
+- The C's forecast table publishes two decimals; comparing strings makes 83.44
+  fail against 83.4398 for no reason but the rounding. Compare numbers.
 
-## 8. Lo que falta
+## 8. What is missing
 
-- **Round-trip de escritura**: `estimar → .pre → releer` (§3.1).
-- **El m6 canónico**, bloqueado por el `compimp` de fue Python (§5.4). Dianas del
-  C para cuando se desbloquee: diagonal **−1709.511575**, red libre
-  **−1697.613401**. La maquinaria de la red ya está validada sobre las cinco
-  series limpias de m6 (§3, paso 5).
-- **Identificación de la red** (`-i` / `-g` del C): leer las CCF de los residuos
-  del diagonal para PROPONER el DAG y las covarianzas, y escribir el `.dag` y el
-  `.cns` de arranque. `identify.py` ya hace la parte bivariante.
-- **Diagnósticos** de `diagnose.c`: portmanteau de la transferencia (k ≥ 0, incluye
-  el contemporáneo) y de exogeneidad (k < 0, detecta retroalimentación Y → X).
-- **Previsión y CLI.**
+- **The write round trip**: `estimate -> .pre -> reread` (§3.1).
+- **Standard errors.** The Hessian is not computed, so the parameter table has no
+  `s.e.`/`t` column. The C does give it. It is what is left for the report to be
+  comparable line by line.
+- What the C prints and the CLI does not yet: the forecast-error variance
+  decomposition, the monthly and annual variation columns, and the estimated
+  nu(k) weights with their standard errors.
+- The C-only options: aggregates (`-a`), fixed-window estimation
+  (`-estwin`/`-R`), the rolling out-of-sample errors (`-C`) and the LaTeX report
+  (`-L`).
 
-### Heredado del C — vigilar
+### Inherited from the C — to watch
 
-- **El optimizador se degrada con `refactor = 1`.** En el C cuelga > 2 min sin
-  converger con Δlog ~0.002, y converge en 23 iteraciones con `refactor = 100`. El
-  paso de diferencias finitas de `cdgrad` (~6e-6 absoluto) tiene relación
-  señal/paso pésima a escala cruda. El puerto hereda `_qnewt` de drvarma, así que
-  probablemente hereda la fragilidad. `check_scale()` ya avisa; falta decidir si
-  además condicionar internamente.
-- **`termcode 3` NO es fallo aquí.** Arrancando en las semillas del `.pre` (que en
-  el diagonal ya SON el óptimo) la búsqueda lineal no puede mejorar y para.
-  Clasificación correcta: 1–2 convergencia, **3 parada sin mejora**, 4–5 fallo real.
-  El test adecuado es perturbar las preestimaciones y comprobar que converge por
-  gradiente al mismo punto. NB: multiart (drvarma) **sí** rechaza termcode 3 en su
-  búsqueda de orden, donde las semillas son OLS. Los dos criterios conviven; no
-  confundirlos.
+- **The optimizer degrades with `refactor = 1`.** In the C it hangs for over 2
+  minutes without converging at Delta-log ~0.002, and converges in 23 iterations
+  with `refactor = 100`. `cdgrad`'s finite-difference step (~6e-6 absolute) has a
+  terrible signal-to-step ratio at raw scale. The port inherits `_qnewt` from
+  drvarma, so it probably inherits the fragility. `check_scale()` already warns;
+  whether to also condition internally is still to be decided.
+- **`termcode 3` is NOT a failure here.** Starting from the `.pre`'s seeds (which
+  on the diagonal already ARE the optimum) the line search cannot improve and
+  stops. The correct classification: 1–2 convergence, **3 stopped without
+  improvement**, 4–5 a real failure. The right test is to perturb the
+  pre-estimates and check that it converges by gradient to the same point. NB:
+  multiart (drvarma) **does** reject termcode 3 in its order search, where the
+  seeds are OLS. The two criteria coexist; do not confuse them.
