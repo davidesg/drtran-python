@@ -116,6 +116,24 @@ FIXED WINDOW AND OUT-OF-SAMPLE EVALUATION
            read side by side. (The C's -L writes LaTeX; the Python ports write
            HTML. Needs jinja2 and matplotlib.)
 
+BEYOND THE C
+  -W       write back one `.pre` per series with the JOINTLY re-estimated
+           univariate block, as NAME.1.pre beside the input. The C has no
+           equivalent; every other letter here is its own, and a command line
+           written for the C never carries a -W.
+           The univariate blocks MOVE when the transfer is fitted beside them,
+           and this is how those estimates leave the program: into a MODIFIED
+           specification, or back to fue and fuf, which can read the result.
+           It is NOT a better starting point -- the written .pre evaluates WORSE
+           on the diagonal (-772.84 against -767.42 on the canonical case),
+           necessarily, since the diagonal's optimum is fue's separate estimates
+           by definition. Both reach the same joint optimum.
+           The transfer is NOT written -- a .pre is a univariate file and has
+           nowhere to put omega(B)/delta(B) -- so re-declare the network
+           with -n/-c.
+           Never overwrites an input file. Not available with -Q, since a .pre
+           carries standard errors.
+
 AGGREGATES  (accounting identities)
   -a FILE  linear combinations of the series, reported with the forecast:
 
@@ -129,7 +147,7 @@ AGGREGATES  (accounting identities)
            is c'Vc, with V the full forecast error covariance. Requires -f.
 """
 
-_OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:Q"
+_OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:QW"
 
 _NOT_PORTED = {}
 
@@ -446,7 +464,7 @@ def main(argv=None):
              model_name=None, outfile=None, cons=None, net=None, guide=None,
              prewhiten_only=False, net_ident=False, no_transfer=False,
              no_stderr=False, estwin=0, rolling_csv=None, html_report=False,
-             aggr=None,
+             aggr=None, write_pre=False,
              embed=True, verbose=False,
              fix_out_arma=False, fix_inp_arma=False, fix_out_det=False,
              fix_inp_det=False, fix_mu=False)
@@ -504,6 +522,8 @@ def main(argv=None):
             o["html_report"] = True
         elif flag == "-a":
             o["aggr"] = arg
+        elif flag == "-W":
+            o["write_pre"] = True
         elif flag == "-N":
             o["fix_out_arma"] = True
         elif flag == "-X":
@@ -697,6 +717,31 @@ def _run(o, files):
         parts.append("")
         parts.append(report_aggregates(
             forecast_aggregates(fcA, cs, aggs)))
+
+    # ── write the re-estimated univariate blocks back out ────────────────────
+    if o["write_pre"]:
+        from .pre import next_pre_path
+        from .pre import write_pre as _wpre
+        if se is None or se.ifault:
+            raise CliError("-W needs the standard errors, which a .pre carries; "
+                           "it cannot be combined with -Q")
+        written = []
+        inputs = {os.path.abspath(p) for p in files}
+        for i, src in enumerate(files):
+            target = next_pre_path(src)
+            if os.path.abspath(target) in inputs:
+                raise CliError(f"-W would overwrite the input {target}")
+            _wpre(f, series=i, path=target, std_errors=se)
+            written.append(target)
+        parts.append("")
+        parts.append("  Re-estimated univariate blocks written to:")
+        for t in written:
+            parts.append(f"    {t}")
+        parts.append("  The transfer is not in them: re-declare the network "
+                     "with -n/-c.")
+        parts.append("  These are optimal WITH the transfer, so they evaluate "
+                     "worse on the diagonal")
+        parts.append("  than the originals do. That is expected, not a fault.")
 
     # ── the SPS report, fuf's own ────────────────────────────────────────────
     if o["html_report"]:

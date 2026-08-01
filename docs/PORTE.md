@@ -369,6 +369,37 @@ identical to the C.
 With this **every option of the C is implemented** and the CLI's refusal list is
 empty. A test pins that it stays empty.
 
+### Step 12 — the write round trip, and a framing that was wrong
+
+`-W` writes each series' jointly re-estimated univariate block back out as a
+`.pre`. The TODO had recorded this as blocked because `write_pre` "requires the
+fitted model"; the real requirement is a `_result` carrying `.params` **and
+`.std_errors`** in `count_npar_build_par` order. The params were always there.
+The standard errors were not — so the blocker dissolved the moment those were
+implemented, several steps later, and nobody noticed because the note had been
+carried forward unverified.
+
+The framing under which the feature was requested was **"re-start the diagonal
+from the best point"**, and it is wrong. Measured:
+
+| starting point | diagonal log-likelihood at the seeds |
+|---|---|
+| the original `.pre` (fue run separately) | −767.424341 |
+| the written `.1.pre` (joint blocks) | −772.840628 |
+
+Worse, and necessarily so. The blocks written are optimal *with the transfer in
+the model*; the diagonal's optimum is by definition fue's separate estimates —
+which is the gate this whole port rests on (§3, step 2). Both starting points
+reach the same joint optimum, −718.287406, in the same 25 iterations.
+
+What the round trip is actually for: carrying the estimates into a **modified**
+specification, and handing them back to fue and fuf, which can read a `.pre`.
+The transfer is not written, because a `.pre` is a univariate file with nowhere
+to put omega(B)/delta(B); the network is re-declared with `-n`/`-c`.
+
+A test pins the "worse diagonal" figure, so the claim cannot creep back into the
+documentation.
+
 ### Step 7 — diagnostics, forecasting and the CLI
 
 `diagnose.py` ports the transfer's portmanteau (k >= 0, which includes the

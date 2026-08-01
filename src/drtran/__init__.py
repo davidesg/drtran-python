@@ -46,14 +46,14 @@ from .irf import ImpulseResponse, impulse_response, report_irf
 from .netid import (Candidate, IdentifiedNetwork, identify_network,
                     report_network, residuals, write_guided)
 from .network import check_acyclic, find_cycle, read_dag, write_dag
-from .pre import PreSpec, check_scale, load_pre
+from .pre import PreSpec, check_scale, load_pre, next_pre_path, write_pre
 from .report import build_forecast_result, write_forecast_report
 from .slots import Slot, SlotTable, build_slots, read_cns
 
 __version__ = "0.0.1"
 
 __all__ = [
-    "PreSpec", "load_pre", "check_scale",
+    "PreSpec", "load_pre", "check_scale", "write_pre", "next_pre_path",
     "Aggregate", "read_aggregates", "forecast_aggregates", "report_aggregates",
     "write_forecast_report", "build_forecast_result",
     "Link", "build_cast_spec", "build_sigma", "cast_diagonal", "compute_irf",

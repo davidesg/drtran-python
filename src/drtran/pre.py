@@ -107,3 +107,92 @@ def check_scale(spec, minimum=10.0):
                 f"signal-to-step ratio and the optimizer may not converge. "
                 f"Regenerate the .pre with refactor=100.")
     return None
+
+
+def write_pre(fit, series=0, path=None, std_errors=None):
+    """Write back a `.pre` with the JOINTLY re-estimated univariate block.
+
+    fue leaves a `.pre`, drtran reads it as a seed and re-estimates everything
+    together — and the univariate blocks **move** while it does: on the canonical
+    case the two `omega_d1` go from their univariate seeds to -0.040867 and
+    -0.094588 once the transfer is fitted beside them. This writes that back.
+
+    **What it is not.** It is not a better starting point. Measured on the
+    canonical case, the written `.pre` evaluates at -772.840628 on the diagonal
+    where the original evaluates at -767.424341 — WORSE, and necessarily so: the
+    blocks written here are optimal *with the transfer in the model*, and the
+    diagonal's optimum is by definition fue's separate estimates. That is the
+    gate this whole port is built on. Both starting points reach the same joint
+    optimum (-718.287406) in the same number of iterations.
+
+    **What it is for**, then:
+
+    * carrying the estimates into a MODIFIED specification — add a lag, free a
+      covariance — so the next model starts from the best current description of
+      each series rather than from the pre-transfer one;
+    * handing the joint estimates back to fue and fuf, since the result is a
+      valid `.pre` and those programs can read, plot and forecast from it;
+    * the record: a `.pre` is the human-readable statement of what was estimated.
+
+    What is NOT written is the transfer. A `.pre` is a UNIVARIATE file: it has
+    room for the series' ARMA, deterministics and mean, and nowhere to put
+    omega(B)/delta(B). That is the design, not a gap — the network is declared
+    separately in the `.dag` and the `.cns`, and `x0_from_pre` deliberately
+    starts the transfers at zero.
+
+    `fue.report.write_pre` wants a fitted `fue.Model`, i.e. one carrying a
+    `_result` with `.params` and `.std_errors` walked in `count_npar_build_par`
+    order. drtran's model was not fitted by fue, so that is built here from the
+    joint fit. The order needs no translation: `build_slots` is already an exact
+    mirror of `fue.cast_us._build_initial_x`, which is the same enumeration.
+
+    `std_errors` defaults to computing them, which is the expensive part; pass a
+    `StdErrors` to reuse one. They are required — `_extract_fitted` reads them —
+    so this cannot be done on a fit whose Hessian was refused.
+    """
+    import copy
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from .estimate import standard_errors, unpack
+
+    cs = fit.cast_spec
+    sc = cs.series[series]
+    if path is None:
+        raise ValueError("write_pre needs a path")
+
+    if std_errors is None:
+        std_errors = standard_errors(fit)
+    if std_errors.ifault:
+        raise RuntimeError(
+            "the standard errors are not available (the Hessian at this point "
+            f"is not usable: ifault={std_errors.ifault}), and a .pre carries "
+            "them; re-estimate before writing one")
+
+    params = np.asarray(unpack(fit)["series"][series], float)
+    off = cs.npar_links + sum(s.npar for s in cs.series[:series])
+    se = np.asarray(std_errors.se_of_slot[off:off + sc.npar], float)
+    # a slot the `.cns` fixed has no standard error; the `.pre` still needs a
+    # number in the column, and zero is the honest one for a fixed parameter
+    se = np.nan_to_num(se, nan=0.0)
+
+    model = copy.deepcopy(sc.spec.model)
+    model._result = SimpleNamespace(params=params, std_errors=se)
+    model.write_pre(str(path))
+    return str(path)
+
+
+def next_pre_path(source, suffix=1):
+    """`ES_CPI_m10.pre` -> `ES_CPI_m10.1.pre`, fue's iteration convention.
+
+    Deliberately never the source path: overwriting the input of the run that
+    produced it destroys the only record of where the estimates came from, and
+    makes the run unrepeatable.
+    """
+    import os
+
+    base = os.path.basename(str(source))
+    stem = base[:-4] if base.lower().endswith(".pre") else base
+    return os.path.join(os.path.dirname(str(source)) or ".",
+                        f"{stem}.{suffix}.pre")

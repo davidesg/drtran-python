@@ -19,9 +19,29 @@ in the original.
       phi 0.402839 / 0.299193, logL −7.3917 / −760.0326, and the SUM gives
       **−767.424341** (diff 7.6e-09), which is the joint fit's target.
       Tests: `tests/test_baseline_univariate.py` (3).
-- [ ] **The write round trip.** `model.write_pre()` requires the fitted model, so
-      the cycle `estimate -> .pre -> reread` is still untested. It is what closes
-      continuity towards the next rung. It does not block the cast.
+- [x] **The write round trip — DONE** (`pre.write_pre`, CLI `-W`). It was not
+      blocked by what the TODO said. `fue.report.write_pre` needs a `_result`
+      with `.params` **and `.std_errors`**, walked in `count_npar_build_par`
+      order; the params were always available, the standard errors were not
+      until they were implemented this session. The order needs no translation:
+      `build_slots` is already an exact mirror of `_build_initial_x`.
+      Writes `NAME.1.pre` beside each input, never over it. `-W` is the only
+      letter in the CLI the C does not have, so it is documented as an
+      extension; a command line written for the C never carries one.
+      **The framing this was requested under was wrong, and the correction is
+      the interesting part.** "Re-start the diagonal from the best point" is not
+      what it does: the written `.pre` evaluates at −772.840628 on the diagonal
+      where the original gives −767.424341 — WORSE, and necessarily, because the
+      blocks written are optimal *with the transfer in the model* while the
+      diagonal's optimum is by definition fue's separate estimates. That is the
+      gate the whole port rests on. Both starts reach the same joint optimum
+      (−718.287406) in the same 25 iterations.
+      What it IS for: carrying the estimates into a modified specification, and
+      handing them back to fue and fuf, which can read the result.
+      The transfer is not written — a `.pre` is univariate and has nowhere to
+      put omega(B)/delta(B). The network is re-declared with `-n`/`-c`.
+      Tests: `tests/test_write_pre.py` (5), one of which pins the "worse
+      diagonal" fact so the claim cannot creep back.
 - [ ] **The STD columns are RELATIVE, and the report now says so.** Every `STD`
       the forecast table prints is in the transformed scale — with a log model, a
       percentage — including the one beside the LEVEL. The C's table does the
