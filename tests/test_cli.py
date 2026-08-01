@@ -115,8 +115,6 @@ def test_what_is_not_ported_is_refused_not_ignored():
     question, with no sign that anything was dropped."""
     code, _out, err = run(ES, WTI, "-a", "x.txt")
     assert code == 2 and "not ported" in err
-    code, _out, err = run(ES, WTI, "-L")
-    assert code == 2 and "not ported" in err
 
 
 def test_estwin_is_the_same_option_as_R():

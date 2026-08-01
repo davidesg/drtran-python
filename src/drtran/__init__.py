@@ -37,19 +37,22 @@ from .evaluate import (RollingEval, fixed_window_fit, report_rolling,
                        rolling_evaluation, truncate, write_rolling_csv)
 from .forecast import (Forecast, error_variance, forecast,
                        forecast_mean, integrated_weights, psi_weights,
-                       report_forecast, to_level, variance_decomposition)
+                       level_band, report_forecast, to_level,
+                       variance_decomposition)
 from .identify import Identification, identify, prewhiten, report
 from .irf import ImpulseResponse, impulse_response, report_irf
 from .netid import (Candidate, IdentifiedNetwork, identify_network,
                     report_network, residuals, write_guided)
 from .network import check_acyclic, find_cycle, read_dag, write_dag
 from .pre import PreSpec, check_scale, load_pre
+from .report import build_forecast_result, write_forecast_report
 from .slots import Slot, SlotTable, build_slots, read_cns
 
 __version__ = "0.0.1"
 
 __all__ = [
     "PreSpec", "load_pre", "check_scale",
+    "write_forecast_report", "build_forecast_result",
     "Link", "build_cast_spec", "build_sigma", "cast_diagonal", "compute_irf",
     "x0_from_pre",
     "cast_embedded", "loglik_embedded", "normalize_phi0",
@@ -60,7 +63,7 @@ __all__ = [
     "report_rolling", "write_rolling_csv",
     "Identification", "identify", "prewhiten", "report",
     "ImpulseResponse", "impulse_response", "report_irf",
-    "Forecast", "forecast", "report_forecast", "psi_weights",
+    "Forecast", "forecast", "report_forecast", "level_band", "psi_weights",
     "error_variance", "integrated_weights", "forecast_mean", "to_level",
     "variance_decomposition",
     "Candidate", "IdentifiedNetwork", "identify_network", "report_network",

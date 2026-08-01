@@ -323,6 +323,33 @@ attach an error to. And without one the standard errors come back NaN rather
 than zero — a zero standard error reads as infinite precision, which is the
 opposite of "not computed".
 
+### Step 10 — the SPS report, and what it uncovered about the scales
+
+`-L` writes fuf's report, not a second one invented here. fuf is the family's
+univariate forecast program and its Python port lives inside fue
+(`fue.report_forecast`); `report.py` adapts drtran's joint forecast into the
+`ForecastResult` and model that writer already expects and calls it. A reader who
+gets a univariate report from fuf and a transfer-function report from drtran sees
+**the same page** and can compare them without first working out which numbers
+mean the same thing. The C's `-L` writes LaTeX and the Python ports write HTML;
+the port follows the Python side, because that is what sharing a format means.
+
+Wiring it forced a question that had been quietly wrong until then: **what scale
+are the standard errors in?** fuf divides `level_std` by `refactor` and the page
+multiplies by 100 to print a percentage — which only makes sense if the standard
+error is relative. The C's own band settles it. For 1/2020 it publishes
+82.0149 -> [81.6280, 82.4035], a half-width of 0.389. A symmetric band from
+1.96 * 0.2412 would be 0.473. Exponentiating in the transformed scale,
+82.0149 * exp(+/-1.96 * 0.002412) gives [81.627, 82.404) — the C's numbers.
+
+So `se("level")` is the standard error of `100*log(level)`: a **percentage**, not
+index points, and the level's band is multiplicative and therefore ASYMMETRIC.
+The port's `report_forecast` had been pairing a level with it and adding 1.96 of
+them, producing a symmetric band 20 % too wide. It now reports `w` — which is
+what `fc.f` actually holds — and `level_band` builds the level's band the way the
+C does. The CLI's footnote, which used to say the level's s.e. was "in original
+units", says the opposite now, which is the truth.
+
 ### Step 7 — diagnostics, forecasting and the CLI
 
 `diagnose.py` ports the transfer's portmanteau (k >= 0, which includes the

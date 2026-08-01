@@ -256,14 +256,25 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
                     phi0=np.asarray(phi0, float))
 
 
-def report_forecast(fc, series=0, which="level"):
-    """The forecast table for one series, with its 95 % band."""
+def report_forecast(fc, series=0, which="w"):
+    """The forecast of the STATIONARY series `w`, with its band.
+
+    Deliberately not the level: `fc.f` holds `w`, and the standard errors this
+    object carries are in the **transformed** scale — `se("level")` is the
+    standard error of `100*log(level)`, i.e. a percentage, not a number of index
+    points. Pairing a level with it and adding 1.96 of them would give a
+    symmetric band in the wrong units; on the canonical case that is +/-0.47
+    where the right answer is +/-0.39, because with a log model the level's band
+    comes from exponentiating and is ASYMMETRIC.
+
+    For the level, use `to_level` and `report_level`.
+    """
     name = fc.names[series] if fc.names else f"series {series + 1}"
     se = fc.se(which, series)
     L = ["=" * 61,
-         f"  FORECAST — {name}  ({which})",
+         f"  FORECAST of w — {name}  (s.e. of the '{which}' filter)",
          "=" * 61,
-         "   h    forecast      s.e.        95% interval",
+         "   h        w        s.e.        95% interval",
          "  " + "-" * 55]
     for l in range(fc.L):
         v, e = fc.f[l, series], se[l]
@@ -271,6 +282,35 @@ def report_forecast(fc, series=0, which="level"):
                  f"[{v - 1.96 * e:10.4f}, {v + 1.96 * e:10.4f}]")
     L.append("=" * 61)
     return "\n".join(L)
+
+
+def level_band(fc, cast_spec, series=0, origin=None, z=1.96):
+    """The level forecast with its 95 % band, built the way the C builds it.
+
+    The standard error lives in the TRANSFORMED scale, so the band is formed
+    there and mapped back through the inverse Box-Cox. With a log model that
+    makes it multiplicative and therefore asymmetric around the point forecast —
+    which is the honest shape: a level cannot go negative, and a symmetric band
+    on a log-modelled series pretends it can.
+
+    Checked against the C's own table: 82.0149 -> [81.6280, 82.4035], where a
+    symmetric +/-1.96*0.2412 would have given [81.5421, 82.4877].
+    """
+    from fue.cast_us import _boxcox
+    from fue.forecast import _inv_boxcox
+
+    model = cast_spec.series[series].spec.model
+    lam, refc = model.boxlam, model.refactor
+    level = to_level(fc, cast_spec, series=series, origin=origin)
+    se = fc.se("level", series)
+
+    lo = np.empty(len(level))
+    hi = np.empty(len(level))
+    for l in range(len(level)):
+        zt = _boxcox(level[l], lam, refc)
+        lo[l] = _inv_boxcox(zt - z * se[l], lam, refc)
+        hi[l] = _inv_boxcox(zt + z * se[l], lam, refc)
+    return level, lo, hi
 
 
 # ── back to the level ────────────────────────────────────────────────────────

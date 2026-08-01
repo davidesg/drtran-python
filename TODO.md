@@ -22,6 +22,14 @@ in the original.
 - [ ] **The write round trip.** `model.write_pre()` requires the fitted model, so
       the cycle `estimate -> .pre -> reread` is still untested. It is what closes
       continuity towards the next rung. It does not block the cast.
+- [ ] **The STD columns are RELATIVE, and the report now says so.** Every `STD`
+      the forecast table prints is in the transformed scale — with a log model, a
+      percentage — including the one beside the LEVEL. The C's table does the
+      same. Found while wiring fuf's report: a 95 % band for the level has to be
+      formed in that scale and mapped back, so it is NOT symmetric. 82.01 gives
+      [81.63, 82.40] and not the [81.54, 82.49] that adding 1.96 s.e. to the
+      level suggests — the C's own band agrees. `drtran.level_band` does it
+      correctly and `report_forecast` no longer pretends to report the level.
 
 ## Step 1 — the cast — DONE (diagonal case)
 
@@ -352,8 +360,21 @@ in the original.
       one in place trims the other and the evaluation would score against the
       data it was made from. `truncate` deep-copies; a test pins it.
       Tests: `tests/test_evaluate.py` (13).
-- [ ] The remaining C-only options: aggregates (`-a`) and the LaTeX report
-      (`-L`). Both are presentation; the CLI refuses them with exit code 2.
+- [x] **The SPS forecast report (`-L`) — DONE** (`report.py`). It is **fuf's own
+      report, adapted, not a second one invented here**: fuf's Python port lives
+      inside fue (`fue.report_forecast`) and drtran feeds it a `ForecastResult`
+      and a model copy. So a univariate report from fuf and a transfer-function
+      report from drtran are the same page and can be read side by side.
+      The C's `-L` writes LaTeX; the Python ports write HTML. The port follows
+      the Python side — that is what "the same format for both ports" means.
+      Two things do not carry over for free: the **scales** (fuf's `level_std`
+      is divided by `refactor` because the page multiplies by 100 to print a
+      percentage) and the **residuals** (the ERR column reads
+      `model._result.residuals`, which a model fue did not fit does not have —
+      attached to a COPY, since `model.series` IS the spec's `ts`).
+      Tests: `tests/test_report.py` (6).
+- [ ] The last C-only option: aggregates (`-a`). The CLI refuses it with exit
+      code 2.
 
 ## Inherited from the C — to watch in the port
 

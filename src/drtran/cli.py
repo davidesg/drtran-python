@@ -109,15 +109,21 @@ FIXED WINDOW AND OUT-OF-SAMPLE EVALUATION
            another -- run it on two specifications and compare.
   -C FILE  also write the per-origin errors to FILE (CSV).
 
+  -L       also write NAME.html, the SPS forecast report: table plus a
+           two-panel chart, self-contained. It is **fuf's own report**, not a
+           second one invented here, so a univariate report from fuf and a
+           transfer-function report from drtran are the same page and can be
+           read side by side. (The C's -L writes LaTeX; the Python ports write
+           HTML. Needs jinja2 and matplotlib.)
+
 NOT PORTED YET (refused rather than ignored)
-  -a FILE  aggregates        -L  LaTeX report
+  -a FILE  aggregates
 """
 
 _OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:Q"
 
 _NOT_PORTED = {
     "-a": "aggregates (-a)",
-    "-L": "the LaTeX report (-L)",
 }
 
 
@@ -405,9 +411,13 @@ def _forecast_block(fit, cast_spec, horizon, origin):
         out.append("=" * 78)
 
     out += ["",
-            "  Note: the level's s.e. is in original units; the variations are",
-            "  differences of the transformed level, so with a log model they",
-            "  are percentages. With a Box-Cox the level band is not symmetric."]
+            "  Note: every STD column is in the TRANSFORMED scale -- with a log",
+            "  model, a percentage -- including the one beside the LEVEL, which",
+            "  is therefore a RELATIVE standard error, not a number of index",
+            "  points. The C's table does the same. A 95% band for the level is",
+            "  formed in that scale and mapped back, so it is not symmetric:",
+            "  `drtran.level_band` does it, and 82.01 gives [81.63, 82.40],",
+            "  not the [81.54, 82.49] a symmetric band would suggest."]
     return "\n".join(out)
 
 
@@ -428,7 +438,7 @@ def main(argv=None):
     o = dict(opt_b=None, opt_r=None, opt_s=None, horizon=0, origin=None,
              model_name=None, outfile=None, cons=None, net=None, guide=None,
              prewhiten_only=False, net_ident=False, no_transfer=False,
-             no_stderr=False, estwin=0, rolling_csv=None,
+             no_stderr=False, estwin=0, rolling_csv=None, html_report=False,
              embed=True, verbose=False,
              fix_out_arma=False, fix_inp_arma=False, fix_out_det=False,
              fix_inp_det=False, fix_mu=False)
@@ -482,6 +492,8 @@ def main(argv=None):
             o["estwin"] = int(arg)
         elif flag == "-C":
             o["rolling_csv"] = arg
+        elif flag == "-L":
+            o["html_report"] = True
         elif flag == "-N":
             o["fix_out_arma"] = True
         elif flag == "-X":
@@ -657,6 +669,19 @@ def _run(o, files):
         if o["rolling_csv"]:
             write_rolling_csv(ev, o["rolling_csv"])
             parts.append(f"  Per-origin errors written to {o['rolling_csv']}")
+
+    # ── the SPS report, fuf's own ────────────────────────────────────────────
+    if o["html_report"]:
+        if o["horizon"] <= 0:
+            raise CliError("-L needs a horizon; give -f H")
+        from .report import write_forecast_report as _html
+        stem = o["model_name"] or f"{names[0]}_{names[1]}"
+        try:
+            _html(f, cs, f"{stem}.html", series=0, horizon=o["horizon"])
+        except ImportError as e:
+            raise CliError(f"-L needs jinja2 and matplotlib: {e}")
+        parts.append("")
+        parts.append(f"  SPS forecast report written to {stem}.html")
 
     text = "\n".join(parts) + "\n"
 
