@@ -604,6 +604,15 @@ def _run(o, files):
             parts += ["", f"  wrote {dag} and {cns}",
                        f"  next:  drtran {' '.join(files)} -n {dag} -c {cns}"]
 
+    # ── the impulse response, with its standard errors ───────────────────────
+    if links and not o["net_ident"]:
+        from .irf import impulse_response, report_irf
+
+        cov = se.cov if (se is not None and not se.ifault) else None
+        parts.append("")
+        parts.append(report_irf([impulse_response(f, link_index=k, cov=cov)
+                                 for k in range(len(links))]))
+
     # ── diagnostics ──────────────────────────────────────────────────────────
     if links and not o["net_ident"]:
         from .diagnose import report_adequacy, transfer_adequacy

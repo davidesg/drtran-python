@@ -299,6 +299,30 @@ forecasts are identical to the C's CSV to 1e-5 (measured: exactly 0.00e+00); and
 the summary table matches — MAE 0.150269 … 0.466986, RMSE 0.178568 … 0.569408,
 MAPE 0.1830 … 0.5685.
 
+### Step 9 — the impulse response, with inference
+
+`irf.py` gives `nu_k` and its cumulative sum with delta-method standard errors.
+It is the table the model exists to produce: on the canonical case the gain is
+**0.027146 with a standard error of 0.002452** (t = 11.07), i.e. a 1 % oil shock
+ends up as about 0.027 % of the Spanish CPI, permanently.
+
+The C differentiates the nu recursion analytically and maps each slot's
+derivative back through the constraints with its `add_grad`. The port
+differentiates with respect to the **free vector** by central differences
+instead. That is not laziness: `nu` is an explicit polynomial recursion, not a
+likelihood, so a difference costs nothing and is accurate to the last printed
+digit — and differentiating in the free space makes shared slots, products and
+linear combinations propagate on their own, exactly as putting `expand` inside
+the likelihood's objective removes the need for a chain rule there. Verified
+against the C on a case with a denominator, where `nu_k` depends on `nu_{k-1}`
+and both the recursion and its gradient are exercised.
+
+One design point the tests caught: the **gain is a property of the weights**, not
+of the inference, so it is computed whether or not there is a covariance to
+attach an error to. And without one the standard errors come back NaN rather
+than zero — a zero standard error reads as infinite precision, which is the
+opposite of "not computed".
+
 ### Step 7 — diagnostics, forecasting and the CLI
 
 `diagnose.py` ports the transfer's portmanteau (k >= 0, which includes the

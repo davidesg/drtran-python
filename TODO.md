@@ -308,8 +308,22 @@ in the original.
       innovation by the report's percentage factor, which is neither a
       percentage nor a residual. Left alone in the C.
       Tests: `test_diagnose.py` (+2).
-- [ ] The estimated nu(k) weights with their standard errors, which the C prints
-      and the CLI does not.
+- [x] **The nu(k) weights with their standard errors — DONE** (`irf.py`).
+      `nu_k` is the response of the output k periods later to a ONE-OFF unit
+      shock; the cumulative column is the response to a PERMANENT change and
+      converges to the gain. On the canonical case: nu_0 = 0.016400 (t 9.63),
+      nu_1 = 0.010747 (t 6.35), **gain 0.027146 with s.e. 0.002452, t = 11.07** —
+      a 1 % oil shock ends up as about 0.027 % of the CPI, permanently.
+      Standard errors by the delta method on the free-parameter covariance. The
+      C differentiates the recursion analytically and maps each slot's
+      derivative back through the constraints; the port differentiates against
+      the FREE vector by central differences instead, so shared slots, products
+      and linear combinations propagate on their own. Verified against the C
+      with a denominator too (b=1 r=1 s=1), where nu_k depends on nu_{k-1}:
+      0.011203 (0.002360), 0.001617 (0.002039), gain 0.012800 (0.003259).
+      Without a covariance (`-Q`) the errors come back NaN, not zero — a zero
+      standard error reads as infinite precision.
+      Tests: `tests/test_irf.py` (8).
 - [ ] **fue's own standard errors — APLAZADO a propósito (2026-08-01).** fue C
       computes them from the BFGS matrix; its `fdhess` call sits commented out at
       `drvmlest.c:112` and uncommenting it is a one-line change that drtran now
