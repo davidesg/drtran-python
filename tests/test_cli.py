@@ -113,19 +113,20 @@ def test_what_is_not_ported_is_refused_not_ignored():
     """The alternative is worse than an error: a script that passed -a to the C
     and gets no aggregates here would report a forecast that answers a different
     question, with no sign that anything was dropped."""
-    for flag, arg in [("-a", "x.txt"), ("-C", "x.csv"), ("-R", "200")]:
-        code, _out, err = run(ES, WTI, flag, arg)
-        assert code == 2, flag
-        assert "not ported" in err
+    code, _out, err = run(ES, WTI, "-a", "x.txt")
+    assert code == 2 and "not ported" in err
     code, _out, err = run(ES, WTI, "-L")
     assert code == 2 and "not ported" in err
 
 
 def test_estwin_is_the_same_option_as_R():
     """The C rewrites the token before getopt; so does this, or a command line
-    written for one would silently mean something else in the other."""
-    code, _out, err = run(ES, WTI, "-estwin", "200")
-    assert code == 2 and "-estwin/-R" in err
+    written for one would silently mean something else in the other. Checked on
+    the cheap failure path, so the test does not pay for two full estimations."""
+    a = run(ES, WTI, "-estwin", "200")
+    b = run(ES, WTI, "-R", "200")
+    assert a[0] == b[0] == 1
+    assert "needs a horizon" in a[2] and "needs a horizon" in b[2]
 
 
 def test_prewhiten_only_reports_and_does_not_estimate():

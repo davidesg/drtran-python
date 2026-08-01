@@ -273,6 +273,32 @@ as long as it is still there. The library warns and does not prune: which link
 falls is judgement, not arithmetic, and pruning silently invites estimating the
 draft — which is exactly what the school's doctrine says not to do.
 
+### Step 8 — the fixed window and the rolling origin
+
+`evaluate.py` ports `recursive_eval` and the `-estwin` mode it serves. It is the
+only part of the program that compares the model against **what happened**
+rather than against itself: the variances everything else reports are
+theoretical, and out of sample parameter uncertainty and structural change have
+their say too.
+
+The protocol is the C's: estimate once on 1..E, hold the parameters **fixed**,
+and roll the origin forward one datum at a time to n−H, re-truncating the sample
+at each origin. Holding them fixed is deliberate — re-estimating at every origin
+measures a procedure, not a model, and costs enough to discourage the exercise.
+The horizons stay **balanced**, so the columns can be compared with one another.
+
+The trap is in the truncation, and it is specific to fue: `model.series` **is**
+the spec's `ts`, the same object, so trimming one in place trims the other and
+the evaluation would score a forecast against the very data it was made from.
+`truncate` deep-copies, and a test pins that the caller's specs come back
+untouched.
+
+Homologation on `ES_CPI <- WTI`, window 200, horizon 6: the window's
+log-likelihood is **−666.573252**, the C's own; the 11 origins and 66 per-origin
+forecasts are identical to the C's CSV to 1e-5 (measured: exactly 0.00e+00); and
+the summary table matches — MAE 0.150269 … 0.466986, RMSE 0.178568 … 0.569408,
+MAPE 0.1830 … 0.5685.
+
 ### Step 7 — diagnostics, forecasting and the CLI
 
 `diagnose.py` ports the transfer's portmanteau (k >= 0, which includes the

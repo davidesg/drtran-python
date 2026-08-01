@@ -315,9 +315,24 @@ in the original.
       empirical sweep over the battery and the theory behind the choice, not a
       one-line change borrowed from a program with much stronger preconditions.
       The full note lives in `fue-1.13.1/ERRORES_ESTANDAR.md`.
-- [ ] The C-only options: aggregates (`-a`), fixed-window estimation
-      (`-estwin`/`-R`), the rolling out-of-sample errors (`-C`) and the LaTeX
-      report (`-L`).
+- [x] **Fixed window and rolling origin — DONE** (`evaluate.py`). `-estwin E`
+      (alias `-R E`) estimates ONCE on 1..E and holds the parameters FIXED;
+      the origin then rolls over E..n-H and each forecast is compared with what
+      actually happened, giving MAE / RMSE / MAPE by horizon. `-C FILE` writes
+      the per-origin errors as CSV. `-O` now follows the C's precedence: the
+      flag, then the window end, then the data end, with `-O -1` the current end.
+      It is the only part of the program that answers the EMPIRICAL question —
+      the variances everything else reports are theoretical.
+      Homologated on window 200, horizon 6: the window's logL is −666.573252
+      (the C's), the 11 origins and 66 per-origin forecasts are identical to the
+      C's CSV (worst difference 0.00e+00), and the summary matches (MAE
+      0.150269 … 0.466986).
+      The trap, specific to fue: `model.series` IS the spec's `ts`, so trimming
+      one in place trims the other and the evaluation would score against the
+      data it was made from. `truncate` deep-copies; a test pins it.
+      Tests: `tests/test_evaluate.py` (13).
+- [ ] The remaining C-only options: aggregates (`-a`) and the LaTeX report
+      (`-L`). Both are presentation; the CLI refuses them with exit code 2.
 
 ## Inherited from the C — to watch in the port
 

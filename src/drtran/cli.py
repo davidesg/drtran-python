@@ -94,19 +94,29 @@ WHAT IS ESTIMATED
 
 FORECASTING
   -f L     forecast L periods ahead, with 95% bands, in the ORIGINAL units
-  -O g     forecast origin (default: the end of the data)
+  -O g     forecast origin (default: the window end with -estwin, otherwise the
+           end of the data). -O -1 is the CURRENT end of the data: append a new
+           datum to the input .pre and it becomes the new origin, with NO
+           drifting parameters.
+
+FIXED WINDOW AND OUT-OF-SAMPLE EVALUATION
+  -estwin E   estimate ONCE on observations 1..E and hold the parameters FIXED.
+           (-R E is a hidden alias.) Needs -f H. The origin then rolls forward
+           one datum at a time over E..n-H, comparing each forecast with what
+           actually happened: MAE, RMSE and MAPE by horizon.
+           The variances the model reports are THEORETICAL. This is the only way
+           to decide EMPIRICALLY whether one model forecasts better than
+           another -- run it on two specifications and compare.
+  -C FILE  also write the per-origin errors to FILE (CSV).
 
 NOT PORTED YET (refused rather than ignored)
-  -a FILE  aggregates        -estwin E / -R E  fixed-window estimation
-  -C FILE  rolling errors    -L               LaTeX report
+  -a FILE  aggregates        -L  LaTeX report
 """
 
 _OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:Q"
 
 _NOT_PORTED = {
     "-a": "aggregates (-a)",
-    "-R": "fixed-window estimation (-estwin/-R)",
-    "-C": "rolling out-of-sample errors (-C)",
     "-L": "the LaTeX report (-L)",
 }
 
@@ -410,7 +420,7 @@ def main(argv=None):
     o = dict(opt_b=None, opt_r=None, opt_s=None, horizon=0, origin=None,
              model_name=None, outfile=None, cons=None, net=None, guide=None,
              prewhiten_only=False, net_ident=False, no_transfer=False,
-             no_stderr=False,
+             no_stderr=False, estwin=0, rolling_csv=None,
              embed=True, verbose=False,
              fix_out_arma=False, fix_inp_arma=False, fix_out_det=False,
              fix_inp_det=False, fix_mu=False)
@@ -460,6 +470,10 @@ def main(argv=None):
             o["verbose"] = True
         elif flag == "-Q":
             o["no_stderr"] = True
+        elif flag == "-R":
+            o["estwin"] = int(arg)
+        elif flag == "-C":
+            o["rolling_csv"] = arg
         elif flag == "-N":
             o["fix_out_arma"] = True
         elif flag == "-X":
@@ -497,6 +511,21 @@ def _run(o, files):
     names = [s.model.series.name or os.path.basename(f).rsplit(".", 1)[0]
              for s, f in zip(specs, files)]
     n_in = len(specs) - 1
+
+    # --- the FIXED WINDOW. Only `nobs` is trimmed: the rest of the data stays
+    # in the specs, which is what makes the evaluation honestly out of sample.
+    full = list(specs)
+    if o["estwin"]:
+        nobs = specs[0].ts.nobs
+        if o["estwin"] >= nobs:
+            raise CliError(f"-estwin {o['estwin']} leaves no data out of sample "
+                           f"({nobs} observations)")
+        if o["horizon"] <= 0:
+            raise CliError("-estwin needs a horizon; give -f H")
+        from .evaluate import truncate
+        specs = truncate(full, o["estwin"])
+        sys.stderr.write(f"drtran: estimation window 1..{o['estwin']} "
+                         f"(recursive evaluation to {nobs})\n")
 
     # ── the links ────────────────────────────────────────────────────────────
     if o["no_transfer"]:
@@ -578,7 +607,39 @@ def _run(o, files):
 
     # ── forecast ─────────────────────────────────────────────────────────────
     if o["horizon"] > 0:
-        parts.append(_forecast_block(f, cs, o["horizon"], o["origin"]))
+        # the origin: -O wins, then the window end, then the data end. -O -1 is
+        # the CURRENT end, which is the real-time mode.
+        nfull = full[0].ts.nobs
+        if o["origin"] is not None and o["origin"] > 0:
+            forigin = min(o["origin"], nfull)
+        elif o["origin"] is not None and o["origin"] < 0:
+            forigin = nfull
+        elif o["estwin"]:
+            forigin = o["estwin"]
+        else:
+            forigin = nfull
+
+        if forigin != specs[0].ts.nobs:
+            from .evaluate import truncate
+            fc_cs = build_cast_spec(truncate(full, forigin), links=links)
+        else:
+            fc_cs = cs
+        parts.append(_forecast_block(f, fc_cs, o["horizon"], None))
+
+    # ── the rolling origin, out of sample ────────────────────────────────────
+    if o["estwin"]:
+        from .evaluate import (report_rolling, rolling_evaluation,
+                               write_rolling_csv)
+        try:
+            ev = rolling_evaluation(f.x, full, links, o["estwin"],
+                                    o["horizon"], embed=o["embed"])
+        except ValueError as e:
+            raise CliError(str(e))
+        parts.append("")
+        parts.append(report_rolling(ev))
+        if o["rolling_csv"]:
+            write_rolling_csv(ev, o["rolling_csv"])
+            parts.append(f"  Per-origin errors written to {o['rolling_csv']}")
 
     text = "\n".join(parts) + "\n"
 

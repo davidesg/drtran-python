@@ -98,9 +98,15 @@ C binary), and `python -m drtran` works too.
 drtran-py ES_CPI_m10.pre WTI_ar1.pre -b 0 -r 0 -s 1 -V -f 6
 ```
 
-What is not ported yet (`-a`, `-estwin`/`-R`, `-C`, `-L`) is **refused with exit
-code 2, not ignored**: a silently dropped option is how a script starts
-publishing numbers that answer a different question.
+`-estwin E` estimates once on the first E observations, holds the parameters
+fixed and rolls the forecast origin forward, reporting MAE / RMSE / MAPE by
+horizon — the only way to decide **empirically** whether one specification
+forecasts better than another, since every other figure the program prints is
+theoretical. `-C FILE` writes the per-origin errors as CSV.
+
+What is not ported yet (`-a`, `-L`) is **refused with exit code 2, not
+ignored**: a silently dropped option is how a script starts publishing numbers
+that answer a different question.
 
 ## Status
 
@@ -129,8 +135,8 @@ which is drtran's normal case. All 17 of the canonical case match the binary.
 `docs/PORTE.md` §9 records why Mauricio left that call commented out, and what
 measuring it settled.
 
-**Missing:** the forecast-error variance decomposition, the variation columns,
-and the C-only options above. Details in [`TODO.md`](TODO.md).
+**Missing:** aggregates (`-a`), the LaTeX report (`-L`), and the ERR column of
+the forecast table. Details in [`TODO.md`](TODO.md).
 
 > **[`docs/PORTE.md`](docs/PORTE.md) — the record of the process.** How it was
 > done, which decisions are not translation and why, the homologation figures,
