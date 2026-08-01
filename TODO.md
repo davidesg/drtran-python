@@ -429,13 +429,39 @@ in the original.
       by exact maximum likelihood. If they agreed by construction they would
       prove nothing.
 
-      Compare what is a property of the **model**, not of the method: the
-      identified (b, r, s); the impulse response `nu(k)` and the gain `nu(1)` —
-      the physical object, the same under any estimator; the sign and order of
-      magnitude of the transfer; short-horizon level forecasts.
-      Do NOT compare: the log-likelihood (different objectives), the standard
-      errors (different Hessians), or the residuals observation by observation
-      (the pre-sample initialisation is exactly what differs).
+      **Read in its source (2026-08-01).** Turbo Pascal, 1987-2000.
+      `TASTECTV.PAS`: `TFMODEL` = T inputs, each with (b, s, r) and its own
+      `USMODEL`, plus a separate `NOISE` model. Two consequences that settle the
+      design:
+
+      * **TASTE is the SUBTRACTION cast, not the embedded one.** It models
+        `N_t = Y_t - SUM_j nu_j(B) X_j,t` with its own ARIMA — exactly `-S`. So
+        the comparison runs against `embed=False`; against the embedded cast it
+        would be measuring the truncation, not the implementation.
+      * **It estimates by nonlinear least squares with BACKFORECASTING.**
+        `MRQ_MTF` (`MRQEST.PAS`) is Levenberg-Marquardt on the residuals, with
+        the backforecasts computed in `BACKTF.PAS`. drtran: exact ML with BFGS.
+
+      Which gives a three-way comparison with real content: **`-S` truncates,
+      TASTE backforecasts, `-V` makes the truncation disappear.** TASTE is the
+      Box-Jenkins remedy the embedded cast renders unnecessary, and the only way
+      to measure what that remedy was worth.
+
+      **Scope: the transfer, not the univariate part.** The univariate models do
+      not need revalidating — fue is tested and homologated (fue C == fue Python
+      == drtran's diagonal, to 1e-7). What only TASTE can contradict is the
+      transfer machinery. Validate: (1) the **prewhitening** and CCF, i.e. the
+      identified (b, r, s); (2) the **estimated transfer**, `nu(k)` and the gain;
+      (3) the **forecasts**.
+
+      **Experimental design:** fix TASTE's univariate models to fue's (TASTE lets
+      the noise and each input's `USMODEL` be specified). Otherwise a discrepancy
+      cannot be attributed — it might just be two different ARIMAs.
+
+      Do NOT compare the sum of squares or the log-likelihood (different
+      objectives), the standard errors (different Hessians), or the residuals
+      observation by observation (the pre-sample treatment is precisely what
+      differs).
 
       **The prediction, written down BEFORE running anything**, so that a
       discrepancy cannot be rationalised afterwards:
@@ -446,15 +472,22 @@ in the original.
         defect in one of them.
       * *Near the unit root, expect divergence, and it is not a fault.* The
         contaminated stretch becomes a fixed fraction of the sample. Already
-        measured in the C repo: the cell delta=0.95, n=400 is the only one where
-        the exact method's advantage survives a large sample (−60 % in the RMSE
-        of the gain). If TASTE differs there, that is the expected result.
+        measured in the C repo: delta=0.95, n=400 is the only cell where the
+        exact method's advantage survives a large sample (-60 % in the RMSE of
+        the gain).
+      * *TASTE should land BETWEEN `-S` and `-V`* on cases with memory:
+        backforecasting recovers part of what truncation loses, not all of it.
+
+      **The harness already exists.** `Taste/validate/` drives TASTE by
+      keystrokes under DOSBox and diffs `TASTE.OUT`; `run_case.sh` runs both the
+      original EXE and the Free Pascal port. Nothing new to build — add cases and
+      a comparator against drtran's `.out`. A `.pre` -> `.BJD` converter is
+      missing.
 
       **Blocked** on the TASTE executable for modern machines, which David is
-      building. When it runs: pick two or three cases with a known answer (the
-      canonical ES_CPI <- WTI, a synthetic one with an imposed `nu(k)`, and one
-      near the unit root) and wire the comparison in as a section of the
-      battery, not as a loose experiment.
+      building (`Taste/port/`, Free Pascal, already starting in 64-bit).
+      When it runs: the canonical ES_CPI <- WTI, a synthetic case with an imposed
+      `nu(k)`, and one near the unit root; wired in as a section of the battery.
       See `drtran/TODO.md` §M7 for the same entry on the C side.
 
 ## Inherited from the C — to watch in the port
