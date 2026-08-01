@@ -308,8 +308,10 @@ def _forecast_block(fit, cast_spec, horizon, origin):
     the percentage change, exactly rather than approximately.
     """
     from .forecast import forecast, to_level, variance_decomposition
+    from .netid import residuals
 
     fc = forecast(fit, L=horizon, origin=origin)
+    a, ifa = residuals(fit.x, cast_spec, embed=fit.embed)
     out = []
 
     for i, sc in enumerate(cast_spec.series):
@@ -340,25 +342,31 @@ def _forecast_block(fit, cast_spec, horizon, origin):
                 f"    variation in {unit}",
                 "=" * 78,
                 "     DATE  |     LEVEL     STD  |   PERIOD    STD  "
-                "|   ANNUAL    STD",
-                "  " + "-" * 64]
+                "|   ANNUAL    STD  |     ERR",
+                "  " + "-" * 74]
 
-        # Observed rows: the last `horizon`+1, the origin included. The C also
-        # carries an ERR column with the one-step residual; it is left out here
-        # on purpose. `elf` returns the residuals in its own internal scale, and
-        # this port has not established the factor that puts them back in the
-        # series' units -- the diagnostics never needed it, because the CCF is
-        # scale-invariant. Printing them unscaled would be a plausible number
-        # that is wrong, which is exactly what the ERR column already was in the
-        # C (see docs/PORTE.md 5.5).
+        # Observed rows: the last `horizon`+1, the origin included.
+        #
+        # ERR is the one-step innovation in the SAME metric as the variations,
+        # which is what a column sitting next to them should hold. These are the
+        # RAW innovations, whose sample variance is Sigma_ii -- verified. The C
+        # prints `L^-1 a` there instead, the STANDARDIZED ones (Cholesky factor
+        # of Q), whose variance is sigma2 for every series however different
+        # their scales; multiplied by the report's percentage factor that is
+        # neither a percentage nor a residual. The two columns will not agree,
+        # and that is deliberate: see docs/PORTE.md 5.5.
+        n_res = 0 if ifa or a is None else a.shape[0]
+        lost = nb - n_res                      # observations the differencing ate
         for t in range(max(1, nb - horizon), nb + 1):
             d = _dates(ts, t - 1, 1)[0]
             per = f"{vscale * (star[t - 1] - star[t - 2]):8.2f}" if t >= 2 else "       -"
             ann = (f"{vscale * (star[t - 1] - star[t - 1 - freq]):8.2f}"
                    if freq > 1 and t - 1 - freq >= 0 else "       -")
+            k = t - lost - 1
+            err = f"{vscale * a[k, i]:8.2f}" if 0 <= k < n_res else "       -"
             out.append(f"  {d:>8s}  | {ts.data[t - 1]:9.2f}       - "
-                       f"| {per}      - | {ann}      -")
-        out.append("  " + "-" * 64)
+                       f"| {per}      - | {ann}      - | {err}")
+        out.append("  " + "-" * 74)
 
         for l in range(horizon):
             t = nb + l                          # index into `star`
@@ -369,7 +377,7 @@ def _forecast_block(fit, cast_spec, horizon, origin):
             av = f"{ann:8.2f}" if ann is not None else "       -"
             out.append(f"  {dates[l]:>8s}  | {level[l]:9.2f}  {se_l[l]:6.2f} "
                        f"| {per:8.2f} {vscale * se_p[l]:6.2f} "
-                       f"| {av} {sa}")
+                       f"| {av} {sa} |        -")
         out.append("=" * 68)
 
     # ── the forecast error variance decomposition ────────────────────────────

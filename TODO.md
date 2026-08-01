@@ -293,14 +293,21 @@ in the original.
       The total variance is invariant under that, so the s.e. do not move. If Q
       is not diagonal it is **declared** impossible rather than resolved with an
       arbitrary ordering. Tests: `test_forecast.py` (+3), `test_cli.py` (+1).
-- [ ] **The ERR column.** The C prints the one-step residual on the observed
-      rows; the port leaves the column out. `elf` returns residuals in its own
-      internal scale and the factor that restores the series' units is not
-      established — measured against the binary, they differ by ~1.21 on the
-      first series and ~23.6 on the second, so it is per-series, not common. It
-      never mattered because the only consumer was the portmanteau and the CCF
-      is scale-invariant (which is why the diagnostics homologate exactly while
-      the residuals do not). Find the factor, then print the column.
+- [x] **The ERR column — DONE, and the scale question settled.** The port prints
+      the one-step innovation next to the variations, in the same metric.
+      The open question was which residuals are the right ones, since the port's
+      did not match the binary's `vf.a`. The diagnostics could not answer it —
+      the CCF is scale-invariant, so a per-series rescaling is precisely what a
+      portmanteau cannot see. The variance can: the port's have Var(a_i) =
+      Sigma_ii = sigma2*Q_ii (0.058133 vs 0.058187, 68.70 vs 68.79), which is
+      what an innovation is. The C's are the STANDARDIZED ones, `L^-1 a` with L
+      the Cholesky factor of Q — matched to nine significant figures, and given
+      away by having ONE variance (sigma2) for both series although their scales
+      differ by a factor of 1180.
+      So the two columns disagree on purpose: the C multiplies a standardized
+      innovation by the report's percentage factor, which is neither a
+      percentage nor a residual. Left alone in the C.
+      Tests: `test_diagnose.py` (+2).
 - [ ] The estimated nu(k) weights with their standard errors, which the C prints
       and the CLI does not.
 - [ ] **fue's own standard errors — APLAZADO a propósito (2026-08-01).** fue C

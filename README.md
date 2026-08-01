@@ -135,8 +135,8 @@ which is drtran's normal case. All 17 of the canonical case match the binary.
 `docs/PORTE.md` §9 records why Mauricio left that call commented out, and what
 measuring it settled.
 
-**Missing:** aggregates (`-a`), the LaTeX report (`-L`), and the ERR column of
-the forecast table. Details in [`TODO.md`](TODO.md).
+**Missing:** aggregates (`-a`) and the LaTeX report (`-L`), both presentation.
+Details in [`TODO.md`](TODO.md).
 
 > **[`docs/PORTE.md`](docs/PORTE.md) — the record of the process.** How it was
 > done, which decisions are not translation and why, the homologation figures,

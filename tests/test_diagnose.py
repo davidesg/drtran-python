@@ -120,3 +120,56 @@ def test_the_verdict_comes_from_the_joint_test_not_from_isolated_peaks(fitted):
         assert "would be expected by chance" in txt
         assert "do not contradict the joint test" in txt
     assert "ADEQUATE" in txt and "Exogeneity" in txt
+
+
+# ── the scale of the residuals ───────────────────────────────────────────────
+def test_the_residuals_are_the_RAW_innovations(fitted):
+    """Their sample variance must be Sigma_ii — that is what "innovation" means,
+    and it is what makes them comparable with the series' own units.
+
+    This was an open question for a while, because the port's residuals did not
+    match the ones the C binary carries in `vf.a`, and the diagnostics could not
+    settle it: the CCF is scale-invariant, so a per-series rescaling is exactly
+    the error a portmanteau cannot see. The variance can.
+    """
+    from drtran.embed import cast_embedded
+    from drtran.estimate import _f1f2
+    from drtran.netid import residuals
+
+    x = np.asarray(fitted.x, float)
+    _phi, _th, _mu, w, Q, ifault = cast_embedded(x, fitted.cast_spec)
+    assert ifault == 0
+    a, ifa = residuals(x, fitted.cast_spec, embed=True)
+    assert ifa == 0
+
+    n, m = w.shape
+    f1, _f2, _i = _f1f2(x, fitted.cast_spec, -1e-3, True)
+    sigma2 = f1 / (n * m)
+
+    # Var(a_i) = sigma2 * Q_ii = Sigma_ii, to sampling error
+    for i in range(m):
+        assert a[:, i].var() == pytest.approx(sigma2 * Q[i, i], rel=0.01)
+
+
+def test_the_C_carries_the_STANDARDIZED_ones(fitted):
+    """`vf.a` in the binary is `L^-1 a`, with L the Cholesky factor of Q — so its
+    variance is sigma2 for EVERY series however different their scales (here they
+    differ by a factor of 1180). Pinned because it is why the port's ERR column
+    and the C's do not agree, and the difference is deliberate.
+
+    The three values on the right are what instrumenting the binary printed for
+    the last three observations of ES_CPI.
+    """
+    from drtran.embed import cast_embedded
+    from drtran.netid import residuals
+
+    x = np.asarray(fitted.x, float)
+    _phi, _th, _mu, _w, Q, _i = cast_embedded(x, fitted.cast_spec)
+    a, _ifa = residuals(x, fitted.cast_spec, embed=True)
+
+    std = np.linalg.solve(np.linalg.cholesky(Q), a.T).T
+    assert std[-3:, 0] == pytest.approx(
+        [0.1268127395, -0.0890583542, -0.2053990514], abs=1e-7)
+
+    # and the giveaway: one variance for both series, not two
+    assert std[:, 0].var() == pytest.approx(std[:, 1].var(), rel=0.01)

@@ -467,16 +467,31 @@ attempt to predict the aliasing arithmetically got two of three rows wrong:
 0.33, −0.08, 0.04 is exactly what the report showed. Fixed in the C; the battery
 stays at 296 PASS.
 
-**The port does not print this column at all**, for a different reason. `elf`
-returns the residuals in its own internal scale, and this port has not
-established the factor that puts them back in the series' units: measured
-against the binary's own `vf.a`, the port's reduced-form residuals differ by
-about 1.21 on the first series and 23.6 on the second — a per-series factor, not
-a common one. It never mattered before because the only consumer was the
-portmanteau, and the CCF is **scale-invariant**, which is why the diagnostics
-homologate exactly (p = 0.1966 / 0.9136) while the residuals themselves do not.
-Printing them unscaled would be a plausible number that is wrong — the same
-defect that was just removed from the C. It is on the TODO.
+**A second thing came out of the same column, and it is not a bug.** The port's
+residuals did not match the binary's `vf.a` either — by about 1.21 on the first
+series and 23.6 on the second, so per-series, not a common factor. The
+diagnostics could not settle which was right, because the CCF is scale-invariant
+and a per-series rescaling is exactly the error a portmanteau cannot see. The
+variance can:
+
+| | Var(a_1) | Var(a_2) |
+|---|---|---|
+| the port | 0.058133 | 68.70 |
+| Sigma_ii = sigma2 * Q_ii | 0.058187 | 68.79 |
+| the C's `vf.a` | 0.039649 | 0.039644 |
+
+The port's are the **raw innovations**, whose variance is Sigma_ii — which is
+what "innovation" means. The C's are the **standardized** ones, `L^-1 a` with L
+the Cholesky factor of Q: verified to nine significant figures against the
+instrumented binary, and given away by having one variance (sigma2) for both
+series although their scales differ by a factor of 1180.
+
+So the port prints the raw residual in the ERR column and the C prints the
+standardized one multiplied by the report's percentage factor, which is neither
+a percentage nor a residual. The two columns do not agree, deliberately. This is
+recorded rather than "fixed" in the C: it is a defensible choice for a
+diagnostic plot and only misleading in this particular table, and one proven bug
+in this column per session is enough.
 
 ## 6. Homologation with the binary
 

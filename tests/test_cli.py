@@ -274,7 +274,13 @@ def test_the_report_carries_the_variation_columns_and_the_decomposition():
            if l.strip().startswith("1/2020") and "|" in l
            and l.replace("|", " ").split()[1] != "-"]
     assert row, "the first forecast row is missing"
-    nums = [float(x) for x in row[0].replace("|", " ").split()[1:]]
+    # DATE | LEVEL STD | PERIOD STD | ANNUAL STD | ERR -- the last is "-" on a
+    # forecast row, so take the numeric fields and stop at the first dash
+    nums = []
+    for tok in row[0].replace("|", " ").split()[1:]:
+        if tok == "-":
+            break
+        nums.append(float(tok))
     assert nums[0] == pytest.approx(82.01, abs=0.005)
     assert nums[1] == pytest.approx(0.24, abs=0.005)
     assert nums[2] == pytest.approx(-1.00, abs=0.005)
