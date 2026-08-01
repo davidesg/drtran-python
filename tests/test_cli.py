@@ -109,12 +109,15 @@ def test_help_exits_clean():
     assert "Box-Jenkins transfer function" in out
 
 
-def test_what_is_not_ported_is_refused_not_ignored():
-    """The alternative is worse than an error: a script that passed -a to the C
-    and gets no aggregates here would report a forecast that answers a different
-    question, with no sign that anything was dropped."""
-    code, _out, err = run(ES, WTI, "-a", "x.txt")
-    assert code == 2 and "not ported" in err
+def test_every_option_of_the_C_is_now_implemented():
+    """The refusal list is empty: `-a`, `-estwin`/`-R`, `-C` and `-L` are all in.
+    While anything was missing it was refused with exit code 2 rather than
+    ignored, because a silently dropped option is how a script starts publishing
+    numbers that answer a different question. Kept as a test so the list cannot
+    quietly grow back."""
+    from drtran.cli import _NOT_PORTED
+
+    assert _NOT_PORTED == {}
 
 
 def test_estwin_is_the_same_option_as_R():

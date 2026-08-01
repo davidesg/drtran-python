@@ -116,15 +116,22 @@ FIXED WINDOW AND OUT-OF-SAMPLE EVALUATION
            read side by side. (The C's -L writes LaTeX; the Python ports write
            HTML. Needs jinja2 and matplotlib.)
 
-NOT PORTED YET (refused rather than ignored)
-  -a FILE  aggregates
+AGGREGATES  (accounting identities)
+  -a FILE  linear combinations of the series, reported with the forecast:
+
+             OCUPADOS = + EA + EP + EI + EU + EC
+             PARADOS  = + ACTIVOS - EA - EP - EI - EU - EC
+
+           An identity does NOT belong in the model: it is computed AFTER
+           forecasting. What is not trivial is its band. The series' forecast
+           errors are CORRELATED -- through the network they share innovations --
+           so the variance of an aggregate is not the sum of the variances. It
+           is c'Vc, with V the full forecast error covariance. Requires -f.
 """
 
 _OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:Q"
 
-_NOT_PORTED = {
-    "-a": "aggregates (-a)",
-}
+_NOT_PORTED = {}
 
 
 class CliError(Exception):
@@ -439,6 +446,7 @@ def main(argv=None):
              model_name=None, outfile=None, cons=None, net=None, guide=None,
              prewhiten_only=False, net_ident=False, no_transfer=False,
              no_stderr=False, estwin=0, rolling_csv=None, html_report=False,
+             aggr=None,
              embed=True, verbose=False,
              fix_out_arma=False, fix_inp_arma=False, fix_out_det=False,
              fix_inp_det=False, fix_mu=False)
@@ -494,6 +502,8 @@ def main(argv=None):
             o["rolling_csv"] = arg
         elif flag == "-L":
             o["html_report"] = True
+        elif flag == "-a":
+            o["aggr"] = arg
         elif flag == "-N":
             o["fix_out_arma"] = True
         elif flag == "-X":
@@ -669,6 +679,24 @@ def _run(o, files):
         if o["rolling_csv"]:
             write_rolling_csv(ev, o["rolling_csv"])
             parts.append(f"  Per-origin errors written to {o['rolling_csv']}")
+
+    # ── aggregates ───────────────────────────────────────────────────────────
+    if o["aggr"]:
+        if o["horizon"] <= 0:
+            raise CliError("-a needs a horizon; give -f H")
+        if not os.path.exists(o["aggr"]):
+            raise CliError(f"cannot open the aggregates file {o['aggr']}")
+        from .aggregate import (forecast_aggregates, read_aggregates,
+                                report_aggregates)
+        from .forecast import forecast as _fcast
+        try:
+            aggs = read_aggregates(o["aggr"], names)
+        except ValueError as e:
+            raise CliError(str(e))
+        fcA = _fcast(f, L=o["horizon"], embed=o["embed"])
+        parts.append("")
+        parts.append(report_aggregates(
+            forecast_aggregates(fcA, cs, aggs)))
 
     # ── the SPS report, fuf's own ────────────────────────────────────────────
     if o["html_report"]:

@@ -138,7 +138,8 @@ which is drtran's normal case. All 17 of the canonical case match the binary.
 `docs/PORTE.md` §9 records why Mauricio left that call commented out, and what
 measuring it settled.
 
-**Missing:** aggregates (`-a`). Details in [`TODO.md`](TODO.md).
+**Missing:** the write round trip (`estimate -> .pre -> reread`), which is
+blocked on fue's `write_pre`. Details in [`TODO.md`](TODO.md).
 
 > **[`docs/PORTE.md`](docs/PORTE.md) — the record of the process.** How it was
 > done, which decisions are not translation and why, the homologation figures,

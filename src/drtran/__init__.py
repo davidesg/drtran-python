@@ -27,6 +27,8 @@ the joint fit must reproduce the **sum** of the univariate ones. If it does not
 match, the cast is wrong.
 """
 
+from .aggregate import (Aggregate, forecast_aggregates, read_aggregates,
+                        report_aggregates)
 from .cast import (Link, build_cast_spec, build_sigma, cast_diagonal,
                    compute_irf, x0_from_pre)
 from .diagnose import (Adequacy, chi_test, report_adequacy,
@@ -52,6 +54,7 @@ __version__ = "0.0.1"
 
 __all__ = [
     "PreSpec", "load_pre", "check_scale",
+    "Aggregate", "read_aggregates", "forecast_aggregates", "report_aggregates",
     "write_forecast_report", "build_forecast_result",
     "Link", "build_cast_spec", "build_sigma", "cast_diagonal", "compute_irf",
     "x0_from_pre",

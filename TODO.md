@@ -373,8 +373,20 @@ in the original.
       `model._result.residuals`, which a model fue did not fit does not have —
       attached to a COPY, since `model.series` IS the spec's `ts`).
       Tests: `tests/test_report.py` (6).
-- [ ] The last C-only option: aggregates (`-a`). The CLI refuses it with exit
-      code 2.
+- [x] **Aggregates (`-a`) — DONE** (`aggregate.py`), and with that **every
+      option of the C is implemented**; the refusal list is empty.
+      An identity is arithmetic on the answer, computed AFTER forecasting — put
+      it in the model and it adds a series that is a linear combination of the
+      others, making the likelihood singular. What is not trivial is the band:
+      the series' forecast errors are CORRELATED through the network, so the
+      variance is `c'Vc`, not the sum. And since the series are modelled
+      transformed while the identity lives in levels, the covariance is carried
+      across by the delta method (`dz/db = level/refactor` for a log model).
+      Measured on the canonical case: ignoring the covariance understates the
+      band by 2–3 %, growing with the horizon — and in the direction that
+      flatters the model. `TOTAL = ES_CPI + WTI` gives 142.7742 (5.1534),
+      143.0449 (8.5420), 143.4887 (11.2392), identical to the C.
+      Tests: `tests/test_aggregate.py` (8).
 
 ## Inherited from the C — to watch in the port
 

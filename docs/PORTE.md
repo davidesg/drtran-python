@@ -350,6 +350,25 @@ what `fc.f` actually holds — and `level_band` builds the level's band the way 
 C does. The CLI's footnote, which used to say the level's s.e. was "in original
 units", says the opposite now, which is the truth.
 
+### Step 11 — aggregates, and the CLI is complete
+
+`-a` reports accounting identities. The identity itself is arithmetic on the
+answer and is computed AFTER forecasting, as the legacy did — put it in the model
+and it adds a series that is a linear combination of the others, and the
+likelihood is singular.
+
+The band is the content. The series' forecast errors are correlated (they share
+innovations through the network), so the aggregate's variance is `c'Vc` and not
+the sum of the variances; and because the series are modelled transformed while
+the identity lives in levels, the covariance is carried across by the delta
+method. Measured on the canonical case, ignoring the covariance understates the
+band by 2–3 %, growing with the horizon — always in the direction that flatters
+the model. `TOTAL = ES_CPI + WTI` gives 142.7742 (5.1534) … 143.4887 (11.2392),
+identical to the C.
+
+With this **every option of the C is implemented** and the CLI's refusal list is
+empty. A test pins that it stays empty.
+
 ### Step 7 — diagnostics, forecasting and the CLI
 
 `diagnose.py` ports the transfer's portmanteau (k >= 0, which includes the
