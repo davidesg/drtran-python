@@ -408,6 +408,55 @@ in the original.
       143.0449 (8.5420), 143.4887 (11.2392), identical to the C.
       Tests: `tests/test_aggregate.py` (8).
 
+## Validation against TASTE — the only INDEPENDENT reference
+
+- [ ] **Validate the port (and drtran C) against TASTE.**
+
+      **Why this is the validation that is missing.** Everything homologated so
+      far — fue, drvarma, drtran and their Python ports — descends from the
+      **same code**: `elfvarma`, `qnewtopt` and `nlatools` are literally the same
+      files. The chain is internally consistent, but it has **one ancestor**. A
+      defect in that ancestor is invisible to every test that exists: all nine
+      batteries would say everything is fine.
+
+      **TASTE is the exception.** Coded by **Mauricio and Treadway**, and
+      designed with **Jenkins**'s help. It is the only implementation within
+      reach that does NOT share code with the family, and therefore the only one
+      that can contradict it.
+
+      **That the method differs is the virtue, not the obstacle.** TASTE
+      estimates by Box–Jenkins' **conditional / backforecasting** method; drtran
+      by exact maximum likelihood. If they agreed by construction they would
+      prove nothing.
+
+      Compare what is a property of the **model**, not of the method: the
+      identified (b, r, s); the impulse response `nu(k)` and the gain `nu(1)` —
+      the physical object, the same under any estimator; the sign and order of
+      magnitude of the transfer; short-horizon level forecasts.
+      Do NOT compare: the log-likelihood (different objectives), the standard
+      errors (different Hessians), or the residuals observation by observation
+      (the pre-sample initialisation is exactly what differs).
+
+      **The prediction, written down BEFORE running anything**, so that a
+      discrepancy cannot be rationalised afterwards:
+
+      * *Away from the unit root, expect close agreement.* The truncation touches
+        a number of observations that does not grow with n, so conditional and
+        exact are asymptotically equivalent. A large difference there WOULD be a
+        defect in one of them.
+      * *Near the unit root, expect divergence, and it is not a fault.* The
+        contaminated stretch becomes a fixed fraction of the sample. Already
+        measured in the C repo: the cell delta=0.95, n=400 is the only one where
+        the exact method's advantage survives a large sample (−60 % in the RMSE
+        of the gain). If TASTE differs there, that is the expected result.
+
+      **Blocked** on the TASTE executable for modern machines, which David is
+      building. When it runs: pick two or three cases with a known answer (the
+      canonical ES_CPI <- WTI, a synthetic one with an imposed `nu(k)`, and one
+      near the unit root) and wire the comparison in as a section of the
+      battery, not as a loose experiment.
+      See `drtran/TODO.md` §M7 for the same entry on the C side.
+
 ## Inherited from the C — to watch in the port
 
 - [ ] **The optimizer degrades with `refactor=1`.** In the C it hangs for over 2
