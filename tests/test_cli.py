@@ -172,14 +172,16 @@ def test_the_canonical_run_reproduces_the_C(tmp_path):
     # the forecast table, level and s.e., as the C publishes them. Compared as
     # NUMBERS: the C rounds to two decimals and this prints four, so `in` would
     # pass on 82.01 and fail on 83.44 for no reason but the rounding.
-    blocks = text.split("FORECAST —")
+    blocks = text.split("FORECAST REPORT —")
     assert len(blocks) == 3, "one block per series"
 
-    def read_row(bloque, date):
-        for l in bloque.splitlines():
-            if date in l:
-                campos = l.split()
-                return float(campos[2]), float(campos[3])
+    def read_row(block, date):
+        """(level, s.e.) of a forecast row: DATE | LEVEL STD | PERIOD STD | ..."""
+        for l in block.splitlines():
+            if date in l and "|" in l:
+                fields = l.replace("|", " ").split()
+                if len(fields) >= 3 and fields[2] != "-":
+                    return float(fields[1]), float(fields[2])
         raise AssertionError(date)
 
     for date, level, se in [(" 1/2020", 82.01, 0.24),
@@ -254,3 +256,31 @@ def test_a_cycle_in_the_network_is_refused():
         assert "ciclo" in err or "cycle" in err.lower()
     finally:
         os.unlink(ruta)
+
+
+def test_the_report_carries_the_variation_columns_and_the_decomposition():
+    """The two sections the CLI was missing against the C: the PERIOD/ANNUAL
+    variation columns with their standard errors, and the forecast error
+    variance decomposition. Both checked against the binary's own figures."""
+    code, out, _err = run(ES, WTI, "-b", "0", "-r", "0", "-s", "1", "-f", "6",
+                          "-Q", "-o", "-")
+    assert code == 0
+    assert "PERIOD" in out and "ANNUAL" in out
+
+    # 1/2020: level 82.01 (0.24), period -1.00 (0.24), annual 1.07 (0.24)
+    es_block = out.split("FORECAST REPORT —")[1]     # ES_CPI's, not WTI's
+    row = [l for l in es_block.splitlines()
+           if l.strip().startswith("1/2020") and "|" in l
+           and l.replace("|", " ").split()[1] != "-"]
+    assert row, "the first forecast row is missing"
+    nums = [float(x) for x in row[0].replace("|", " ").split()[1:]]
+    assert nums[0] == pytest.approx(82.01, abs=0.005)
+    assert nums[1] == pytest.approx(0.24, abs=0.005)
+    assert nums[2] == pytest.approx(-1.00, abs=0.005)
+    assert nums[3] == pytest.approx(0.24, abs=0.005)
+    assert nums[4] == pytest.approx(1.07, abs=0.005)
+
+    assert "FORECAST ERROR VARIANCE DECOMPOSITION" in out
+    assert "own noise" in out
+    assert "68.2%" in out and "31.8%" in out       # h=1, the C's own numbers
+    assert "46.3%" in out and "53.7%" in out       # h=6

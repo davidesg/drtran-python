@@ -282,13 +282,39 @@ in the original.
       See `docs/PORTE.md` §9 for why Mauricio left `fdhess` commented out — the
       cost and truncation hypotheses were both measured and falsified.
       Tests: `tests/test_stderr.py` (10).
-- [ ] What the C prints and the CLI does not yet: the forecast-error variance
-      decomposition, the monthly and annual variation columns, and the estimated
-      nu(k) weights with their standard errors.
-- [ ] **fue's own standard errors.** fue C computes them from the BFGS matrix;
-      its `fdhess` call sits commented out at `drvmlest.c:112`, and uncommenting
-      it is a one-line change now that drtran's copy shows it works. Out of
-      scope here, but it is the fix for `ERRORES_ESTANDAR.md`.
+- [x] **Variance decomposition and the variation columns — DONE.** The forecast
+      report now carries LEVEL / PERIOD / ANNUAL with their standard errors, and
+      the decomposition of the level's forecast error variance. Both identical to
+      the C: 1/2020 gives 82.01 (0.24), −1.00 (0.24), 1.07 (0.24); and ES_CPI's
+      error is 68.2 % own noise / 31.8 % WTI at h=1, 46.3 % / 53.7 % at h=6.
+      The decomposition runs on the **structural** representation, not the
+      reduced form: with b=0 the reduced-form Sigma is correlated by
+      construction, so `Q = Phi0*Sigma*Phi0'` and `psi*_struct = psi* Phi0^-1`.
+      The total variance is invariant under that, so the s.e. do not move. If Q
+      is not diagonal it is **declared** impossible rather than resolved with an
+      arbitrary ordering. Tests: `test_forecast.py` (+3), `test_cli.py` (+1).
+- [ ] **The ERR column.** The C prints the one-step residual on the observed
+      rows; the port leaves the column out. `elf` returns residuals in its own
+      internal scale and the factor that restores the series' units is not
+      established — measured against the binary, they differ by ~1.21 on the
+      first series and ~23.6 on the second, so it is per-series, not common. It
+      never mattered because the only consumer was the portmanteau and the CCF
+      is scale-invariant (which is why the diagnostics homologate exactly while
+      the residuals do not). Find the factor, then print the column.
+- [ ] The estimated nu(k) weights with their standard errors, which the C prints
+      and the CLI does not.
+- [ ] **fue's own standard errors — APLAZADO a propósito (2026-08-01).** fue C
+      computes them from the BFGS matrix; its `fdhess` call sits commented out at
+      `drvmlest.c:112` and uncommenting it is a one-line change that drtran now
+      shows to work. **It is not being done here.** fue is a general-purpose
+      program: it will be handed models that do not converge, and there the
+      finite-difference Hessian can come out non-positive-definite where the
+      BFGS matrix cannot (see `docs/PORTE.md` §9 — that trade-off is the most
+      likely reason Mauricio left the call commented in the first place).
+      Switching the default for every fue user needs its own session, with an
+      empirical sweep over the battery and the theory behind the choice, not a
+      one-line change borrowed from a program with much stronger preconditions.
+      The full note lives in `fue-1.13.1/ERRORES_ESTANDAR.md`.
 - [ ] The C-only options: aggregates (`-a`), fixed-window estimation
       (`-estwin`/`-R`), the rolling out-of-sample errors (`-C`) and the LaTeX
       report (`-L`).

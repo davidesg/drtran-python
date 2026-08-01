@@ -289,27 +289,107 @@ def _dates(ts, origin, horizon):
 
 
 def _forecast_block(fit, cast_spec, horizon, origin):
-    from .forecast import forecast, to_level
+    """The forecast report, one table per series, in the C's own layout.
+
+    LEVEL in original units, then the PERIOD and ANNUAL variations with their
+    standard errors, then the residual (ERR) on the observed rows. The variations
+    are differences of the TRANSFORMED level (`ystar` in the C), not of the level
+    itself: with a log transformation and refactor=100 a difference of 100*log IS
+    the percentage change, exactly rather than approximately.
+    """
+    from .forecast import forecast, to_level, variance_decomposition
 
     fc = forecast(fit, L=horizon, origin=origin)
     out = []
+
     for i, sc in enumerate(cast_spec.series):
-        level = to_level(fc, cast_spec, series=i, origin=origin)
-        se = fc.se("level", i)
-        dates = _dates(sc.spec.model.series, origin, horizon)
-        out += ["", "=" * 64,
-                f"  FORECAST — {sc.name}  (original units)",
-                "=" * 64,
-                "   h   date       forecast       s.e.       95% interval",
-                "  " + "-" * 60]
+        model = sc.spec.model
+        ts = model.series
+        freq = int(getattr(ts, "freq", 1) or 1)
+        refc = float(getattr(model, "refactor", 1.0) or 1.0)
+        lam = float(getattr(model, "boxlam", 0.0) or 0.0)
+        # the C's `vscale`: in log models the variation goes in % (x100/refactor,
+        # as fuf does); in levels, as a plain difference (/refactor, as forsil)
+        vscale = (100.0 / refc) if abs(lam) < 1e-8 else (1.0 / refc)
+        unit = "%" if abs(lam) < 1e-8 else "dif"
+
+        level, ystar_f, ystar_h = to_level(fc, cast_spec, series=i,
+                                           origin=origin, transformed=True)
+        star = np.concatenate([ystar_h, ystar_f])
+        nb = len(ystar_h)
+        dates = _dates(ts, origin, horizon)
+
+        se_l = fc.se("level", i)
+        se_p = fc.se("diff", i)
+        se_a = fc.se("annual", i) if freq > 1 and fc.var_annual is not None \
+            else None
+
+        out += ["", "=" * 78,
+                f"  FORECAST REPORT — {sc.name}",
+                f"  origin: observation {nb}    lead time: {horizon}"
+                f"    variation in {unit}",
+                "=" * 78,
+                "     DATE  |     LEVEL     STD  |   PERIOD    STD  "
+                "|   ANNUAL    STD",
+                "  " + "-" * 64]
+
+        # Observed rows: the last `horizon`+1, the origin included. The C also
+        # carries an ERR column with the one-step residual; it is left out here
+        # on purpose. `elf` returns the residuals in its own internal scale, and
+        # this port has not established the factor that puts them back in the
+        # series' units -- the diagnostics never needed it, because the CCF is
+        # scale-invariant. Printing them unscaled would be a plausible number
+        # that is wrong, which is exactly what the ERR column already was in the
+        # C (see docs/PORTE.md 5.5).
+        for t in range(max(1, nb - horizon), nb + 1):
+            d = _dates(ts, t - 1, 1)[0]
+            per = f"{vscale * (star[t - 1] - star[t - 2]):8.2f}" if t >= 2 else "       -"
+            ann = (f"{vscale * (star[t - 1] - star[t - 1 - freq]):8.2f}"
+                   if freq > 1 and t - 1 - freq >= 0 else "       -")
+            out.append(f"  {d:>8s}  | {ts.data[t - 1]:9.2f}       - "
+                       f"| {per}      - | {ann}      -")
+        out.append("  " + "-" * 64)
+
         for l in range(horizon):
-            v, e = level[l], se[l]
-            out.append(f"  {l + 1:3d}  {dates[l]:>8s}  {v:12.4f}  {e:9.4f}   "
-                       f"[{v - 1.96 * e:10.4f}, {v + 1.96 * e:10.4f}]")
-        out.append("=" * 64)
-    out.append("")
-    out.append("  Note: the s.e. is that of the MODELLED scale; with a Box-Cox")
-    out.append("  transformation the band is not symmetric around the level.")
+            t = nb + l                          # index into `star`
+            per = vscale * (star[t] - star[t - 1])
+            ann = (vscale * (star[t] - star[t - freq])
+                   if freq > 1 and t - freq >= 0 else None)
+            sa = f"{vscale * se_a[l]:6.2f}" if se_a is not None else "     -"
+            av = f"{ann:8.2f}" if ann is not None else "       -"
+            out.append(f"  {dates[l]:>8s}  | {level[l]:9.2f}  {se_l[l]:6.2f} "
+                       f"| {per:8.2f} {vscale * se_p[l]:6.2f} "
+                       f"| {av} {sa}")
+        out.append("=" * 68)
+
+    # ── the forecast error variance decomposition ────────────────────────────
+    receivers = sorted({l.out for l in cast_spec.links})
+    if receivers:
+        out += ["", "=" * 78,
+                "  FORECAST ERROR VARIANCE DECOMPOSITION",
+                "  How much of the error of forecasting the output comes from",
+                "  EACH source of innovation.",
+                "=" * 78]
+        for i in receivers:
+            shares, why = variance_decomposition(fc, series=i)
+            if shares is None:
+                out += ["", f"  {cast_spec.series[i].name}: NOT REPORTED — {why}"]
+                continue
+            head = "    l  " + "".join(
+                f"{('own noise' if j == i else cast_spec.series[j].name):>12.12s}"
+                for j in range(cast_spec.m))
+            out += ["", f"  {cast_spec.series[i].name}"
+                        "  (% of the forecast error variance of the LEVEL)",
+                    "", head, "  " + "-" * (5 + 12 * cast_spec.m)]
+            for l in range(fc.L):
+                out.append(f"  {l + 1:3d}  " + "".join(
+                    f"{100.0 * shares[l, j]:11.1f}%" for j in range(cast_spec.m)))
+        out.append("=" * 78)
+
+    out += ["",
+            "  Note: the level's s.e. is in original units; the variations are",
+            "  differences of the transformed level, so with a log model they",
+            "  are percentages. With a Box-Cox the level band is not symmetric."]
     return "\n".join(out)
 
 

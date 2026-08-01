@@ -156,6 +156,9 @@ class Forecast:
     var_annual: np.ndarray = None      # (L+1, m, m) of (1-B^s) level
     names: list = field(default_factory=list)
     x: np.ndarray = None               # the fitted vector, for `to_level`
+    psi_level: np.ndarray = None       # (L+1, m, m) integrated weights psi*
+    sigma: np.ndarray = None           # (m, m) REDUCED-FORM innovation covariance
+    phi0: np.ndarray = None            # Phi(0), to recover the STRUCTURAL form
 
     @property
     def L(self):
@@ -192,8 +195,13 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
     from .cast import cast_diagonal
     from .embed import cast_embedded
 
-    hacer = cast_embedded if embed else cast_diagonal
-    phi, theta, mu, w, sigma, ifault = hacer(np.asarray(x, float), cast_spec)
+    if embed:
+        phi, theta, mu, w, sigma, ifault, phi0 = cast_embedded(
+            np.asarray(x, float), cast_spec, with_phi0=True)
+    else:
+        phi, theta, mu, w, sigma, ifault = cast_diagonal(np.asarray(x, float),
+                                                         cast_spec)
+        phi0 = np.eye(cast_spec.m)
     if ifault:
         raise RuntimeError(f"the cast failed: ifault={ifault}")
 
@@ -244,7 +252,8 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
 
     return Forecast(f=f, var_w=var_w, var_level=var_level, var_diff=var_diff,
                     var_annual=var_annual, names=list(cast_spec.names),
-                    x=np.asarray(x, float))
+                    x=np.asarray(x, float), psi_level=psis, sigma=sigma,
+                    phi0=np.asarray(phi0, float))
 
 
 def report_forecast(fc, series=0, which="level"):
@@ -265,6 +274,74 @@ def report_forecast(fc, series=0, which="level"):
 
 
 # ── back to the level ────────────────────────────────────────────────────────
+def variance_decomposition(fc, series=0):
+    """How much of the l-step forecast error variance of the LEVEL of `series`
+    comes from EACH source of innovation.
+
+    Computed on the **STRUCTURAL** representation, not the reduced form. That is
+    not a detail: with a contemporaneous transfer (b=0) the cast puts omega_0 at
+    lag zero, `normalize_phi0` premultiplies by Phi(0)^-1 to give `elf` the
+    Phi_0 = I it requires, and the reduced-form Sigma comes out CORRELATED by
+    construction (Sigma_12 = omega_0*sigma2_X). Decomposing there would be
+    impossible on principle -- and it is the same trap as in the diagnostics,
+    where the reduced-form residuals condemn a correct model.
+
+    Undoing the normalisation restores a diagonal Q::
+
+        Q = Phi0 * Sigma * Phi0',      psi*_struct(t) = psi*(t) * Phi0^-1
+
+    and the total variance is unchanged, because
+    `psi Sigma psi' = (psi Phi0^-1) Q (psi Phi0^-1)'` identically. So the
+    variances the report prints do not move; what changes is that the
+    decomposition becomes well posed.
+
+    With Q diagonal the answer is clean and unique::
+
+        share_ij(l) = Q_jj * SUM_{t<l} psi*_struct,ij(t)^2  /  Var_i(l)
+
+    **If Q is not diagonal the decomposition is NOT UNIQUE** and this returns
+    `(None, reason)`. Someone has to be given the common part, and that requires
+    an ORDERING whose answer changes with the order of the series. That is
+    exactly the VAR's problem, and it is not solved here by picking an order
+    quietly: it is avoided while Q stays diagonal, and declared when it does not.
+    The C makes the same call, and it is why the covariances `q[i,j]` start out
+    fixed at zero -- freeing one is a modelling decision that costs you this
+    table.
+
+    Returns `(shares, None)`, shape (L, m) with rows summing to 1, or
+    `(None, reason)`.
+    """
+    if fc.psi_level is None or fc.sigma is None:
+        return None, "the forecast does not carry psi* and Sigma"
+
+    sigma = np.asarray(fc.sigma, float)
+    phi0 = np.eye(sigma.shape[0]) if fc.phi0 is None else np.asarray(fc.phi0,
+                                                                     float)
+    Q = phi0 @ sigma @ phi0.T
+    m = Q.shape[0]
+    if np.max(np.abs(Q - np.diag(np.diag(Q)))) > 1e-10 * max(1.0,
+                                                             np.max(np.abs(Q))):
+        return None, ("the structural Q is not diagonal. With correlated "
+                      "innovations the decomposition is NOT UNIQUE -- someone "
+                      "has to be given the common part, and that requires an "
+                      "ORDERING (Cholesky). That is exactly the VAR's problem. "
+                      "It is not solved here; it is avoided while Q stays "
+                      "diagonal, and declared when it does not.")
+
+    inv = np.linalg.inv(phi0)
+    psis = np.array([p @ inv for p in np.asarray(fc.psi_level, float)])
+    L = fc.L
+    shares = np.zeros((L, m))
+    for l in range(1, L + 1):
+        total = float(fc.var_level[l][series, series])
+        if total <= 0.0:
+            continue
+        for j in range(m):
+            c = sum(Q[j, j] * psis[t][series, j] ** 2 for t in range(l))
+            shares[l - 1, j] = c / total
+    return shares, None
+
+
 def _fitted_deterministics(fc, cast_spec, series):
     """The deterministic coefficients **as estimated by the cast**, not as seeded.
 
@@ -305,7 +382,7 @@ def _fitted_deterministics(fc, cast_spec, series):
     return itv_omega, itv_delta
 
 
-def to_level(fc, cast_spec, series=0, origin=None):
+def to_level(fc, cast_spec, series=0, origin=None, transformed=False):
     """Turn the forecast of `w` into a forecast of the LEVEL, in original units.
 
     The cast models `w`, which is the series after Box-Cox, differencing and
@@ -360,4 +437,11 @@ def to_level(fc, cast_spec, series=0, origin=None):
         u[o + l - 1] = acc
 
     z_f = np.array([u[o + l - 1] + xi[o + l] for l in range(1, L + 1)])
-    return np.array([_inv_boxcox(v, model.boxlam, model.refactor) for v in z_f])
+    level = np.array([_inv_boxcox(v, model.boxlam, model.refactor) for v in z_f])
+    if not transformed:
+        return level
+    # `z` is the level in the TRANSFORMED scale (Box-Cox, before inverting it),
+    # which is what the variation columns are computed on: the C's `ystar`.
+    # Differencing there and not on the level is the point -- with lambda = 0 a
+    # difference of 100*log IS the percentage change, exactly.
+    return level, z_f, z[:o]

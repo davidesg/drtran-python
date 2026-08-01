@@ -412,6 +412,46 @@ With that, m6's canonical targets are reproduced: **diagonal −1709.511575**
 the five clean series is kept: it exercises the same machinery without depending
 on which version of fue is installed.
 
+### 5.5. The ERR column read the wrong residual (a C bug)
+
+The forecast report's last column is the one-step residual on the observed rows.
+It was printed with
+
+```c
+fprintf(out, "%7.2f\n", vscale * vf.a[i][obs - ord]);
+```
+
+with `i` the series and `obs - ord` the time. `a` is indexed **[time][series]**
+everywhere else in the file; here the two are crossed. The residual matrix is
+allocated contiguously (`nlatools.c:matrix` hands out one block with row
+pointers into it), so `a[i][obs-ord]` does not fault — it reads a different
+position of the same block. The values printed **are** residuals, of the wrong
+observation and sometimes of the wrong series, which is why the column looked
+perfectly reasonable for years.
+
+Proved by instrumenting the binary rather than by reading it, after a first
+attempt to predict the aliasing arithmetically got two of three rows wrong:
+
+```
+[ERR] i=1 obs=214 ord=1  a[i][obs-ord]=0.3307137700  a[obs-ord][i]=0.1268127395
+[ERR] i=1 obs=215 ord=1  a[i][obs-ord]=-0.0846324478 a[obs-ord][i]=-0.0890583542
+[ERR] i=1 obs=216 ord=1  a[i][obs-ord]=0.0387123772  a[obs-ord][i]=-0.2053990514
+```
+
+0.33, −0.08, 0.04 is exactly what the report showed. Fixed in the C; the battery
+stays at 296 PASS.
+
+**The port does not print this column at all**, for a different reason. `elf`
+returns the residuals in its own internal scale, and this port has not
+established the factor that puts them back in the series' units: measured
+against the binary's own `vf.a`, the port's reduced-form residuals differ by
+about 1.21 on the first series and 23.6 on the second — a per-series factor, not
+a common one. It never mattered before because the only consumer was the
+portmanteau, and the CCF is **scale-invariant**, which is why the diagnostics
+homologate exactly (p = 0.1966 / 0.9136) while the residuals themselves do not.
+Printing them unscaled would be a plausible number that is wrong — the same
+defect that was just removed from the C. It is on the TODO.
+
 ## 6. Homologation with the binary
 
 `test_homologation_c.py` and `test_network.py` **relaunch the binary live**
@@ -462,7 +502,28 @@ original units and against the C's own table:
 |---|---|---|
 | ES_CPI 1–6/2020 | 82.01 82.02 82.38 83.17 83.33 83.44 | the same |
 | s.e. | 0.24 0.44 0.60 0.74 0.85 0.95 | the same |
+| period variation | −1.00 0.01 0.44 0.95 0.20 0.13 | the same |
+| its s.e. | 0.24 0.28 0.28 0.28 0.28 0.28 | the same |
+| annual variation | 1.07 0.83 0.91 0.86 0.86 1.11 | the same |
 | WTI 1–6/2020 | 60.76 … 61.14, s.e. 8.29 … 27.10 | the same |
+
+**THE VARIANCE DECOMPOSITION** of ES_CPI's level forecast error, the number that
+says whether the multivariate model earns its keep:
+
+| l | own noise | WTI |
+|---|---|---|
+| 1 | 68.2 % | 31.8 % |
+| 3 | 50.0 % | 50.0 % |
+| 6 | 46.3 % | 53.7 % |
+
+Identical to the C's. Computed on the **structural** representation: with b=0 the
+reduced-form Sigma is correlated by construction, so undoing `normalize_phi0`
+(`Q = Phi0 Sigma Phi0'`, `psi*_struct = psi* Phi0^-1`) is what makes the table
+well posed at all. The total variance is unchanged by the manoeuvre —
+`psi Sigma psi' = (psi Phi0^-1) Q (psi Phi0^-1)'` identically — so the reported
+s.e. do not move. If Q is not diagonal the decomposition is **declared
+impossible** rather than resolved with an arbitrary Cholesky ordering, which is
+the C's call too and the reason `q[i,j]` starts out fixed at zero.
 
 ## 7. How to reproduce it
 

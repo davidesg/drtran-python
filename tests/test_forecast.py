@@ -214,3 +214,70 @@ def test_the_deterministics_come_from_the_fit_not_from_the_pre(fitted):
     assert om[0][0] == pytest.approx(-0.040867, abs=1e-5)
     assert om[1][0] == pytest.approx(-0.094588, abs=1e-5)
     assert om != semillas
+
+
+# ── the forecast error variance decomposition ────────────────────────────────
+def test_the_decomposition_matches_the_C(fitted):
+    """The C reports, for ES_CPI: 68.2/31.8, 54.4/45.6, 50.0/50.0, 48.1/51.9,
+    47.0/53.0, 46.3/53.7. It is the number that says whether the multivariate
+    model earns its keep — by h=6 more than half of the error of forecasting the
+    Spanish CPI comes from the oil innovation."""
+    from drtran.forecast import variance_decomposition
+
+    fc = forecast(fitted, L=6)
+    shares, why = variance_decomposition(fc, series=0)
+    assert why is None, why
+
+    c = np.array([[68.2, 31.8], [54.4, 45.6], [50.0, 50.0],
+                  [48.1, 51.9], [47.0, 53.0], [46.3, 53.7]]) / 100.0
+    assert shares == pytest.approx(c, abs=0.0005)
+    assert shares.sum(axis=1) == pytest.approx(np.ones(6))
+
+
+def test_the_decomposition_is_STRUCTURAL_not_reduced_form(fitted):
+    """The distinction is what makes the table possible at all.
+
+    With b=0 the cast puts omega_0 at lag zero and `normalize_phi0` leaves a
+    reduced-form Sigma that is correlated BY CONSTRUCTION — decomposing there
+    would be impossible on principle. Undoing the normalisation gives a diagonal
+    Q, and the total variance does not move, because
+    `psi Sigma psi' = (psi Phi0^-1) Q (psi Phi0^-1)'` identically.
+
+    So: the reduced-form Sigma must be non-diagonal here (otherwise there is
+    nothing to undo and this test is vacuous), the structural Q must be diagonal,
+    and the level variances must be unchanged by the whole manoeuvre.
+    """
+    from drtran.forecast import error_variance, variance_decomposition
+
+    fc = forecast(fitted, L=6)
+    sigma = np.asarray(fc.sigma, float)
+    phi0 = np.asarray(fc.phi0, float)
+
+    off = sigma - np.diag(np.diag(sigma))
+    assert np.max(np.abs(off)) > 1e-6, "the reduced form must be correlated here"
+
+    Q = phi0 @ sigma @ phi0.T
+    assert np.max(np.abs(Q - np.diag(np.diag(Q)))) < 1e-10, "Q must be diagonal"
+
+    psis = np.array([p @ np.linalg.inv(phi0)
+                     for p in np.asarray(fc.psi_level, float)])
+    var_struct = error_variance(psis, Q, 6)
+    for l in range(1, 7):
+        assert var_struct[l][0, 0] == pytest.approx(fc.var_level[l][0, 0],
+                                                    rel=1e-10)
+
+    shares, why = variance_decomposition(fc, series=0)
+    assert why is None and shares is not None
+
+
+def test_a_correlated_Q_is_declared_not_decomposed(fitted, tmp_path):
+    """Freeing a covariance costs you this table, and that is the honest answer:
+    with correlated innovations the decomposition depends on an ORDERING, which
+    is the VAR's problem. It is declared, not papered over with a Cholesky."""
+    from drtran.forecast import variance_decomposition
+
+    fc = forecast(fitted, L=3)
+    fc.phi0 = np.eye(2)                       # pretend no normalisation happened
+    shares, why = variance_decomposition(fc, series=0)
+    assert shares is None
+    assert "NOT UNIQUE" in why and "ORDERING" in why
