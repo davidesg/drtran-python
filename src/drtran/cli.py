@@ -41,6 +41,9 @@ MODEL AND OUTPUT
   -m NAME  model name; results go to NAME.out
            (default: <output>_<input>, from the two .pre file names)
   -o FILE  write the results to FILE instead of NAME.out  ('-' for stdout)
+  -Q       skip the standard errors. They cost (k^2+3k)/2 likelihood
+           evaluations for k free parameters, which is the slow part on a large
+           network; the estimates and the log-likelihood do not change.
   -v       verbose
 
 TRANSFER FUNCTION  (one per input)
@@ -98,7 +101,7 @@ NOT PORTED YET (refused rather than ignored)
   -C FILE  rolling errors    -L               LaTeX report
 """
 
-_OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:"
+_OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:Q"
 
 _NOT_PORTED = {
     "-a": "aggregates (-a)",
@@ -187,34 +190,81 @@ def _apply_switches(table, seeds, fix_out_arma, fix_inp_arma,
 
 
 # ── reporting ────────────────────────────────────────────────────────────────
-def report_fit(fit, table, names):
+def _signif(p):
+    """The C's significance codes, so the two reports read the same."""
+    if p != p:
+        return ""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    if p < 0.1:
+        return "."
+    return ""
+
+
+def report_fit(fit, table, names, se=None):
     """The estimated model, slot by slot.
 
-    No standard errors: this port does not compute the Hessian yet, and printing
-    a column of blanks is more honest than printing one the reader would take for
-    an inference. It is on the TODO.
+    `se` is a `StdErrors` (or None to leave the inference columns out). They are
+    computed from the Hessian recomputed AT the optimum, not from the optimiser's
+    accumulated matrix — see `estimate.standard_errors` for why that distinction
+    is the difference between a standard error and a number.
     """
-    out = ["=" * 64,
-           "  JOINT ESTIMATION — exact maximum likelihood",
-           "=" * 64,
-           f"  series      : {', '.join(names)}",
-           f"  log-likelihood: {fit.loglik:.6f}",
-           f"  status      : {fit.status}  (termcode={fit.termcode}, "
-           f"iterations={fit.nit})",
-           "",
-           "  parameter                     estimate    ",
-           "  " + "-" * 46]
-    from .slots import FIXED, FREE
+    from .slots import ALIAS, FIXED, FREE, LINCOMB, PRODUCT
 
-    for i, s in enumerate(table.slots):
-        if s.kind == FREE:
-            det = ""
-        elif s.kind == FIXED:
-            det = "  (fixed)"
+    out = ["=" * 70,
+           "  JOINT ESTIMATION — exact maximum likelihood",
+           "=" * 70,
+           f"  series        : {', '.join(names)}",
+           f"  log-likelihood: {fit.loglik:.6f}",
+           f"  status        : {fit.status}  (termcode={fit.termcode}, "
+           f"iterations={fit.nit})",
+           ""]
+    if se is None or se.ifault:
+        out += ["  parameter                 estimate", "  " + "-" * 42]
+    else:
+        out += ["  parameter                 estimate    std.error   t-stat  p-val",
+                "  " + "-" * 66]
+
+    for i, sl in enumerate(table.slots):
+        v = fit.x[i]
+        if sl.kind == FIXED:
+            out.append(f"  {sl.name:<20s} {v:12.6f}       (fixed)")
+            continue
+        if sl.kind == ALIAS:
+            tail = f"       (= {table.slots[sl.pa].name})"
+        elif sl.kind == PRODUCT:
+            sg = "-" if sl.value < 0 else ""
+            tail = (f"       (= {sg}{table.slots[sl.pa].name}"
+                    f" * {table.slots[sl.pb].name})")
+        elif sl.kind == LINCOMB:
+            terms = []
+            for sg, a, b in sl.terms:
+                t = table.slots[a].name + (f" * {table.slots[b].name}"
+                                           if b >= 0 else "")
+                terms.append(("- " if sg < 0 else "+ ") + t)
+            tail = "       (= " + " ".join(terms).lstrip("+ ") + ")"
         else:
-            det = "  (constrained)"
-        out.append(f"  {s.name:<24s} {fit.x[i]:14.6f}{det}")
-    out.append("=" * 64)
+            tail = ""
+
+        if sl.kind != FREE:
+            out.append(f"  {sl.name:<20s} {v:12.6f}{tail}")
+            continue
+        if se is None or se.ifault or se.se_of_slot[i] != se.se_of_slot[i]:
+            out.append(f"  {sl.name:<20s} {v:12.6f}")
+        else:
+            out.append(f"  {sl.name:<20s} {v:12.6f} {se.se_of_slot[i]:12.6f}"
+                       f" {se.t[i]:8.3f} {se.p[i]:6.4f} {_signif(se.p[i])}")
+
+    if se is not None and not se.ifault:
+        out.append("")
+        out.append("  Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1")
+        out.append("  Standard errors from the Hessian recomputed at the optimum")
+        out.append("  (finite differences), not from the optimiser's BFGS matrix.")
+    out.append("=" * 70)
     return "\n".join(out)
 
 
@@ -280,6 +330,7 @@ def main(argv=None):
     o = dict(opt_b=None, opt_r=None, opt_s=None, horizon=0, origin=None,
              model_name=None, outfile=None, cons=None, net=None, guide=None,
              prewhiten_only=False, net_ident=False, no_transfer=False,
+             no_stderr=False,
              embed=True, verbose=False,
              fix_out_arma=False, fix_inp_arma=False, fix_out_det=False,
              fix_inp_det=False, fix_mu=False)
@@ -327,6 +378,8 @@ def main(argv=None):
             o["embed"] = False
         elif flag == "-v":
             o["verbose"] = True
+        elif flag == "-Q":
+            o["no_stderr"] = True
         elif flag == "-N":
             o["fix_out_arma"] = True
         elif flag == "-X":
@@ -413,7 +466,14 @@ def _run(o, files):
     if f.ifault:
         raise CliError(f"the likelihood could not be evaluated: ifault={f.ifault}")
 
-    parts = [report_fit(f, table, names)]
+    se = None
+    if not o["no_stderr"]:
+        from .estimate import standard_errors
+        se = standard_errors(f, xitol=-1e-3)
+        if se.ifault and o["verbose"]:
+            sys.stderr.write("drtran: the Hessian at the optimum is not usable; "
+                             "reporting without standard errors\n")
+    parts = [report_fit(f, table, names, se)]
 
     # ── network identification (-i / -g) ─────────────────────────────────────
     if o["net_ident"]:

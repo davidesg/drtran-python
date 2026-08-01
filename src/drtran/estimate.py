@@ -44,6 +44,7 @@ class Fit:
     converged: bool
     slots: object = None          # SlotTable, if the fit is constrained
     xfree: object = None          # what the optimizer saw (x is the full one)
+    embed: bool = True            # which cast produced it; `standard_errors` needs it
 
     # The optimizer's termcode (raxopt / qnewtopt.c), with the classification
     # drtran settled on at its M1 milestone: 1-2 convergence, 3 stopped WITHOUT
@@ -165,7 +166,7 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
         return Fit(x=np.asarray(expand(v), float), loglik=ll, ifault=int(ifa),
                    termcode=int(termcode), nit=int(nit), cast_spec=cast_spec,
                    converged=int(termcode) in (1, 2), slots=slots,
-                   xfree=np.asarray(v, float))
+                   xfree=np.asarray(v, float), embed=embed)
 
     f1_0, f2_0, ifa0 = _f1f2(expand(x_ini), cast_spec, xitol, embed)
     if ifa0 or f1_0 is None or not (f1_0 > 0.0 and f2_0 > 0.0):
@@ -195,6 +196,167 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
 
     ll, ifa = _ll(x_hat)
     return _pack(x_hat, ll, ifa, termcode, nit)
+
+
+@dataclass
+class StdErrors:
+    """Standard errors of a fit, in the FREE space and mapped onto the slots."""
+
+    cov: np.ndarray               # (nfree, nfree) covariance of the free params
+    se: np.ndarray                # (nfree,) its square root diagonal
+    se_of_slot: np.ndarray        # (nslot,) NaN where a slot has no s.e.
+    t: np.ndarray                 # (nslot,) t = estimate / s.e.
+    p: np.ndarray                 # (nslot,) two-sided p-value
+    ifault: int = 0
+
+
+def _normal_cdf(z):
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+
+def standard_errors(fit, xitol=-1e-3):
+    """Standard errors from the Hessian recomputed AT the optimum.
+
+    Port of `drvmlest.c:est` [2b]-[3] as drtran's copy has it::
+
+        H   = fdhess(objective, x_hat)         # finite differences at the optimum
+        cov = 2 * F(x_hat) * H^-1 / n
+
+    **Not** the optimiser's matrix. `raxopt` leaves the Hessian accumulated by
+    BFGS along the search path; it steers the search well but it is not the
+    curvature at the optimum. It depends on the path — two different starting
+    points give different standard errors on the same estimates — and it degrades
+    in the flattest directions, which are exactly the ones with the largest
+    errors. Worse, when the search starts AT the optimum and stops immediately
+    (`termcode 3`, the normal case when the seeds come from the previous rung of
+    the ladder) it is never built at all.
+
+    That is a live defect elsewhere in the family, not a hypothetical: fue C
+    computes its standard errors from the BFGS matrix — its `fdhess` call sits
+    commented out at `drvmlest.c:112` — and reports different s.e. for the same
+    point estimates on different runs. **drtran's C does not**: its `est()`
+    recomputes the Hessian, and this port follows it.
+
+    On the scaling: the objective is Mauricio's, normalised to 1 at x0, so it
+    carries an arbitrary constant c. It cancels — with F = c*G, both `F(x_hat)`
+    and `H` scale by c and `2*F*H^-1` does not move. The standard errors
+    therefore do not depend on where the search started, which is the whole
+    point.
+
+    `ifault` in the result: 0 fine, 1 the Hessian could not be built, **2 the
+    Hessian at that point is not positive definite** — which means the point is
+    not a maximum, not that the arithmetic failed. Reporting standard errors
+    there would be reporting curvature that does not exist.
+
+    Cost: (k^2 + 3k)/2 likelihood evaluations for k free parameters, so this is
+    computed on demand rather than inside `fit`.
+    """
+    from drvarma import _qnewt
+    from drvarma._as311 import _chol_lower
+
+    cast_spec = fit.cast_spec
+    slots = fit.slots
+    embed = getattr(fit, "embed", True)
+
+    if slots is None:
+        xfree = np.asarray(fit.x, float)
+        expand = lambda v: v                                      # noqa: E731
+    else:
+        xfree = np.asarray(fit.xfree, float)
+        expand = slots.expand
+    k = len(xfree)
+    nslot = len(slots) if slots is not None else k
+
+    def objective(v):
+        f1, f2, ifa = _f1f2(expand(np.asarray(v, float)), cast_spec, xitol, embed)
+        if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
+            return 1.0
+        return (f1 ** cast_spec.m) * f2
+
+    nan = float("nan")
+    empty = StdErrors(cov=np.zeros((k, k)), se=np.full(k, nan),
+                      se_of_slot=np.full(nslot, nan), t=np.full(nslot, nan),
+                      p=np.full(nslot, nan), ifault=1)
+    if k == 0:
+        return empty
+
+    # the sample length is the one elf sees: the rows of the stationary series
+    build = cast_embedded if embed else cast_diagonal
+    out = build(np.asarray(fit.x, float), cast_spec)
+    if out[5]:
+        return empty
+    n = out[3].shape[0]
+
+    x1 = np.zeros(k + 1)
+    x1[1:] = xfree
+
+    def func1(v1):
+        return objective(v1[1:k + 1])
+
+    fk = func1(x1)
+    if not fk > 0.0:
+        return empty
+
+    H = np.zeros((k + 1, k + 1))
+    _qnewt.fdhess(func1, k, x1, fk, _qnewt.MACHEPS, H)
+
+    # POSITIVE DEFINITENESS, checked before trusting the factorisation.
+    #
+    # `choldcp` is the MODIFIED Cholesky: faced with a non-positive pivot it
+    # patches it and carries on. That is right for steering a search and wrong
+    # for reporting inference — it turns "this is not a maximum" into a column of
+    # plausible-looking standard errors. And the Hessian at a point that is NOT
+    # the optimum is under no obligation to be positive definite: measured on
+    # m6, at the `.pre` seeds 2 of its 55 eigenvalues are <= 0, while at the C's
+    # actual optimum all 55 are positive.
+    #
+    # This is the risk drvarma's `est` avoids by using the optimiser's BFGS
+    # matrix instead, which is positive definite by construction and therefore
+    # never fails — at the price of not being the curvature at the optimum. The
+    # trade is: BFGS always answers, sometimes wrongly; fdhess answers correctly
+    # or, with this guard, says it cannot.
+    w = np.linalg.eigvalsh(0.5 * (H[1:, 1:] + H[1:, 1:].T))
+    if w.min() <= 0.0:
+        return StdErrors(cov=np.zeros((k, k)), se=np.full(k, nan),
+                         se_of_slot=np.full(nslot, nan), t=np.full(nslot, nan),
+                         p=np.full(nslot, nan), ifault=2)
+
+    L, _detfac, ifa = _chol_lower(H, k)
+    if ifa:
+        return empty
+
+    cov = np.zeros((k, k))
+    for i in range(1, k + 1):
+        e = np.zeros(k + 1)
+        e[i] = 1.0
+        _qnewt.cholsol(L, k, e)
+        cov[:, i - 1] = (2.0 * fk * e[1:k + 1]) / n
+
+    se = np.array([math.sqrt(cov[i, i]) if cov[i, i] > 0 else nan
+                   for i in range(k)])
+
+    # onto the slots: a FREE slot carries its own s.e.; an ALIAS carries its
+    # representative's, because they are one degree of freedom in two places
+    # (that is what sharing means, and it is what the C prints).
+    se_slot = np.full(nslot, nan)
+    t = np.full(nslot, nan)
+    p = np.full(nslot, nan)
+    xfull = np.asarray(fit.x, float)
+    if slots is None:
+        se_slot = se.copy()
+    else:
+        for i, sl in enumerate(slots.slots):
+            j = slots.free_of_slot[i]
+            if j < 0 and sl.kind == 2:            # ALIAS: follow to the source
+                j = slots.free_of_slot[sl.pa]
+            if j >= 0:
+                se_slot[i] = se[j]
+    for i in range(nslot):
+        if se_slot[i] == se_slot[i] and se_slot[i] > 1e-15:
+            t[i] = xfull[i] / se_slot[i]
+            p[i] = 2.0 * (1.0 - _normal_cdf(abs(t[i])))
+
+    return StdErrors(cov=cov, se=se, se_of_slot=se_slot, t=t, p=p, ifault=0)
 
 
 def unpack(fit_or_x, cast_spec=None):

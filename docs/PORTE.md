@@ -519,3 +519,70 @@ cd ~/Dropbox/SRC/drtran && make && ./test_battery.sh           # 296 PASS, 0 FAI
   pre-estimates and check that it converges by gradient to the same point. NB:
   multiart (drvarma) **does** reject termcode 3 in its order search, where the
   seeds are OLS. The two criteria coexist; do not confuse them.
+
+---
+
+## 9. Why Mauricio left `fdhess` commented out
+
+The standard errors are the last piece of the report, and porting them raised a
+question worth answering before copying anyone: `drvmlest.c` has always carried
+the finite-difference Hessian **commented out**, under the neutral heading *"This
+is an alternative way of computing the second derivative matrix"*. drtran's copy
+is the only one in the family that uncomments it. Mauricio is not careless, so
+the default deserved an explanation rather than an override.
+
+**The chronology.** `fdhess` is defined, complete, in `qnewtopt.c` in every
+version from drvarma v.01 (Copyright J.A. Mauricio, 1995) onwards, and called in
+none of them. It is the **only** one of the nine routines in that file that is
+never used. So it is not an unfinished port: it is a routine written, kept and
+deliberately not wired, across thirty years and six versions.
+
+**Two hypotheses, both falsified by measurement.**
+
+*Cost.* `fdhess` needs (k²+3k)/2 likelihood evaluations. Measured: 171 on the
+canonical case (k=17) against the 942 the search itself spends — **18 %** — and
+about 8 % on m6 (k=55, 1595 evaluations, 6.7 s today; roughly an hour on
+1990s hardware, but so is the search). The fraction *falls* as the problem grows,
+because `fdhess` is O(k²) while the search is O(iterations·k). And it writes into
+the same `mtmp` the BFGS already allocated, so there is no memory cost either.
+An 18 % overhead is not why one disables a feature.
+
+*Numerical fragility.* The step is macheps^(1/3) ≈ 6.1e-6, so the second
+difference divides by 3.7e-11 and amplifies any noise in the likelihood by
+2.7e10. That sounds fatal and is not, because the curvature is large: at the
+canonical optimum the Hessian is positive definite, its condition number is
+7.0e3, and the standard errors do not move when the step is varied over four
+orders of magnitude. The `xitol` truncation was the specific suspect — it is a
+threshold with an **integer** decision (`cxi` compares a sum against it, so the
+truncation index jumps as the parameters move, making the approximate likelihood
+piecewise) — but tested at xitol = 1e-8, 1e-5 and 1e-3 the standard errors are
+identical to six figures. Not it either. The rejection sentinel (`objcfunc`
+returns 1.0 outside the admissible region) was a third suspect: zero hits in
+1596 probes.
+
+**What does hold.** The Hessian at a point that is *not* the optimum has no
+obligation to be positive definite, and on m6 it is not: at the `.pre` seeds 2 of
+its 55 eigenvalues are ≤ 0, while at the C's actual optimum all 55 are positive.
+`choldcp` — the MODIFIED Cholesky that sits in the commented block right after
+`fdhess` — would patch those pivots and carry on, turning "this is not a maximum"
+into a column of plausible-looking standard errors. That the author paired
+`fdhess` with the *modified* Cholesky rather than a strict one says he expected
+exactly that.
+
+The BFGS matrix has the opposite failure mode. It is positive definite by
+construction, so it never fails and always answers; what it loses is that it is
+not the curvature at the optimum. For a **general-purpose** estimation program —
+one that will be handed badly specified models that do not converge — always
+answering is the defensible default, and the sharp alternative is left one
+uncomment away for whoever knows their problem is well posed.
+
+drtran is that whoever. It seeds from a converged fue `.pre`, pins the exact
+likelihood (`xitol = -1e-3`), and its cast rejects the inadmissible region before
+`elf` sees it. So it enables `fdhess` — and this port adds the guard the C does
+not have: **if the Hessian is not positive definite, `standard_errors` refuses
+with ifault=2 instead of reporting patched numbers.**
+
+This is an inference from measurement, not a proof of intent. What is
+established: it was deliberate and sustained; it is not about cost; it is not
+about the truncation; and there is a real failure mode that the BFGS matrix
+cannot have and `fdhess` can.

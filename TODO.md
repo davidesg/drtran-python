@@ -261,12 +261,34 @@ in the original.
       to come out in Spanish from an English CLI — and which broke during the
       sweep, because nothing exercised it. `tests/test_cli.py` now covers it.
       Tests: 112 passing.
-- [ ] **Standard errors.** The Hessian is not computed, so the parameter table has
-      no `s.e.`/`t` column. The C does give it. It is what is left for the report
-      to be comparable line by line.
+- [x] **Standard errors — DONE.** From the Hessian recomputed **at the optimum**
+      by finite differences (`fdhess`, ported into drvarma's `_qnewt.py` — it was
+      the one routine of `qnewtopt.c` the Python side lacked), then
+      `cov = 2*F(x_hat)*H^-1/n`, exactly as drtran's `est()` does it.
+      All 17 standard errors of the canonical case match the binary (worst
+      relative difference 2.8e-04, which is finite-difference noise): omega1[0]
+      0.001703 (t = 9.633), omega1[1] 0.001693 (t = -6.349). The CLI prints the
+      `std.error / t-stat / p-val` columns with the C's significance codes; `-Q`
+      skips them, since they cost (k^2+3k)/2 likelihood evaluations.
+      **Not** the optimiser's BFGS matrix: it is path-dependent (fue C uses it
+      and reports different s.e. for identical estimates across runs — see
+      `fue-1.13.1/ERRORES_ESTANDAR.md`) and it is never even built when the
+      search starts at the optimum, which is drtran's normal case.
+      Added a guard the C does not have: if the Hessian at that point is **not
+      positive definite** the result is refused with `ifault=2` rather than
+      passed through the MODIFIED Cholesky, which would patch the pivots and
+      publish plausible-looking numbers. It fires on m6 at the `.pre` seeds (2 of
+      55 eigenvalues <= 0 there; all 55 positive at the real optimum).
+      See `docs/PORTE.md` §9 for why Mauricio left `fdhess` commented out — the
+      cost and truncation hypotheses were both measured and falsified.
+      Tests: `tests/test_stderr.py` (10).
 - [ ] What the C prints and the CLI does not yet: the forecast-error variance
       decomposition, the monthly and annual variation columns, and the estimated
       nu(k) weights with their standard errors.
+- [ ] **fue's own standard errors.** fue C computes them from the BFGS matrix;
+      its `fdhess` call sits commented out at `drvmlest.c:112`, and uncommenting
+      it is a one-line change now that drtran's copy shows it works. Out of
+      scope here, but it is the fix for `ERRORES_ESTANDAR.md`.
 - [ ] The C-only options: aggregates (`-a`), fixed-window estimation
       (`-estwin`/`-R`), the rolling out-of-sample errors (`-C`) and the LaTeX
       report (`-L`).

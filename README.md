@@ -122,9 +122,15 @@ with their (b, s), the contemporaneous covariances and the pairs with feedback;
 `write_guided` writes the draft `.dag` and `.cns`. It is a **guide**: prune by
 exogeneity, acyclicity and how plausible the delay is before estimating.
 
-**Missing:** standard errors (the Hessian is not computed), the forecast-error
-variance decomposition, and the C-only options above. Details in
-[`TODO.md`](TODO.md).
+Standard errors come from the Hessian recomputed **at the optimum** by finite
+differences, not from the optimiser's accumulated BFGS matrix — the latter is
+path-dependent and is never even built when the search starts at the optimum,
+which is drtran's normal case. All 17 of the canonical case match the binary.
+`docs/PORTE.md` §9 records why Mauricio left that call commented out, and what
+measuring it settled.
+
+**Missing:** the forecast-error variance decomposition, the variation columns,
+and the C-only options above. Details in [`TODO.md`](TODO.md).
 
 > **[`docs/PORTE.md`](docs/PORTE.md) — the record of the process.** How it was
 > done, which decisions are not translation and why, the homologation figures,
