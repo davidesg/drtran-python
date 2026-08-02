@@ -38,6 +38,43 @@ guide, not the final one), not a limitation to be abstracted away.
 > special-cased. It is the reference implementation of the exact likelihood. Any
 > discrepancy with fue is a bug of drtran's cast, **never** of `elf`.
 
+## The external oracle: TASTE
+
+Everything else on this page compares the port against programs that share its
+ancestry: fue, drvarma and drtran use literally the same `elfvarma`,
+`qnewtopt` and `nlatools`. A defect in that common code would be invisible to
+every battery here. And fue, being univariate, **cannot validate the transfer
+function** — which is precisely what drtran adds.
+
+**TASTE does not share that code.** Written by José Alberto Mauricio, directed by
+Arthur B. Treadway and Gregorio R. Serrano (UCM, 1987–2001), it estimates
+multi-input transfer functions by the **unconditional sum of squares with
+backforecasting** (classical Box–Jenkins, Levenberg–Marquardt) against this
+port's exact ML.
+
+    ~/Dropbox/SRC/atws/Taste      private repo: github.com/davidesg/taste-port
+    Taste/oracle/battery.py       ./battery.py --datos <drtran>/tests
+    Taste/port/tools/             pre2bjd, mkdet, mktsm, tbatch, tbatch2drtran
+
+**7 of 7 cases pass.** Verified against this port: transfer estimation
+(omega_0 **exact**; the rest 8.5e-05 … 4.0e-03), identification by prewhitening +
+CCF (**same (b, r, s)**), forecasting with a transfer (agreeing to five decimals
+with the parameters fixed on both sides) and the **full canonical case** of 12
+inputs and 15 parameters — there, also the **standard errors** to 3–4 figures,
+which come from inverting the Hessian of **two different objective functions**.
+
+The chain of custody is closed: TASTE's own 64-bit port was validated against the
+1993 `TASTE.EXE` under DOSBox-X first, **303 of 305 identical lines**.
+
+The agreement to expect is 3–4 figures, not 13 — they are different estimators.
+A battery failure does not prove the port is wrong; it proves something changed
+since the last time the two agreed, which is what a regression battery is for.
+
+TASTE also corroborates, with an exact factor of 100, that the forecast standard
+deviation lives in the **transformed** scale and is a percentage — the same
+conclusion this port reached independently from the C's own published band. The
+comparable function is `level_band`, not `report_forecast`.
+
 ## Validation criterion (the gate to everything else)
 
 **Diagonal joint estimation == fue run separately.** With a diagonal structure

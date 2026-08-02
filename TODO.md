@@ -455,15 +455,30 @@ in the original.
       `Taste/port/tools/` and **none of them reimplements anything** — they use
       `fue.load()`, `fue.cast_us._build_indicator` and the 1991 Pascal.
 
-- [ ] **Only 3 of the 7 verifications are regression cases.** `Taste/oracle/cases/`
-      holds three JSON files (`syn_identify`, `syn_estimate`,
-      `cpi_deterministics`) and the battery reports "3 de 3". The other four —
-      univariate forecast, **forecast with transfer**, the **full 12-input
-      canonical case**, and univariate estimation against fue — are done and
-      documented but **not wired as runnable cases**.
-      So a future change could silently break the transfer-forecast agreement and
-      nothing would catch it. Turning them into `cases/*.json` is mechanical, and
-      it is what is left to close this out.
+- [x] **All 7 verifications are now regression cases** (2026-08-02).
+      `Taste/oracle/cases/` went from three JSON files to seven: `wti_forecast`,
+      `synd_estimate`, `syn_forecast_tf` and `cpi_wti_canonical` were added, and
+      the battery reports **7 de 7**.
+      Two defects in the battery came out of doing it, neither in the model, and
+      both producing plausible numbers:
+      * **the parser could not read forecasts.** The rows are
+        `forecast[k] date lower forecast upper se_transf` and it did
+        `float(field[1])` — a DATE — inside an `except ValueError`, discarding
+        them silently. Forecast cases were not missing; they were impossible.
+      * **the deterministics' orders were assumed.** It declared
+        `--det b=0,r=0,s=0` for every one. `SYND.pre`'s step carries TWO omegas
+        (s=1), so TASTE fitted a model with one parameter fewer: omega 4.08 where
+        fue gives 9.91, phi 0.27 where it gives 0.47 — with no warning, because a
+        poorer model converges just as happily. They are read from the `.pre` now.
+
+- [ ] **`to_level` integrates the NOISE under the subtraction cast.** Found while
+      building the TASTE forecast case. With `embed=False` series 1 of the VARMA
+      is `N_t = w_Y - transfer`, so `forecast` + `to_level` return the level of
+      the NOISE, not of the output: 533.86 where the answer is 534.78 (and TASTE
+      and the embedded cast both give 534.78, to five decimals).
+      The C handles this — `transfer_forecast` adds the transfer back when
+      `!embed_varma`. The port does not. It only bites with `-S`, which is not
+      the default, but it is silent and the number looks reasonable.
 
 ## Inherited from the C — to watch in the port
 
