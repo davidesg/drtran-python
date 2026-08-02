@@ -504,6 +504,24 @@ uso.
       **Found by the TASTE oracle**, on the first forecast case wired into it.
       Tests: `test_forecast.py` (+2).
 
+## The MCP layer
+
+- [ ] **Rename `multiart`.** It reads as "the multivariate ART" and so claims a
+      lineage it does not have: ART's natural continuation is **drtran** (it
+      consumes ART's `.pre` directly), while drvarma is a classical symmetric
+      VARMA with a different ancestry. Recommendation and alternatives in
+      `docs/ARCHITECTURE_MCP.md` §2. Cheapest now: the suite is at 1.1.0 and
+      drtran is not in it yet.
+- [ ] **The transfer assistant does not exist yet.** Its precursor does: drtran's
+      `-g`, the guided driver of the ladder, which estimates the diagonal, reads
+      the residual CCFs, writes `.dag`/`.cns` and prints the next command. The
+      proposed protocol and tool inventory are in `docs/ARCHITECTURE_MCP.md` §4.
+      Two tools have no counterpart in ART or drvarma: `identify_network` (the
+      only one that proposes a causal structure — and that can conclude "this is
+      simultaneous, you are in the wrong assistant") and `evaluate_out_of_sample`
+      (the only one that compares a model against what happened).
+- [ ] Add `drtran` to the `atsw` umbrella once the port leaves beta.
+
 ## Inherited from the C — to watch in the port
 
 - [ ] **The optimizer degrades with `refactor=1`.** In the C it hangs for over 2
