@@ -17,7 +17,7 @@ keywords = [
     "VARMA", "econometrics", "intervention analysis",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -29,6 +29,11 @@ dependencies = [
     "fue>=0.1.7",
     "drvarma>=0.1.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/davidesg/drtran-python"
+Repository = "https://github.com/davidesg/drtran-python"
+Issues = "https://github.com/davidesg/drtran-python/issues"
 
 [project.scripts]
 # NOT `drtran`: that name is the C binary's on this system, and

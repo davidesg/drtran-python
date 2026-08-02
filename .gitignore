@@ -4,5 +4,8 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
-*.png
-*.pdf
+.coverage
+htmlcov/
+*.out
+*.html
+!docs/*.html
