@@ -148,7 +148,7 @@ What is not ported yet (`-a`) is **refused with exit code 2, not
 ignored**: a silently dropped option is how a script starts publishing numbers
 that answer a different question.
 
-## Status
+## Status — 0.1.0b1, first beta
 
 **Steps 0 to 7 — closed.** The input is validated field by field, the diagonal
 cast passes the gate (−767.424341, differing by 3.9e-07 from fue's sum), both
@@ -157,7 +157,8 @@ with joint estimation, the identification of (b, r, s) by prewhitening + CCF, an
 the **network**: the `.dag`, the `.cns` slot table (fixed, shared, products and
 linear combinations) and the non-diagonal covariance. Then the diagnostics, the
 forecast — core and level layer — and the CLI. All homologated against the C
-binary to ~1e-7, with tests that **relaunch it live**. **111 tests**, green.
+binary to ~1e-7, with tests that **relaunch it live**. **170 tests**, green,
+and validated against the external TASTE oracle (7 of 7 cases).
 
 Relloso's **m6** system (1997) is reproduced in full: diagonal −1709.511575 and
 free network −1697.613401, the C's own targets.

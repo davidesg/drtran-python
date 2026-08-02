@@ -6,6 +6,16 @@ the non-negotiable principle and the validation criterion, and
 that are not translation, the homologation figures and the defects the port found
 in the original.
 
+## Estado: 0.1.0b1 — PRIMERA BETA (2026-08-02)
+
+Todas las opciones del C implementadas y homologadas, más `-W`. **170 tests**
+verdes, y validado contra el oráculo externo **TASTE** (7 de 7 casos), que no
+comparte código con la familia.
+
+Lo que falta antes de una 0.1.0 estable está abajo y es corto: el defecto de
+robustez heredado con `refactor=1`, y los dos puntos a vigilar. Nada bloquea el
+uso.
+
 ## Step 0 — the input — DONE
 
 - [x] **The `.pre` arrives intact.** `fue.load()` reads `.pre`/`.inp`; verified
