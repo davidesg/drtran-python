@@ -13,8 +13,7 @@ umbrella (1.1.0: fue + pyfug + art-tseries + drvarma).
 
 ## 1. The answer: three assistants, not two
 
-**ART**, **the transfer assistant** and **the VARMA assistant** — separate
-servers, one ladder, and a testable rule for moving between them.
+**`art`**, **`mtram`** and **`sima`** — separate servers, one ladder, and a testable rule for moving between them.
 
 The reason is not that one is univariate and two are multivariate. It is that
 **drvarma and drtran do not answer the same question, do not start from the same
@@ -24,9 +23,9 @@ material, and do not make the same claim about the world.**
 
 | | arrives with | first question |
 |---|---|---|
-| ART | one raw series | guided or autonomous? |
-| drtran | **`.pre` files** — the univariate rung already climbed and written down | which series is the output? |
-| drvarma | *m* raw series, nothing decided | guided or autonomous? |
+| `art` | one raw series | guided or autonomous? |
+| `mtram` | **`.pre` files** — the univariate rung already climbed and written down | which series is the output? |
+| `sima` | *m* raw series, nothing decided | guided or autonomous? |
 
 drtran's entry material is *the output of ART*. That is not an implementation
 detail: the `.pre` is the **continuity contract** of the ladder, and it means the
@@ -76,9 +75,9 @@ It is a contrast, not a matter of taste, and it fires on real data: in m6 the ra
 proposal *is* cyclic and needs two prunings before it is estimable.
 
 ```
-   ART  ──.pre──▶  transfer assistant  ──cycle in the proposed DAG?──▶  VARMA assistant
-  (one series)     (declared exogeneity,                              (everything
-                    recursive, testable)                               endogenous)
+   art  ──.pre──▶      mtram        ──cycle in the proposed DAG?──▶      sima
+ (one series)    (declared exogeneity,                            (everything
+                  recursive, testable)                             endogenous)
 ```
 
 ---
@@ -95,28 +94,25 @@ Keeping the name would teach every new user the wrong map on their first day.
 
 Three schemes, with a recommendation:
 
-| | univariate | transfer / network | simultaneous VARMA |
+| assistant | models | engine | status |
 |---|---|---|---|
-| **A (recommended)** | `art` | **`tram`** | **`sima`** |
-| B — family prefix | `art` | `art-tf` | `art-varma` |
-| C — engine names | `art` | `drtran-mcp` | `drvarma-mcp` |
+| **`art`** | one series: ARIMA + interventions | fue | shipped, 33 tools |
+| **`mtram`** | transfer functions and networks (DAG) | drtran | first functions |
+| **`sima`** | simultaneous VARMA | drvarma | early versions (was `multiart`) |
 
-**A** keeps the register the suite already uses: short, pronounceable, a word
-rather than a path. `tram` — TRAnsfer Models — and `sima` — SImultaneous
-Multivariate Analysis. Neither claims descent from ART, and `sima` in particular
-says the one thing the analyst most needs to know about drvarma: everything in
-it is simultaneous.
+`mtram` — **M**ultivariate **TRA**nsfer **M**odels. `sima` — **SI**multaneous
+**M**ultivariate **A**nalysis. Short, pronounceable, a word rather than a path,
+which is the register the suite already uses. Neither claims descent from ART,
+and `sima` says the one thing an analyst most needs to know about drvarma
+before touching it: everything in there is simultaneous.
 
-**B** is the safest for discoverability and the least informative: `art-varma`
-re-asserts exactly the false lineage we are trying to remove.
+Rejected: a family prefix (`art-tf`, `art-varma`) re-asserts exactly the false
+lineage this is removing; engine names (`drtran-mcp`, `drvarma-mcp`) leak the
+engine into the analyst's vocabulary, which the suite has avoided — nobody says
+"I ran fue", they say "I built the model in ART".
 
-**C** is unambiguous and charmless; it also leaks the engine name into the
-analyst's vocabulary, which the suite has so far avoided (nobody says "I ran
-fue", they say "I built the model in ART").
-
-Whatever is chosen, the entry point should change **now**: `multiart` has been
-released but the suite is at 1.1.0 and drtran is not in it yet, so this is the
-cheapest it will ever be.
+`multiart` has been released, but the suite is at 1.1.0 and drtran is not in it
+yet: renaming is as cheap now as it will ever be.
 
 ---
 
@@ -165,9 +161,11 @@ object hand-off would quietly remove that.
 
 ---
 
-## 4. The transfer assistant — the one that does not exist yet
+## 4. `mtram` — the transfer assistant
 
-drtran already has its precursor: `-g`, the **guided driver of the ladder**,
+`mtram` has first functions written; the protocol below is what they should
+grow into. Its precursor is already in the C: `-g`, the **guided driver of the
+ladder**,
 which estimates the diagonal, reads the residual CCFs, writes `NAME.dag` and
 `NAME.cns` and *prints the next command*. The MCP is that, made conversational.
 
@@ -179,7 +177,7 @@ Proposed protocol, mirroring ART's four stages:
                           → validate (check_scale), report what each model is
 2. identify_link          prewhitening + CCF for one input   → propose (b, r, s)
    identify_network       residual CCFs of the diagonal fit  → propose the DAG
-                          ⚠ CYCLE → say so and route to the VARMA assistant
+                          ⚠ CYCLE → say so and route the analyst to `sima`
                           → WAIT for the analyst to prune. Never prune alone.
 3. write_guided           .dag + .cns, unpruned, cycle annotated
 4. estimate               with -n/-c; report the equation VERBATIM
@@ -195,13 +193,72 @@ Two tools with no counterpart in ART or drvarma, and they are the reason this
 server has to exist:
 
 - **`identify_network`** — the only tool in the suite that proposes a *causal
-  structure*, and the only one that can conclude "this is simultaneous, you are
-  in the wrong assistant".
+  structure*, and the only one that can conclude "this is simultaneous, you
+  want `sima`".
 - **`evaluate_out_of_sample`** — the only tool that compares a model against
   *what happened* rather than against itself. Every other figure in the suite is
   theoretical.
 
 ---
+
+## 4b. The umbrella: `polytropos` — and whether it should speak
+
+**It should install. It should not speak.** With one exception, below.
+
+### Why it should not speak
+
+In MCP the client sees **every connected server at once**. An analyst with `art`,
+`mtram` and `sima` configured already has all ~60 tools and all three instruction
+blocks in front of the model. Routing is not a missing capability — it is
+happening. A fourth voice would add something to learn without adding anything to
+do.
+
+Worse, it would work against the thing this architecture exists to protect. The
+value of three assistants is that **the analyst always knows which bench they are
+at**, because the three make different claims (§1.3). An umbrella that answers
+questions blurs exactly that: it is a single interlocutor that will happily
+discuss a recursive transfer model and a simultaneous VARMA in the same breath.
+
+And a re-exporting router (one server proxying the other three) buys nothing and
+costs a lot: every tool added anywhere must be re-exported, versions couple, and
+the three instruction blocks have to be merged into one that contradicts itself
+at the first opening question — `art` and `sima` ask "guided or autonomous?",
+`mtram` asks "which series is the output?".
+
+### The one exception
+
+A **resource**, not a tool: *what is installed, and is it consistent?*
+
+No individual server can answer it — each knows only itself. And the failure it
+prevents is real and silent: `drtran` built against a `drvarma` whose `elf`
+changed, or an `art` older than the `.pre` fields `mtram` expects. That is the
+kind of mismatch that produces plausible numbers, which this project has spent
+its whole history learning to distrust.
+
+So: `polytropos` exposes no analysis tools, and at most one read-only resource
+reporting the suite's versions and their compatibility.
+
+### The map belongs in the servers, not in the umbrella
+
+Each assistant knows its neighbours and says so at the right moment. `mtram` is
+the one that detects a cyclic DAG, so `mtram` is the one that says "this system
+is simultaneous, you want `sima`" — it does not need `sima` installed to say it,
+any more than `find_cycle` needs a VARMA to reject a cycle. Centralising the map
+would move that sentence away from the only place that can know it is time to say
+it.
+
+### On the name
+
+The umbrella already exists and is called **`atsw`** (1.1.0: fue + pyfug +
+art-tseries + drvarma). Creating a second umbrella name for the same idea gives
+one concept two names, which is the problem §2 is fixing, in a new place.
+
+Recommendation: keep `atsw` as the distribution and add an extra —
+`pip install atsw[mcp]` pulls the three servers. If the codename is wanted, give
+it to the **launcher**: `polytropos`, the single process that mounts the three so
+the client config has one entry instead of three. Odysseus *polytropos* is "of
+many turns" — which is what a launcher with three faces is, and not what a
+distribution is.
 
 ## 5. What this locks in
 
@@ -218,8 +275,7 @@ server has to exist:
 
 ## 6. Open questions
 
-- The names (§2) — the only decision here that is purely taste, and the only one
-  that gets more expensive with every release.
+- Whether `polytropos` names the launcher or nothing at all (§4b).
 - Whether the transfer assistant should be able to *invoke* ART for a series
   whose `.pre` does not exist yet, or refuse and tell the analyst to build it
   there. Leaning: refuse. The ladder's rungs are separate on purpose, and a
