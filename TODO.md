@@ -408,87 +408,62 @@ in the original.
       143.0449 (8.5420), 143.4887 (11.2392), identical to the C.
       Tests: `tests/test_aggregate.py` (8).
 
-## Validation against TASTE — the only INDEPENDENT reference
+## Validation against TASTE — DONE (2026-08-02)
 
-- [ ] **Validate the port (and drtran C) against TASTE.**
+- [x] **The port is validated against TASTE**, an independent implementation.
 
-      **Why this is the validation that is missing.** Everything homologated so
-      far — fue, drvarma, drtran and their Python ports — descends from the
-      **same code**: `elfvarma`, `qnewtopt` and `nlatools` are literally the same
-      files. The chain is internally consistent, but it has **one ancestor**. A
-      defect in that ancestor is invisible to every test that exists: all nine
-      batteries would say everything is fine.
+      **Why it mattered.** Everything homologated before this — fue, drvarma,
+      drtran and their ports — descends from the **same code**: `elfvarma`,
+      `qnewtopt` and `nlatools` are literally the same files. The chain was
+      internally consistent but had **one ancestor**, and a defect there would be
+      invisible to every battery. And fue, being univariate, **cannot validate
+      the transfer function**, which is exactly what drtran adds.
 
-      **TASTE is the exception.** Coded by **Mauricio and Treadway**, and
-      designed with **Jenkins**'s help. It is the only implementation within
-      reach that does NOT share code with the family, and therefore the only one
-      that can contradict it.
+      **TASTE covers that gap.** Written by José Alberto Mauricio, directed by
+      Arthur B. Treadway and Gregorio R. Serrano (UCM, 1987–2001). It estimates
+      multi-input transfer functions by the **unconditional sum of squares with
+      backforecasting** (classical Box–Jenkins, Levenberg–Marquardt) against
+      drtran's exact ML. Different estimators: the agreement to expect is 3–4
+      figures, not 13.
 
-      **That the method differs is the virtue, not the obstacle.** TASTE
-      estimates by Box–Jenkins' **conditional / backforecasting** method; drtran
-      by exact maximum likelihood. If they agreed by construction they would
-      prove nothing.
+      **The chain of custody is closed.** The oracle was validated before being
+      used as one: the 64-bit Free Pascal port against the 1993 `TASTE.EXE` under
+      DOSBox-X gives **303 of 305 identical lines**, the two differing being the
+      sum of squares at the 13th–14th significant digit (8087 accumulates in
+      80 bits, SSE2 in 64), which propagates to no estimate or standard error.
 
-      **Read in its source (2026-08-01).** Turbo Pascal, 1987-2000.
-      `TASTECTV.PAS`: `TFMODEL` = T inputs, each with (b, s, r) and its own
-      `USMODEL`, plus a separate `NOISE` model. Two consequences that settle the
-      design:
+      | verified against drtran | agreement |
+      |---|---|
+      | transfer function estimation | omega_0 **exact**; the rest 8.5e-05 … 4.0e-03 |
+      | identification (prewhitening + CCF) | **same (b, r, s)**; both recover the synthetic truth |
+      | forecast with transfer | 6e-06 … 2e-05, **and the standard errors** |
+      | full canonical case: 12 inputs, 15 parameters | all of them; standard errors to 3–4 figures |
 
-      * **TASTE is the SUBTRACTION cast, not the embedded one.** It models
-        `N_t = Y_t - SUM_j nu_j(B) X_j,t` with its own ARIMA — exactly `-S`. So
-        the comparison runs against `embed=False`; against the embedded cast it
-        would be measuring the truncation, not the implementation.
-      * **It estimates by nonlinear least squares with BACKFORECASTING.**
-        `MRQ_MTF` (`MRQEST.PAS`) is Levenberg-Marquardt on the residuals, with
-        the backforecasts computed in `BACKTF.PAS`. drtran: exact ML with BFGS.
+      The standard errors agreeing to 3–4 figures is the striking part: they come
+      from inverting the Hessian of **two different objective functions**.
 
-      Which gives a three-way comparison with real content: **`-S` truncates,
-      TASTE backforecasts, `-V` makes the truncation disappear.** TASTE is the
-      Box-Jenkins remedy the embedded cast renders unnecessary, and the only way
-      to measure what that remedy was worth.
+      **Independent corroboration of the standard errors' scale.** TASTE confirms,
+      with an exact factor of 100 between its standard errors and the port's, that
+      the standard deviation lives in the TRANSFORMED scale and is a percentage —
+      the same conclusion reached this week by another route, from the band the C
+      itself publishes (82.0149 -> [81.6280, 82.4035], half-width 0.389 and not
+      0.473). Two independent routes, one answer. `level_band` is what the oracle
+      documentation points at as the comparable function.
 
-      **Scope: the transfer, not the univariate part.** The univariate models do
-      not need revalidating — fue is tested and homologated (fue C == fue Python
-      == drtran's diagonal, to 1e-7). What only TASTE can contradict is the
-      transfer machinery. Validate: (1) the **prewhitening** and CCF, i.e. the
-      identified (b, r, s); (2) the **estimated transfer**, `nu(k)` and the gain;
-      (3) the **forecasts**.
+      Lives in `Taste/oracle/`: `./battery.py --datos /path/to/drtran/tests`.
+      The tools (`pre2bjd`, `mkdet`, `mktsm`, `tbatch`, `tbatch2drtran`) are in
+      `Taste/port/tools/` and **none of them reimplements anything** — they use
+      `fue.load()`, `fue.cast_us._build_indicator` and the 1991 Pascal.
 
-      **Experimental design:** fix TASTE's univariate models to fue's (TASTE lets
-      the noise and each input's `USMODEL` be specified). Otherwise a discrepancy
-      cannot be attributed — it might just be two different ARIMAs.
-
-      Do NOT compare the sum of squares or the log-likelihood (different
-      objectives), the standard errors (different Hessians), or the residuals
-      observation by observation (the pre-sample treatment is precisely what
-      differs).
-
-      **The prediction, written down BEFORE running anything**, so that a
-      discrepancy cannot be rationalised afterwards:
-
-      * *Away from the unit root, expect close agreement.* The truncation touches
-        a number of observations that does not grow with n, so conditional and
-        exact are asymptotically equivalent. A large difference there WOULD be a
-        defect in one of them.
-      * *Near the unit root, expect divergence, and it is not a fault.* The
-        contaminated stretch becomes a fixed fraction of the sample. Already
-        measured in the C repo: delta=0.95, n=400 is the only cell where the
-        exact method's advantage survives a large sample (-60 % in the RMSE of
-        the gain).
-      * *TASTE should land BETWEEN `-S` and `-V`* on cases with memory:
-        backforecasting recovers part of what truncation loses, not all of it.
-
-      **The harness already exists.** `Taste/validate/` drives TASTE by
-      keystrokes under DOSBox and diffs `TASTE.OUT`; `run_case.sh` runs both the
-      original EXE and the Free Pascal port. Nothing new to build — add cases and
-      a comparator against drtran's `.out`. A `.pre` -> `.BJD` converter is
-      missing.
-
-      **Blocked** on the TASTE executable for modern machines, which David is
-      building (`Taste/port/`, Free Pascal, already starting in 64-bit).
-      When it runs: the canonical ES_CPI <- WTI, a synthetic case with an imposed
-      `nu(k)`, and one near the unit root; wired in as a section of the battery.
-      See `drtran/TODO.md` §M7 for the same entry on the C side.
+- [ ] **Only 3 of the 7 verifications are regression cases.** `Taste/oracle/cases/`
+      holds three JSON files (`syn_identify`, `syn_estimate`,
+      `cpi_deterministics`) and the battery reports "3 de 3". The other four —
+      univariate forecast, **forecast with transfer**, the **full 12-input
+      canonical case**, and univariate estimation against fue — are done and
+      documented but **not wired as runnable cases**.
+      So a future change could silently break the transfer-forecast agreement and
+      nothing would catch it. Turning them into `cases/*.json` is mechanical, and
+      it is what is left to close this out.
 
 ## Inherited from the C — to watch in the port
 
