@@ -42,7 +42,7 @@ in the original.
       put omega(B)/delta(B). The network is re-declared with `-n`/`-c`.
       Tests: `tests/test_write_pre.py` (5), one of which pins the "worse
       diagonal" fact so the claim cannot creep back.
-- [ ] **The STD columns are RELATIVE, and the report now says so.** Every `STD`
+- [x] **The STD columns are RELATIVE, and the report now says so.** Every `STD`
       the forecast table prints is in the transformed scale — with a log model, a
       percentage — including the one beside the LEVEL. The C's table does the
       same. Found while wiring fuf's report: a 95 % band for the level has to be
@@ -50,6 +50,8 @@ in the original.
       [81.63, 82.40] and not the [81.54, 82.49] that adding 1.96 s.e. to the
       level suggests — the C's own band agrees. `drtran.level_band` does it
       correctly and `report_forecast` no longer pretends to report the level.
+      Corroborated independently by TASTE, whose standard errors sit at an exact
+      factor of 100 from the port's.
 
 ## Step 1 — the cast — DONE (diagonal case)
 
