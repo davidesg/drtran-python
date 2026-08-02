@@ -290,8 +290,17 @@ def identify(cast_spec, link, x=None, nlags=None, band="constant"):
                          p_exogeneity=pval, n_signif_negative=nsig_neg)
 
 
-def report(ident, names=("X", "Y")):
-    """Text report, in the style of the one the C prints."""
+def report_identification(ident, names=("X", "Y")):
+    """Text report, in the style of the one the C prints.
+
+    Named `report_identification`, not `report`: every other report in the
+    package carries its subject (`report_network`, `report_adequacy`,
+    `report_forecast`, `report_irf`, `report_rolling`, `report_aggregates`), and
+    a bare `report` was shadowed at package level by the `report` MODULE the
+    moment one was added. `drtran.report` silently stopped being this function
+    and became `drtran/report.py` — the kind of collision that only shows up when
+    something calls it.
+    """
     xi, yi = names
     L = ["=" * 61,
          "  IDENTIFICATION — prewhitening and CCF (Box-Jenkins)",

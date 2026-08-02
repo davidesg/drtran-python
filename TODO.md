@@ -506,20 +506,30 @@ uso.
 
 ## The MCP layer
 
-- [ ] **Rename `multiart`.** It reads as "the multivariate ART" and so claims a
+- [x] **`multiart` renamed to `sima`** (2026-08-02), in drvarma: entry point,
+      server name, instructions and `DESIGN_MCP.md`, which gains a §0 with the
+      map and the handoff rule. Its roadmap's "v3: transfer functions" is
+      superseded — that is `mtram`, not a later layer of that server.
+- [x] ~~Rename `multiart`.~~ It reads as "the multivariate ART" and so claims a
       lineage it does not have: ART's natural continuation is **drtran** (it
       consumes ART's `.pre` directly), while drvarma is a classical symmetric
       VARMA with a different ancestry. Recommendation and alternatives in
       `docs/ARCHITECTURE_MCP.md` §2. Cheapest now: the suite is at 1.1.0 and
       drtran is not in it yet.
-- [ ] **The transfer assistant does not exist yet.** Its precursor does: drtran's
-      `-g`, the guided driver of the ladder, which estimates the diagonal, reads
-      the residual CCFs, writes `.dag`/`.cns` and prints the next command. The
-      proposed protocol and tool inventory are in `docs/ARCHITECTURE_MCP.md` §4.
-      Two tools have no counterpart in ART or drvarma: `identify_network` (the
-      only one that proposes a causal structure — and that can conclude "this is
-      simultaneous, you are in the wrong assistant") and `evaluate_out_of_sample`
-      (the only one that compares a model against what happened).
+- [x] **`mtram` — first version** (`mcp_server.py`, entry point `mtram`, extra
+      `drtran[mcp]`). Eleven tools: `load_pre`, `identify_link`,
+      `identify_network`, `set_network`, `estimate`, `diagnose`,
+      `impulse_response`, `variance_decomposition`, `forecast`, `evaluate`,
+      `write_pre`. Verified end to end on the canonical case: logL −718.287406,
+      omega_0 0.016400 (t 9.633), adequacy p = 0.1966, gain 0.027146, the band
+      [81.6280, 82.4035].
+      Its instructions carry the three rules that make the architecture real:
+      it does NOT build univariate models (that is `art`); a **cyclic** network
+      routes the analyst to `sima`; and a refusal is transmitted, not worked
+      around. Tests: `tests/test_mcp_server.py` (9), most of them on those rules
+      rather than on arithmetic.
+- [ ] `mtram` v2: plots (CCF, residuals, forecast), the guided/autonomous split,
+      and the aggregates and SPS tools the CLI already has.
 - [ ] Add `drtran` to the `atsw` umbrella once the port leaves beta.
 
 ## Inherited from the C — to watch in the port

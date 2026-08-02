@@ -791,14 +791,14 @@ def _identify_star(specs, names, verbose):
 
 def _prewhiten_report(specs, names):
     from .cast import Link, build_cast_spec
-    from .identify import identify, report
+    from .identify import identify, report_identification
 
     provisional = [Link(0, j, b=0, r=0, s=0) for j in range(1, len(specs))]
     cs = build_cast_spec(specs, links=provisional)
     parts = []
     for lk in provisional:
         idt = identify(cs, lk)
-        parts.append(report(idt, names=(names[lk.inp], names[lk.out])))
+        parts.append(report_identification(idt, names=(names[lk.inp], names[lk.out])))
     return "\n\n".join(parts)
 
 

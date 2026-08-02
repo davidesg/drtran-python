@@ -41,7 +41,8 @@ from .forecast import (Forecast, error_variance, forecast,
                        forecast_mean, integrated_weights, psi_weights,
                        level_band, report_forecast, to_level,
                        variance_decomposition)
-from .identify import Identification, identify, prewhiten, report
+from .identify import (Identification, identify, prewhiten,
+                       report_identification)
 from .irf import ImpulseResponse, impulse_response, report_irf
 from .netid import (Candidate, IdentifiedNetwork, identify_network,
                     report_network, residuals, write_guided)
@@ -64,7 +65,7 @@ __all__ = [
     "StdErrors", "standard_errors",
     "RollingEval", "rolling_evaluation", "fixed_window_fit", "truncate",
     "report_rolling", "write_rolling_csv",
-    "Identification", "identify", "prewhiten", "report",
+    "Identification", "identify", "prewhiten", "report_identification",
     "ImpulseResponse", "impulse_response", "report_irf",
     "Forecast", "forecast", "report_forecast", "level_band", "psi_weights",
     "error_variance", "integrated_weights", "forecast_mean", "to_level",

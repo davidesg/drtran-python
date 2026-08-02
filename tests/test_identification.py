@@ -15,7 +15,8 @@ import pytest
 
 drtran = pytest.importorskip("drtran")
 from drtran.cast import Link, build_cast_spec  # noqa: E402
-from drtran.identify import identify, prewhiten, report  # noqa: E402
+from drtran.identify import (identify, prewhiten,  # noqa: E402
+                             report_identification)
 
 C = "/home/david/Dropbox/SRC/drtran/tests/cases"
 ES_CPI = os.path.join(C, "ES_CPI_m10.pre")
@@ -102,7 +103,7 @@ def test_it_detects_a_synthetic_transfer_with_a_delay():
 
 
 def test_the_report_mentions_the_essentials(ident):
-    txt = report(ident, ("WTI", "ES_CPI"))
+    txt = report_identification(ident, ("WTI", "ES_CPI"))
     assert "b=0" in txt and "r=0" in txt and "s=1" in txt
     assert "18.2969" in txt or "18.297" in txt
     assert "exogenous" in txt
