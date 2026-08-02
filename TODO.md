@@ -473,14 +473,26 @@ in the original.
         fue gives 9.91, phi 0.27 where it gives 0.47 — with no warning, because a
         poorer model converges just as happily. They are read from the `.pre` now.
 
-- [ ] **`to_level` integrates the NOISE under the subtraction cast.** Found while
-      building the TASTE forecast case. With `embed=False` series 1 of the VARMA
-      is `N_t = w_Y - transfer`, so `forecast` + `to_level` return the level of
-      the NOISE, not of the output: 533.86 where the answer is 534.78 (and TASTE
-      and the embedded cast both give 534.78, to five decimals).
-      The C handles this — `transfer_forecast` adds the transfer back when
-      `!embed_varma`. The port does not. It only bites with `-S`, which is not
-      the default, but it is silent and the number looks reasonable.
+- [x] **The subtraction cast forecast — FIXED** (2026-08-02). Under `-S` series 1
+      of the VARMA is the NOISE, `N_t = w_Y - transfer`, so `forecast_mean`
+      returned the noise's path and `to_level` integrated it: 533.86 on the
+      synthetic pair where the answer is 534.78.
+      Both of `drtran.c:transfer_forecast`'s recursions are ported now:
+      * the observed series is rebuilt in TOPOLOGICAL order —
+        `we[i][n+l] = f[i][l] + SUM_k SUM_j nu_k[j] we[inp(k)][n+l-j]` — because
+        an output's future needs its inputs' future first;
+      * the **system** psi weights replace the VARMA's,
+        `Psi_ij(B) = d_ij psi_i(B) + SUM_k nu_k(B) Psi_{inp(k),j}(B)`, or the
+        variance reported is the NOISE's, which is smaller — an error in the
+        flattering direction.
+      With the embedded cast neither happens: the transfer is already inside the
+      VARMA and adding it again counts it twice, which in the C once inflated
+      the standard deviation by 40 %.
+      `-S` now gives 82.02 82.02 82.38 83.17 on the canonical case, the C's own
+      `-S` table, and 534.78134 on the synthetic pair — matching TASTE and the
+      embedded cast to five decimals.
+      **Found by the TASTE oracle**, on the first forecast case wired into it.
+      Tests: `test_forecast.py` (+2).
 
 ## Inherited from the C — to watch in the port
 

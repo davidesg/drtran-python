@@ -400,6 +400,40 @@ to put omega(B)/delta(B); the network is re-declared with `-n`/`-c`.
 A test pins the "worse diagonal" figure, so the claim cannot creep back into the
 documentation.
 
+### Step 13 — what the oracle caught: the subtraction cast's forecast
+
+The first forecast case wired into the TASTE oracle failed, and the defect was
+the port's. Under the subtraction cast (`-S`) series 1 of the VARMA is the
+**noise**, `N_t = w_Y - SUM_k nu_k(B) w_inp(k)`, so `forecast_mean` returns the
+noise's path — and `to_level` was integrating that. On the synthetic pair it
+gave 533.86 where TASTE and the embedded cast both give **534.78134**, to five
+decimals.
+
+Two recursions from `drtran.c:transfer_forecast` were missing, and both matter:
+
+    we[i][n+l] = f[i][l] + SUM_{k: out=i} SUM_j nu_k[j] * we[inp(k)][n+l-j]
+
+rebuilds the observed series, in TOPOLOGICAL order because an output's future
+needs its inputs' future first; and
+
+    Psi_ij(B) = d_ij psi_i(B) + SUM_{k: out=i} nu_k(B) Psi_{inp(k),j}(B)
+
+replaces the VARMA's psi weights with the **system's**. Without the second the
+variance reported is the noise's, which is smaller — an error in the flattering
+direction, and the kind that never announces itself.
+
+With the embedded cast neither happens, and that asymmetry is the point: the
+transfer is already inside the VARMA, and adding it again counts it twice. The C
+carries a comment saying it once did exactly that and inflated the standard
+deviation by 40 %.
+
+Fixed: `-S` now gives 82.02 82.02 82.38 83.17 on the canonical case — the C's own
+`-S` table — and agrees with the embedded cast to 0.02 in the level.
+
+This is what the oracle is for. Nine internal batteries, all green, could not see
+it: they all compare the port against programs that share its ancestry, and the
+default cast is `-V`, where the bug does not bite.
+
 ### Step 7 — diagnostics, forecasting and the CLI
 
 `diagnose.py` ports the transfer's portmanteau (k >= 0, which includes the

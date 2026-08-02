@@ -281,3 +281,48 @@ def test_a_correlated_Q_is_declared_not_decomposed(fitted, tmp_path):
     shares, why = variance_decomposition(fc, series=0)
     assert shares is None
     assert "NOT UNIQUE" in why and "ORDERING" in why
+
+
+# ── the subtraction cast ─────────────────────────────────────────────────────
+def test_the_subtraction_cast_forecasts_the_OUTPUT_not_the_noise(fitted):
+    """Under `-S` series 1 of the VARMA is the NOISE, `N_t = w_Y - transfer`, so
+    `forecast_mean` returns the noise's path. The transfer has to be added back,
+    in topological order, because an output's future needs its inputs' future
+    first — and the psi weights have to be rebuilt too, or the variance reported
+    is the noise's, which is smaller.
+
+    The port did neither, and gave 533.86 on the synthetic pair where the answer
+    is 534.78. It was found by the TASTE oracle, and TASTE and the embedded cast
+    agree on 534.78 to five decimals.
+    """
+    from drtran.estimate import fit as estimate
+    from drtran.forecast import to_level
+
+    cs = fitted.cast_spec
+    fS = estimate(cs, embed=False)
+    fcS = forecast(fS, L=6, embed=False)
+    lvS = to_level(fcS, cs, series=0)
+
+    # the C's own -S table for this case
+    assert lvS[:4] == pytest.approx([82.02, 82.02, 82.38, 83.17], abs=0.01)
+
+    # and the two casts must agree: they are the same model, differing only in
+    # the pre-sample treatment, which the forecast horizon does not see
+    fcV = forecast(fitted, L=6)
+    lvV = to_level(fcV, cs, series=0)
+    assert lvS == pytest.approx(lvV, abs=0.02)
+
+    # the variance is the OUTPUT's, not the noise's: it must not be smaller
+    assert np.all(fcS.se("level", 0) > 0.9 * fcV.se("level", 0))
+
+
+def test_with_no_links_the_two_casts_are_the_same_forecast(fitted):
+    """The guard on the fix: with nothing to add back, the subtraction path must
+    not touch anything."""
+    from drtran.cast import build_cast_spec
+    from drtran.estimate import fit as estimate
+
+    cs0 = build_cast_spec([s.spec for s in fitted.cast_spec.series])
+    a = forecast(estimate(cs0, embed=False), L=4, embed=False)
+    b = forecast(estimate(cs0, embed=True), L=4, embed=True)
+    assert a.f == pytest.approx(b.f, abs=1e-6)

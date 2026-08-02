@@ -145,6 +145,85 @@ def forecast_mean(phi, theta, mu, w, a, L, origin=None):
     return f
 
 
+def _nu_of_links(x, cast_spec, kmax):
+    """The impulse response of every link, as `compute_irf` gives it."""
+    from .cast import compute_irf
+
+    x = np.asarray(x, float)
+    idx = 0
+    out = []
+    for l in cast_spec.links:
+        om = x[idx:idx + l.s + 1]; idx += l.s + 1
+        de = x[idx:idx + l.r]; idx += l.r
+        out.append(compute_irf(om, de, l.b, kmax))
+    return out
+
+
+def _system_forecast(f, w, x, cast_spec, L, kmax):
+    """Rebuild the OBSERVED series' forecast under the SUBTRACTION cast.
+
+    Port of the `we` loop in `drtran.c:transfer_forecast`. With that cast series
+    `i` of the VARMA is the NOISE, `N_t = w_i - SUM_k nu_k(B) w_inp(k)`, so
+    `forecast_mean` returns the noise's path and the transfer has to be added
+    back::
+
+        we[i][n+l] = f[i][l] + SUM_{k: out=i} SUM_j nu_k[j] * we[inp(k)][n+l-j]
+
+    In TOPOLOGICAL order, because an output's future needs its inputs' future
+    first. With the embedded cast none of this happens — the transfer is already
+    inside the VARMA and adding it again would count it twice, which in the C
+    once inflated the standard deviation by 40 %.
+    """
+    from .embed import _topological_order
+
+    n, m = w.shape
+    nus = _nu_of_links(x, cast_spec, kmax)
+    we = np.zeros((n + L, m))
+    we[:n] = w
+    for i in _topological_order(m, cast_spec.links):
+        for l in range(1, L + 1):
+            tt = n + l - 1                      # 0-based index into `we`
+            acc = f[l - 1, i]
+            for k, lk in enumerate(cast_spec.links):
+                if lk.out != i:
+                    continue
+                top = min(tt + 1, len(nus[k]))
+                for j in range(top):            # nus[k][j] weights lag j
+                    acc += nus[k][j] * we[tt - j, lk.inp]
+            we[tt, i] = acc
+    return we[n:].copy()
+
+
+def _system_psi(psi, x, cast_spec, L, kmax):
+    """The psi weights of the SYSTEM, not of the VARMA. Port of the `pt` loop.
+
+        Psi_ij(B) = d_ij psi_i(B) + SUM_{k: out=i} nu_k(B) Psi_{inp(k),j}(B)
+
+    Series `i` responds to innovation `j` by two routes: its own noise (i == j)
+    and everything reaching it through the network. That is why forecasting an
+    output requires forecasting its inputs, and why the output's forecast error
+    inherits every innovation upstream of it, each propagated through the nu(B)
+    it crosses. Without this the variance under the subtraction cast is the
+    NOISE's, which is smaller — an error in the flattering direction.
+    """
+    from .embed import _topological_order
+
+    m = psi.shape[1]
+    nus = _nu_of_links(x, cast_spec, kmax)
+    pt = np.zeros_like(psi)
+    for i in _topological_order(m, cast_spec.links):
+        for j in range(m):
+            for t in range(L + 1):
+                acc = psi[t][i, i] if i == j else 0.0
+                for k, lk in enumerate(cast_spec.links):
+                    if lk.out != i:
+                        continue
+                    for v in range(min(t + 1, len(nus[k]))):
+                        acc += nus[k][v] * pt[t - v][lk.inp, j]
+                pt[t][i, j] = acc
+    return pt
+
+
 @dataclass
 class Forecast:
     """Point forecasts and the three variances, per horizon."""
@@ -224,6 +303,21 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
 
     f = forecast_mean(phi, theta, mu, w, a, L, origin)
     psi = psi_weights(phi, theta, L)
+
+    # THE SUBTRACTION CAST NEEDS THE TRANSFER PUT BACK. There, series i of the
+    # VARMA is the NOISE, so both the point forecast and the psi weights are the
+    # noise's; the observed series is recovered by the topological recursions
+    # above. With the embedded cast the transfer is already inside the VARMA and
+    # doing this would count it twice.
+    if not embed and cast_spec.links:
+        kmax = max(l.b + l.s + 1 for l in cast_spec.links)
+        if any(l.r for l in cast_spec.links):
+            kmax = min(w.shape[0] + L, max(kmax, 200))
+        n_used = w.shape[0] if origin is None else origin
+        f = _system_forecast(f, w[:n_used], np.asarray(x, float), cast_spec,
+                             L, kmax)
+        psi = _system_psi(psi, np.asarray(x, float), cast_spec, L, kmax)
+
     var_w = error_variance(psi, sigma, L)
 
     # The level: EACH series' differencing is undone. d, D and s come from the
