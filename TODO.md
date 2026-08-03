@@ -528,8 +528,18 @@ uso.
       routes the analyst to `sima`; and a refusal is transmitted, not worked
       around. Tests: `tests/test_mcp_server.py` (9), most of them on those rules
       rather than on arithmetic.
-- [ ] `mtram` v2: plots (CCF, residuals, forecast), the guided/autonomous split,
-      and the aggregates and SPS tools the CLI already has.
+- [x] **`mtram` plots** (`plots.py`, 3 tools → 14). `plot_ccf` (the
+      identification instrument), `plot_impulse_response` and `plot_forecast`.
+      The CCF is **drvarma's own drawing**, reused rather than rewritten, so a
+      CCF looks the same in `art`, `mtram` and `sima` and is read the same way.
+      **With the arguments swapped**: the two libraries use opposite lag-sign
+      conventions — drvarma's k=+1 is drtran's k=−1 — so passing them straight
+      would draw the CCF MIRRORED, putting the transfer on the feedback side. A
+      picture that looks perfectly normal and says the opposite of the truth.
+      Verified equal to 1e-9 on both sides, and a test pins that unswapped they
+      disagree, so the trap stays documented as real.
+- [ ] `mtram` v3: the guided/autonomous split, residual plots, and the
+      aggregates and SPS tools the CLI already has.
 - [ ] Add `drtran` to the `atsw` umbrella once the port leaves beta.
 
 ## Inherited from the C — to watch in the port

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 
 import numpy as np
 
@@ -69,11 +70,14 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
 ══════════════════════════════════════════════════════
 1. load_pre            carga los .pre. El PRIMERO es la salida.
 2. identify_link       preblanqueo + CCF de un enlace -> propone (b, r, s)
+   plot_ccf            EL INSTRUMENTO: enséñaselo y léelo CON el analista
    identify_network    CCF de los residuos del DIAGONAL -> propone el DAG entero
 3. estimate            estima conjuntamente; presenta la ECUACIÓN
 4. diagnose            adecuación (k>=0) y exogeneidad (k<0)
 5. impulse_response    nu(k), acumulada y GANANCIA, con errores típicos
+   plot_impulse_response
 6. forecast            nivel + variación + anual, con bandas
+   plot_forecast
 7. evaluate            fuera de muestra: MAE/RMSE/MAPE por horizonte
 
 ⚠ SI identify_network PROPONE UN CICLO: el sistema es SIMULTÁNEO. No se puede
@@ -126,6 +130,10 @@ def _require_fit(name: str):
 
 def _cast(name: str):
     return build_cast_spec(_require(name), links=_LINKS.get(name, []))
+
+
+def _png(name: str, kind: str, path: str = "") -> str:
+    return path or os.path.join(tempfile.gettempdir(), f"mtram_{name}_{kind}.png")
 
 
 # ── 1. the input: .pre files, the ladder's contract ────────────────────────
@@ -240,6 +248,75 @@ def set_network(name: str, links_json: str) -> str:
     return "\n".join([f"Red de {name!r}: {len(links)} enlace(s)."] +
                      [f"  {names[l.out]} <- {names[l.inp]}   b={l.b} r={l.r} s={l.s}"
                       for l in links])
+
+
+@mcp.tool()
+def plot_ccf(name: str, input_index: int = 1, lags: int = 0,
+             path: str = "") -> str:
+    """PLOT the prewhitened CCF of one link — the identification instrument.
+
+    Show this to the analyst and read it WITH them; the numbers alone do not
+    carry the shape. Right of zero the input leads, and the first significant bar
+    is `b`; left of zero the OUTPUT leads, which is feedback and which a
+    single-input transfer model assumes away. Bars on both sides mean the
+    specification does not hold.
+
+    It is drvarma's canonical CCF drawing, so it looks the same as in `sima` and
+    as drvus drew it. Writes a PNG and returns its path.
+    """
+    from .plots import plot_ccf as _pc
+    from .plots import prewhitened_pair, save
+
+    specs = _require(name)
+    if not 1 <= input_index < len(specs):
+        raise ValueError(f"input_index fuera de rango (1..{len(specs)-1})")
+    cs = build_cast_spec(specs, links=[Link(0, input_index, 0, 0, 0)])
+    a, b = prewhitened_pair(cs, cs.links[0])
+    freq = int(getattr(specs[0].model.series, "freq", 1) or 1)
+    fig = _pc(a, b, freq=freq, lags=(lags or None),
+              names=(specs[input_index].name, specs[0].name))
+    return save(fig, _png(name, f"ccf{input_index}", path))
+
+
+@mcp.tool()
+def plot_impulse_response(name: str, link_index: int = 0, path: str = "") -> str:
+    """PLOT nu(k) and its cumulative sum, each with a 95 % band.
+
+    Left panel: the response to a ONE-OFF unit shock. Right: to a PERMANENT
+    change, converging to the gain, which is drawn as a line because that
+    convergence is the thing to look at. Writes a PNG and returns its path.
+    """
+    from .estimate import standard_errors
+    from .irf import impulse_response as _irf
+    from .plots import plot_irf, save
+
+    f = _require_fit(name)
+    se = standard_errors(f)
+    ir = _irf(f, link_index=link_index, cov=(None if se.ifault else se.cov))
+    return save(plot_irf(ir), _png(name, f"irf{link_index}", path))
+
+
+@mcp.tool()
+def plot_forecast(name: str, horizon: int = 12, series_index: int = 0,
+                  path: str = "") -> str:
+    """PLOT the level forecast with its band, over the recent history.
+
+    The band is ASYMMETRIC under a log model — it is formed in the transformed
+    scale and mapped back — so it is drawn as it really is, not as a symmetric
+    ribbon. Writes a PNG and returns its path.
+    """
+    from .forecast import forecast as _fcast
+    from .forecast import level_band
+    from .plots import plot_forecast as _pf
+    from .plots import save
+
+    f = _require_fit(name)
+    cs = f.cast_spec
+    fc = _fcast(f, L=horizon, embed=f.embed)
+    lvl, lo, hi = level_band(fc, cs, series=series_index)
+    hist = cs.series[series_index].spec.ts.data
+    fig = _pf(lvl, lo, hi, history=hist, name=cs.names[series_index])
+    return save(fig, _png(name, f"fcst{series_index}", path))
 
 
 # ── 3. estimation ──────────────────────────────────────────────────────────

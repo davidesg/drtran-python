@@ -132,3 +132,48 @@ def test_the_forecast_band_is_the_asymmetric_one(caso):
     mtram.estimate(caso)
     fc = mtram.forecast(caso, 1)
     assert "81.5421" not in fc and "82.4877" not in fc
+
+
+# ── the plots ────────────────────────────────────────────────────────────────
+def test_the_ccf_plot_is_drvarmas_with_the_lags_the_right_way_round():
+    """mtram reuses `drvarma.plots.plot_ccf` so a CCF looks the same across the
+    suite. The two libraries use OPPOSITE lag-sign conventions, though, so the
+    arguments are swapped: `drvarma`'s k=+1 is `drtran`'s k=-1.
+
+    Passing them unswapped draws the CCF MIRRORED — transfer on the feedback
+    side — and the picture looks perfectly normal while saying the opposite of
+    the truth. This pins the equivalence rather than the drawing.
+    """
+    import numpy as np
+    from drvarma.diagnostics import ccf as dv_ccf
+
+    from drtran.cast import Link, build_cast_spec
+    from drtran.identify import ccf as dt_ccf
+    from drtran.plots import prewhitened_pair
+
+    cs = build_cast_spec([drtran.load_pre(ES), drtran.load_pre(WTI)],
+                         links=[Link(0, 1, 0, 0, 0)])
+    a, b = prewhitened_pair(cs, cs.links[0])
+
+    mine = dt_ccf(a, b, 6)                       # drtran: k = 0..6
+    theirs = np.asarray(dv_ccf(b, a, 6))         # SWAPPED, two-sided
+    mid = len(theirs) // 2
+
+    assert theirs[mid:mid + 4] == pytest.approx(mine[:4], abs=1e-9)
+    back = dt_ccf(b, a, 6)                       # drtran: k = 0..-6
+    assert theirs[mid - 1:mid - 4:-1] == pytest.approx(back[1:4], abs=1e-9)
+
+    # and unswapped they do NOT agree — the trap is real, not hypothetical
+    wrong = np.asarray(dv_ccf(a, b, 6))
+    assert wrong[mid + 1] != pytest.approx(mine[1], abs=1e-6)
+
+
+@pytest.mark.skipif(not os.path.exists("/tmp"), reason="no tmp")
+def test_the_plot_tools_write_files(caso, tmp_path):
+    pytest.importorskip("matplotlib")
+    mtram.estimate(caso)
+    for f, kw in ((mtram.plot_ccf, dict(input_index=1)),
+                  (mtram.plot_impulse_response, {}),
+                  (mtram.plot_forecast, dict(horizon=6))):
+        p = f(caso, path=str(tmp_path / f"{f.__name__}.png"), **kw)
+        assert os.path.exists(p) and os.path.getsize(p) > 5000
