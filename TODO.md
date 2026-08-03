@@ -538,8 +538,25 @@ uso.
       picture that looks perfectly normal and says the opposite of the truth.
       Verified equal to 1e-9 on both sides, and a test pins that unswapped they
       disagree, so the trap stays documented as real.
-- [ ] `mtram` v3: the guided/autonomous split, residual plots, and the
-      aggregates and SPS tools the CLI already has.
+- [x] **The guided/autonomous split** (`build_model`, 15 tools). The decision
+      nodes are identified in `docs/DECISION_NODES.md`: a node is a point where
+      **the evidence does not determine the answer**, and they come from where
+      the code returns *alternatives*, *candidates*, or **refuses**.
+      N0 the output · N1 (b,r,s) · N2 which links · **N2′ a cycle — a STOP, not
+      a node** · N3 which covariances · N4 the constraints · N5 the cast (not
+      really a node) · N6 accept/revise/stop.
+      Two rules fall out and are enforced: **autonomous never makes a claim the
+      data cannot make for it** (it does not free a covariance, invent a
+      constraint or prune a cycle), and **the modes differ in who decides, never
+      in what is computed**.
+      It works on the canonical case in a way worth recording: the network scan
+      proposes the wrong SHAPE (b=1 s=0, logL −756.9167, adequacy p = 0.0000),
+      N6 catches it, the run returns to N1 with the finer instrument — bivariate
+      prewhitening — and lands on b=0 s=1, **logL −718.287406**, adequacy
+      0.1966, gain 0.027146. Self-corrected, and it says so.
+      Tests: 4 more, including that the two modes reach the same fit and that a
+      cyclic m6 stops instead of pruning.
+- [ ] `mtram` v3: residual plots, and the aggregates and SPS tools the CLI has.
 - [ ] Add `drtran` to the `atsw` umbrella once the port leaves beta.
 
 ## Inherited from the C — to watch in the port

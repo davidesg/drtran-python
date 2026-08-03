@@ -177,3 +177,75 @@ def test_the_plot_tools_write_files(caso, tmp_path):
                   (mtram.plot_forecast, dict(horizon=6))):
         p = f(caso, path=str(tmp_path / f"{f.__name__}.png"), **kw)
         assert os.path.exists(p) and os.path.getsize(p) > 5000
+
+
+# ── the guided / autonomous split ────────────────────────────────────────────
+def test_autonomous_reaches_the_canonical_model_by_revising_itself():
+    """The whole point of the split working: the network scan proposes the wrong
+    SHAPE (b=1, s=0, logL -756.92, adequacy p = 0.0000), node N6 catches it, and
+    the run goes back to N1 with the finer instrument — the bivariate
+    prewhitening — and lands on b=0, s=1.
+
+    That is the canonical model: logL -718.287406, adequacy 0.1966, gain
+    0.027146. Reached without anyone choosing anything.
+    """
+    mtram.load_pre("auto", f"{ES},{WTI}")
+    txt = mtram.build_model("auto", horizon=3)
+
+    assert "b=1 r=0 s=0  ->  b=0 r=0 s=1" in txt, "it must revise, and say so"
+    assert "-756.916700" in txt and "-718.287406" in txt
+    assert "0.1966" in txt and "0.027146" in txt
+
+
+def test_autonomous_never_frees_a_covariance():
+    """N3: freeing one is a claim about the world, and it costs the variance
+    decomposition. An autonomous run makes no claims the data cannot make for
+    it — but it must REPORT the correlation it found, or the analyst never
+    learns there was a decision to make."""
+    mtram.load_pre("auto2", f"{ES},{WTI}")
+    txt = mtram.build_model("auto2", horizon=1)
+
+    assert "NINGUNA liberada" in txt
+    assert "r(0) = +0.504" in txt, "the correlation it declined must be visible"
+    assert "ninguna" in txt.lower() and "restricciones" in txt.lower()
+
+    # and the model really has it fixed: the decomposition still works
+    f = mtram._FITS["auto2"]
+    from drtran.forecast import forecast as _f
+    from drtran.forecast import variance_decomposition as _v
+    shares, why = _v(_f(f, L=3, embed=True), series=0)
+    assert why is None and shares is not None
+
+
+def test_the_two_modes_reach_the_same_model():
+    """"They differ in who decides, never in what is computed." Guided, told to
+    make the choices the autonomous run made, must land in the same place."""
+    mtram.load_pre("m1", f"{ES},{WTI}")
+    mtram.build_model("m1", horizon=1)
+    auto = mtram._FITS["m1"]
+
+    mtram.load_pre("m2", f"{ES},{WTI}")
+    mtram.set_network("m2", json.dumps([{"out": 0, "inp": 1, "b": 0, "r": 0,
+                                         "s": 1}]))
+    mtram.estimate("m2")
+    guided = mtram._FITS["m2"]
+
+    assert auto.loglik == pytest.approx(guided.loglik, abs=1e-6)
+    assert auto.x == pytest.approx(guided.x, abs=1e-5)
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(DATA, "m6")),
+                    reason="the m6 data is missing")
+def test_autonomous_stops_at_a_cycle_instead_of_pruning():
+    """N2′ is a STOP, not a node. Pruning the weakest link to make the model
+    estimable would invent a recursive structure the data does not support, and
+    do it silently. On m6 the raw proposal IS cyclic."""
+    m6 = os.path.join(DATA, "m6")
+    names = ["EP", "EI", "EU", "EC", "EA", "P"]
+    mtram.load_pre("cyc", ",".join(os.path.join(m6, f"M6_{n}.pre") for n in names))
+    txt = mtram.build_model("cyc")
+
+    assert "CICLO" in txt and "sima" in txt
+    assert "SIMULTÁNEO" in txt
+    assert "RESULTADO" not in txt, "it must not go on to produce a model"
+    assert "cyc" not in mtram._FITS

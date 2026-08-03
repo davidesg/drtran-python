@@ -65,6 +65,16 @@ PREGUNTA INICIAL OBLIGATORIA:
   "¿Cuál de tus series es la SALIDA (la que quieres explicar) y cuáles las
    ENTRADAS? Y ¿cómo deseas proceder: 1) GUIADO paso a paso, o 2) AUTÓNOMO?"
 
+AUTÓNOMO -> una sola llamada a build_model. Recorre los nodos de decisión
+tomando el defecto documentado y DICIENDO cuál tomó. Presenta su informe TAL
+CUAL: la lista de defectos es lo que hace auditable el resultado.
+
+GUIADO -> el protocolo de abajo, parándote en cada nodo. Los nodos son:
+  N0 la salida · N1 (b,r,s) de cada enlace · N2 qué enlaces entran en el DAG
+  N3 qué covarianzas liberar · N4 las restricciones · N6 aceptar o revisar
+Los dos modos calculan LO MISMO y con los MISMOS defectos: sólo cambia quién
+decide. Detalle en docs/DECISION_NODES.md.
+
 ══════════════════════════════════════════════════════
 LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
 ══════════════════════════════════════════════════════
@@ -475,6 +485,168 @@ def evaluate(name: str, window: int, horizon: int = 6) -> str:
     f, _cs = fixed_window_fit(specs, links, window=window, embed=True)
     ev = rolling_evaluation(f.x, specs, links, window=window, horizon=horizon)
     return report_rolling(ev)
+
+
+# ── autonomous: the same nodes, the documented defaults, said out loud ─────
+@mcp.tool()
+def build_model(name: str, horizon: int = 12) -> str:
+    """AUTONOMOUS run: walk the ladder taking the documented default at every
+    decision node, and REPORT WHICH ONE IT TOOK at each.
+
+    The nodes are in `docs/DECISION_NODES.md`. The two rules this obeys:
+
+    * **it never makes a claim the data cannot make for it** — it does not free a
+      covariance, does not invent a constraint, and does not prune a cycle;
+    * **it differs from guided only in who decides**, never in what is computed.
+      A guided run that made the same choices reaches the same model.
+
+    It STOPS, rather than choosing, at two points: a cyclic network (the system
+    is simultaneous — `sima`) and a failed exogeneity test (a single-input
+    transfer model does not hold). Both are findings, not obstacles.
+    """
+    from .estimate import standard_errors
+    from .forecast import forecast as _fcast
+    from .forecast import level_band
+    from .irf import impulse_response as _irf
+    from .slots import build_slots
+
+    specs = _require(name)
+    log = [f"RUN AUTÓNOMO — {name!r}", "=" * 62, ""]
+
+    # N0 — the output
+    log += [f"N0  salida = {specs[0].name} (el primer .pre). No es deducible de "
+            f"los datos:", "    es la pregunta que trae el analista.", ""]
+
+    # N2 — the network, from the residual CCFs of the diagonal
+    cs0 = build_cast_spec(specs)
+    f0 = drtran.fit(cs0, embed=True)
+    net = drtran.identify_network(cs0, x=f0.x)
+
+    cyc = net.cycle
+    if cyc is not None:
+        route = " -> ".join(net.names[i] for i in cyc)
+        log += ["N2′ CICLO EN LA RED PROPUESTA: " + route,
+                "",
+                "    Sin orden topológico no hay VARMA triangular: el sistema es",
+                "    SIMULTÁNEO. Podar el enlace más débil para que 'funcione'",
+                "    sería inventar una estructura recursiva que los datos no",
+                "    sostienen. Esto es un HALLAZGO, no un obstáculo.",
+                "",
+                "    → El asistente que corresponde es `sima` (VARMA simultáneo).",
+                "    → O poda tú uno de esos enlaces: la poda es tu juicio."]
+        return "\n".join(log)
+
+    if not net.candidates:
+        log += ["N2  ningún enlace por encima de la banda: no hay transferencia",
+                "    que identificar. El modelo es el DIAGONAL.",
+                f"    logL = {f0.loglik:.6f}"]
+        return "\n".join(log)
+
+    links = net.links
+    log += ["N2  red (candidatos tal como salen, sin podar):"]
+    for c in net.candidates:
+        log.append(f"      {net.names[c.inp]} -> {net.names[c.out]}   "
+                   f"pico {c.peak:+.3f}   b={c.b} r=0 s={c.s}")
+    log += ["", "N3  covarianzas contemporáneas: NINGUNA liberada."]
+    if net.covariances:
+        for i, j, r0 in net.covariances:
+            log.append(f"      {net.names[i]} · {net.names[j]}  r(0) = {r0:+.3f}"
+                       "  ← detectada, NO liberada")
+        log += ["    Liberarlas es una afirmación sobre el mundo, y además cuesta",
+                "    la descomposición de la varianza. Decisión del analista."]
+    log += ["", "N4  restricciones: ninguna. Codifican teoría; un run autónomo",
+            "    no tiene ninguna.",
+            "", "N5  cast: EMPOTRADO (el defecto; no trunca la muestra).", ""]
+
+    _LINKS[name] = links
+    cs = build_cast_spec(specs, links=links)
+    table = build_slots(cs)
+    f = drtran.fit(cs, x0=drtran.x0_full(cs, table), embed=True, slots=table)
+    if f.ifault:
+        return "\n".join(log + [f"La verosimilitud no se pudo evaluar: "
+                                f"ifault={f.ifault}. Me detengo."])
+    _FITS[name] = f
+    _TABLES[name] = table
+    log += [f"    estimado: logL = {f.loglik:.6f}   ({f.status}, "
+            f"{f.nit} iteraciones)", ""]
+
+    # N6 — diagnosis, with ONE revision loop back to N1 if the shape is wrong
+    log += ["N6  diagnosis:"]
+    stop = False
+    revised = False
+    for _pass in (0, 1):
+        bad = []
+        for k in range(len(links)):
+            ad = drtran.transfer_adequacy(f, link_index=k, embed=True)
+            nm = f"{net.names[links[k].inp]} -> {net.names[links[k].out]}"
+            log.append(f"      {nm}:  adecuación p = {ad.p_transfer:.4f}   "
+                       f"exogeneidad p = {ad.p_exog:.4f}")
+            if ad.p_transfer < 0.05:
+                bad.append(k)
+        if not bad or revised:
+            break
+        # La adecuación falla: la FORMA es la equivocada, no el ajuste. Se vuelve
+        # a N1 con el instrumento fino -- el preblanqueo bivariante de `identify`,
+        # que mira un enlace de cerca -- en vez del barrido de red, que es un
+        # rastreo grueso del sistema entero. Una sola vez, como dice el nodo N6.
+        log += ["", "    La adecuación falla: la FORMA del enlace es la",
+                "    equivocada. Vuelvo a N1 con el preblanqueo bivariante,",
+                "    que es el instrumento fino. Una sola revisión."]
+        for k in bad:
+            lk = links[k]
+            cs_k = build_cast_spec(specs, links=[Link(lk.out, lk.inp, 0, 0, 0)])
+            idt = drtran.identify(cs_k, cs_k.links[0])
+            links[k] = Link(lk.out, lk.inp, b=idt.b, r=idt.r, s=idt.s)
+            log.append(f"      {net.names[lk.inp]} -> {net.names[lk.out]}:  "
+                       f"b={lk.b} r={lk.r} s={lk.s}  ->  "
+                       f"b={idt.b} r={idt.r} s={idt.s}")
+        _LINKS[name] = links
+        cs = build_cast_spec(specs, links=links)
+        table = build_slots(cs)
+        f = drtran.fit(cs, x0=drtran.x0_full(cs, table), embed=True, slots=table)
+        if f.ifault:
+            return "\n".join(log + [f"    la reestimación falló: ifault={f.ifault}"])
+        _FITS[name] = f
+        _TABLES[name] = table
+        revised = True
+        log += [f"    reestimado: logL = {f.loglik:.6f}   ({f.status}, "
+                f"{f.nit} iteraciones)", ""]
+
+    for k in range(len(links)):
+        ad = drtran.transfer_adequacy(f, link_index=k, embed=True)
+        nm = f"{net.names[links[k].inp]} -> {net.names[links[k].out]}"
+        if ad.p_exog < 0.05:
+            stop = True
+            log += ["",
+                    f"    ⚠ LA EXOGENEIDAD FALLA en {nm}. La entrada no es exógena,",
+                    "      así que un modelo de transferencia de una sola entrada",
+                    "      NO se sostiene. No es un problema de ajuste fino: es el",
+                    "      mismo hallazgo que un DAG cíclico por otra vía.",
+                    "      → `sima`. Me detengo aquí y no reespecifico alrededor."]
+    if stop:
+        return "\n".join(log)
+
+    # the answer
+    se = standard_errors(f)
+    cov = None if se.ifault else se.cov
+    log += ["", "RESULTADO", "-" * 62]
+    for k in range(len(links)):
+        ir = _irf(f, link_index=k, cov=cov)
+        g = (f"ganancia nu(1) = {ir.gain:.6f}"
+             + (f"  (s.e. {ir.se_gain:.6f}, t = {ir.gain/ir.se_gain:.2f})"
+                if ir.se_gain == ir.se_gain and ir.se_gain > 1e-15 else ""))
+        log.append(f"  {ir.inp_name} -> {ir.out_name}:  {g}")
+
+    fc = _fcast(f, L=horizon, embed=True)
+    lvl, lo, hi = level_band(fc, cs, series=0)
+    log += ["", f"  previsión de {cs.names[0]} ({horizon} periodos, nivel, 95 %):"]
+    for l in range(min(horizon, 6)):
+        log.append(f"    h={l+1:2d}  {lvl[l]:11.4f}   [{lo[l]:.4f}, {hi[l]:.4f}]")
+    if horizon > 6:
+        log.append(f"    … hasta h={horizon}")
+    log += ["", "Todos los defectos tomados están enumerados arriba. Para",
+            "revisarlos uno a uno, usa el modo guiado."]
+    return "\n".join(log)
 
 
 # ── 7. back out ────────────────────────────────────────────────────────────
