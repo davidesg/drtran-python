@@ -84,6 +84,7 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    identify_network    CCF de los residuos del DIAGONAL -> propone el DAG entero
 3. estimate            estima conjuntamente; presenta la ECUACIÓN
 4. diagnose            adecuación (k>=0) y exogeneidad (k<0)
+   plot_residuals      serie + ACF/PACF, el panel de fue (el mismo que ART)
 5. impulse_response    nu(k), acumulada y GANANCIA, con errores típicos
    plot_impulse_response
 6. forecast            nivel + variación + anual, con bandas
@@ -327,6 +328,32 @@ def plot_forecast(name: str, horizon: int = 12, series_index: int = 0,
     hist = cs.series[series_index].spec.ts.data
     fig = _pf(lvl, lo, hi, history=hist, name=cs.names[series_index])
     return save(fig, _png(name, f"fcst{series_index}", path))
+
+
+@mcp.tool()
+def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
+                   path: str = "") -> str:
+    """PLOT the residual series with its ACF and PACF — fue's own panel.
+
+    The same drawing `art` shows after a univariate fit, so the analyst reads one
+    instrument, not two. These are the STRUCTURAL residuals: with a
+    contemporaneous transfer the reduced-form ones are correlated by
+    construction. Writes a PNG and returns its path.
+    """
+    from .netid import residuals as _res
+    from .plots import plot_residuals as _pr
+    from .plots import save
+
+    f = _require_fit(name)
+    cs = f.cast_spec
+    a, ifa = _res(f.x, cs, embed=f.embed, structural=True)
+    if ifa:
+        raise ValueError(f"no se pueden obtener los residuos: ifault={ifa}")
+    freq = int(getattr(cs.series[series_index].spec.model.series, "freq", 1) or 1)
+    npar = len(f.xfree) if f.xfree is not None else len(f.x)
+    fig = _pr(a[:, series_index], npar=npar, freq=freq, lags=(lags or None),
+              title=f"residuals — {cs.names[series_index]}")
+    return save(fig, _png(name, f"res{series_index}", path))
 
 
 # ── 3. estimation ──────────────────────────────────────────────────────────

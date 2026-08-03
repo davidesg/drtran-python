@@ -174,6 +174,34 @@ def plot_forecast(level, lower, upper, history=None, name="", n_hist=24,
     return fig
 
 
+def plot_residuals(residuals, npar=0, freq=1, lags=None, title=""):
+    """Residual series + ACF/PACF — **fue's panel**, not a second one.
+
+    `fue.plots.plot_acf_pacf` in the Treadway-Jenkins design: impulse style,
+    shared y-range, +/-2/sqrt(n) bands, seasonal grid lines and the Ljung-Box Q
+    in the ACF's xlabel. Reused so that a residual panel looks the same after a
+    univariate fit in `art` and after a joint one here — the analyst is reading
+    the same instrument in both, and should not have to re-learn it.
+
+    `npar` is the number of estimated parameters, which is what the Q's degrees
+    of freedom are corrected by. Passing 0 overstates the fit's adequacy.
+    """
+    plt = _mpl()
+    from fue.plots import plot_acf_pacf, plot_residuals_ts
+
+    import matplotlib.gridspec as gridspec
+    r = np.asarray(residuals, float)
+    fig = plt.figure(figsize=(12, 5.5), layout="constrained")
+    gs = gridspec.GridSpec(2, 2, figure=fig, width_ratios=[1.6, 1.0],
+                           hspace=0.06, wspace=0.05)
+    ax_ser = fig.add_subplot(gs[:, 0])
+    plot_residuals_ts(r, title=title or "residuals", ax=ax_ser)
+    plot_acf_pacf(r, npar=npar, freq=freq, lags=lags,
+                  ax_acf=fig.add_subplot(gs[0, 1]),
+                  ax_pacf=fig.add_subplot(gs[1, 1]))
+    return fig
+
+
 def save(fig, path, dpi=130):
     """Write the figure and close it. Returns the path."""
     plt = _mpl()
