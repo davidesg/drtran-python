@@ -506,6 +506,10 @@ uso.
 
 ## The MCP layer
 
+**Estado (2026-08-03):** los tres asistentes existen — `art` (33 tools, fue),
+`mtram` (18 tools, drtran) y `sima` (14 tools, drvarma). La arquitectura está en
+`docs/ARCHITECTURE_MCP.md` y los nodos de decisión en `docs/DECISION_NODES.md`.
+
 - [x] **`multiart` renamed to `sima`** (2026-08-02), in drvarma: entry point,
       server name, instructions and `DESIGN_MCP.md`, which gains a §0 with the
       map and the handoff rule. Its roadmap's "v3: transfer functions" is
@@ -580,7 +584,16 @@ uso.
       **N6 refined**: on adequacy failure the run now calibrates BEFORE revising.
       `shape` → re-identify; `observation` → an intervention, do not re-specify
       around it. They need opposite responses and mtram used to confuse them.
-- [ ] `mtram` v4: the aggregates and SPS tools the CLI already has.
+- [ ] `mtram` v4: the aggregates (`-a`) and SPS/out-of-sample tools the CLI
+      already has, wrapped as MCP tools.
+- [ ] Decide whether `polytropos` names the launcher or nothing at all
+      (`ARCHITECTURE_MCP.md` §4b). Recommendation there: `atsw[mcp]` for the
+      distribution, `polytropos` for the launcher if the codename is wanted, and
+      **no tools and no voice** — in MCP the client already sees every connected
+      server, so a fourth voice adds something to learn without adding anything
+      to do. At most one read-only resource: what is installed and whether it is
+      consistent, which no individual server can answer.
+- [ ] Add `mtram` to the `atsw` umbrella when the port leaves beta.
 - [ ] Add `drtran` to the `atsw` umbrella once the port leaves beta.
 
 ## Inherited from the C — to watch in the port

@@ -97,8 +97,8 @@ Three schemes, with a recommendation:
 | assistant | models | engine | status |
 |---|---|---|---|
 | **`art`** | one series: ARIMA + interventions | fue | shipped, 33 tools |
-| **`mtram`** | transfer functions and networks (DAG) | drtran | first functions |
-| **`sima`** | simultaneous VARMA | drvarma | early versions (was `multiart`) |
+| **`mtram`** | transfer functions and networks (DAG) | drtran | **18 tools** |
+| **`sima`** | simultaneous VARMA | drvarma | 14 tools (was `multiart`) |
 
 `mtram` — **M**ultivariate **TRA**nsfer **M**odels. `sima` — **SI**multaneous
 **M**ultivariate **A**nalysis. Short, pronounceable, a word rather than a path,
@@ -119,7 +119,23 @@ yet: renaming is as cheap now as it will ever be.
 ## 3. What is shared, and at which layer
 
 The rule: **share implementations and artifacts, never the conversational
-surface.**
+surface.** Building `mtram` tested it, and it held — three times, each time
+catching something that writing a second copy would have hidden:
+
+| borrowed | from | what reuse caught |
+|---|---|---|
+| the CCF plot | `drvarma.plots.plot_ccf` | **opposite lag-sign conventions.** drvarma's k=+1 is drtran's k=−1, so the arguments go swapped. Unswapped it draws the CCF mirrored — the transfer on the feedback side — and the picture looks perfectly normal. |
+| the residual panel | `fue.plots.plot_acf_pacf` | nothing, which is the point: a residual panel now looks the same after a univariate fit in `art` and a joint one here. |
+| anomaly calibration | `art.interventions`, the **idea** | that it must NOT be ART's scan re-run. An anomaly in the output's univariate residuals may be explained by the INPUT once the transfer is in the model. What survives the joint fit is the genuine intervention. |
+
+**And how the borrowing is done: by importing the library, never by calling the
+other server.** An MCP is a conversational surface for a model, not a calling
+convention between programs; server-to-server would make `mtram` depend on `art`
+*running* rather than on `art` being installed. `sima` set the precedent
+(`DESIGN_MCP.md` §3: "for the art-seeding step multiart *imports* `art` as a
+library"). The dependency graph stays acyclic — drtran → fue, drvarma,
+art-tseries; art depends on none of them — which is the same discipline the DAG
+demands of the models.
 
 **Shared implementation** (already true, keep it true):
 - `elf` — drtran scores its cast with drvarma's exact likelihood, unmodified.
@@ -200,6 +216,39 @@ server has to exist:
   theoretical.
 
 ---
+
+## 4a. What `mtram` turned out to be
+
+Eighteen tools. The protocol in §4 survived contact, with one addition that came
+out of building it and one refinement that came out of a domain correction.
+
+**The addition — the guided/autonomous split has decision nodes**, and they are
+listed in `docs/DECISION_NODES.md`. A node is a point where *the evidence does
+not determine the answer*, and they were found by reading where the code returns
+`alternatives`, returns `candidates`, or **refuses**. Two rules fell out:
+*autonomous never makes a claim the data cannot make for it* (it does not free a
+covariance, invent a constraint, or prune a cycle), and *the modes differ in who
+decides, never in what is computed*.
+
+The autonomous run self-corrects on the canonical case: the network scan proposes
+the wrong shape (b=1 s=0, adequacy p = 0.0000), node N6 catches it, it returns to
+N1 with the finer instrument, and lands on logL −718.287406. Every default it
+took is in its report — which is what makes an autonomous answer auditable rather
+than merely fast.
+
+**The refinement — N6 had two causes and treated them as one.** When adequacy
+fails it can be the *shape* or it can be *one observation*, and they need
+opposite responses: re-identify, or calibrate an intervention. Re-specifying
+around an anomaly is how a model acquires a lag nobody can interpret.
+`calibrate` tells them apart, leave-one-out.
+
+And the measurement that matters there is **global, not per-lag**: an anomaly
+inflates the residual variance, which is the divisor of every correlation, so it
+flattens all the lags at once. Measured on an injected 6 % jump — one point
+carrying 47 % of the residual variance, and removing it multiplies every CCF
+coefficient by 1.46 while the peak barely moves. In the school's teaching this is
+a fact to **verify**, so `plot_calibration` draws both CCFs and the analyst
+checks it rather than trusting the number.
 
 ## 4b. The umbrella: `polytropos` — and whether it should speak
 
