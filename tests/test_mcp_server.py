@@ -249,3 +249,122 @@ def test_autonomous_stops_at_a_cycle_instead_of_pruning():
     assert "SIMULTÁNEO" in txt
     assert "RESULTADO" not in txt, "it must not go on to produce a model"
     assert "cyc" not in mtram._FITS
+
+
+# ── anomaly calibration ──────────────────────────────────────────────────────
+def test_calibration_tells_a_bad_SHAPE_from_a_bad_OBSERVATION():
+    """Node N6 has two causes that need OPPOSITE responses, and the whole point
+    of calibrating is to tell them apart before revising anything.
+
+    The wrong shape (b=1, s=0) fails adequacy and no single observation explains
+    it — dropping any one leaves the verdict where it was. Verdict: `shape`, so
+    re-identify. The well-specified model passes with nothing carrying it.
+    """
+    from drtran.cast import Link, build_cast_spec
+    from drtran.calibrate import calibrate as _cal
+
+    specs = [drtran.load_pre(ES), drtran.load_pre(WTI)]
+
+    good = _cal(drtran.fit(build_cast_spec(specs,
+                                           links=[Link(0, 1, b=0, r=0, s=1)]),
+                           embed=True))
+    assert good.verdict == "adequate"
+    assert good.p_transfer == pytest.approx(0.1966, abs=1e-3)
+    assert not good.anomalies, "this sample has no |z| > 3.5"
+
+    bad = _cal(drtran.fit(build_cast_spec(specs,
+                                          links=[Link(0, 1, b=1, r=0, s=0)]),
+                          embed=True))
+    assert bad.p_transfer < 0.05
+    assert bad.verdict == "shape", "no observation explains it: re-identify"
+    assert not bad.decisive
+
+
+def test_an_injected_anomaly_is_found_and_its_distortion_measured():
+    """Known answer: put one 6 % jump into the output and it must come back with
+    a large z and a large share of the residual variance.
+
+    And the finding worth reporting is counter-intuitive: adequacy goes UP, from
+    0.1966 to 0.93. A big anomaly inflates the residual variance, which shrinks
+    every correlation, which makes the portmanteau comfortable. An adequacy
+    bought that way is evidence of an uncalibrated intervention, not of a good
+    transfer — and the report has to say so, or the analyst reads 0.93 as good
+    news.
+    """
+    import copy
+
+    from drtran.calibrate import calibrate as _cal
+    from drtran.calibrate import report_calibration
+    from drtran.cast import Link, build_cast_spec
+    from drtran.pre import PreSpec
+
+    y, x = drtran.load_pre(ES), drtran.load_pre(WTI)
+    m = copy.deepcopy(y.model)
+    d = list(m.series.data)
+    d[150] *= 1.06
+    m.series.data = d
+    hurt = PreSpec(ts=m.series, model=m, path=y.path)
+
+    cal = _cal(drtran.fit(build_cast_spec([hurt, x],
+                                          links=[Link(0, 1, b=0, r=0, s=1)]),
+                          embed=True))
+    assert cal.anomalies, "a 6 % jump must be visible"
+    top = cal.anomalies[0]
+    assert abs(top.z) > 8
+    assert top.variance_fraction > 0.30, "one point, a third of the variance"
+    assert cal.p_transfer > 0.5, "and the portmanteau gets MORE comfortable"
+
+    # THE GLOBAL EFFECT, which is the primary one and the school's rule: by
+    # inflating the residual variance -- the DIVISOR of every correlation -- an
+    # anomaly flattens ALL the lags at once, not just the ones it touches.
+    top = cal.anomalies[0]
+    assert top.compression > 1.3, "removing it must lift every coefficient"
+    import numpy as np
+    m_with = float(np.mean(np.abs(cal.ccf)))
+    m_without = float(np.mean(np.abs(top.ccf_without)))
+    assert m_without / m_with == pytest.approx(top.compression, rel=1e-9)
+    assert m_without > m_with
+
+    # and the peak barely moves while the BULK does -- which is why the mean is
+    # the right measurement here and the maximum is not
+    assert abs(top.ccf_max_without - top.ccf_max) < 0.02
+
+    txt = report_calibration(cal)
+    assert "IS WHY IT PASSES SO WELL" in txt
+    assert "uncalibrated" in txt and "art" in txt
+    assert "CCF x" in txt and "VERIFICAR" in txt
+
+
+def test_the_verification_plot_shows_both_ccfs():
+    """The school's rule is a fact to VERIFY, and the verification is visual:
+    take the point out and the coefficients come back. The plot must carry both
+    CCFs, or it is an assertion rather than a check."""
+    import copy
+
+    pytest.importorskip("matplotlib")
+    from drtran.calibrate import calibrate as _cal
+    from drtran.calibrate import plot_calibration
+    from drtran.cast import Link, build_cast_spec
+    from drtran.pre import PreSpec
+
+    y, x = drtran.load_pre(ES), drtran.load_pre(WTI)
+    m = copy.deepcopy(y.model)
+    d = list(m.series.data)
+    d[150] *= 1.06
+    m.series.data = d
+    cal = _cal(drtran.fit(build_cast_spec([PreSpec(ts=m.series, model=m,
+                                                   path=y.path), x],
+                                          links=[Link(0, 1, b=0, r=0, s=1)]),
+                          embed=True))
+    fig = plot_calibration(cal)
+    bars = [c for ax in fig.axes for c in ax.containers]
+    assert len(bars) == 2, "both CCFs, with and without"
+    labels = {b.get_label() for b in bars}
+    assert any("sin" in l for l in labels) and any("con" in l for l in labels)
+
+
+def test_the_calibrate_tool_is_wired(caso):
+    mtram.estimate(caso)
+    txt = mtram.calibrate(caso)
+    assert "ANOMALY CALIBRATION" in txt
+    assert "0.1966" in txt

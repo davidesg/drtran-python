@@ -556,7 +556,31 @@ uso.
       0.1966, gain 0.027146. Self-corrected, and it says so.
       Tests: 4 more, including that the two modes reach the same fit and that a
       cyclic m6 stops instead of pruning.
-- [ ] `mtram` v3: residual plots, and the aggregates and SPS tools the CLI has.
+- [x] **Residual panel + anomaly calibration** (18 tools). The residual panel is
+      **fue's own** (`plot_acf_pacf` + `plot_residuals_ts`), so it looks the same
+      after a univariate fit in `art` and a joint one here. (For the record:
+      pyfug is the suite's primary graphics engine; `fue.plots` holds the
+      Treadway-Jenkins panel primitives that ART itself borrows.)
+      `calibrate` carries over ART's idea — measure how much each anomaly
+      DISTORTS the instrument — onto mtram's instruments, which are the CCF and
+      the adequacy portmanteau. Leave-one-out, not a contribution heuristic: it
+      answers *would my conclusion change?* instead of a proxy for it.
+      **The primary effect is global, and it is a fact to VERIFY.** An anomaly
+      inflates the residual variance, which is the DIVISOR of every correlation,
+      so it flattens ALL the lags at once — not only the ones it touches.
+      Measured on an injected 6 % jump: z = 10.0, 47 % of the residual variance,
+      and removing it multiplies every coefficient by **1.46**. The peak barely
+      moves (0.152 → 0.156) while the bulk lifts, which is why the mean is the
+      right measurement. `plot_calibration` draws both CCFs so the analyst
+      checks it rather than trusting it.
+      And the counter-intuitive finding it makes visible: that same anomaly
+      takes adequacy from 0.1966 to **0.9334**. An anomaly can make a model look
+      BETTER, by drowning the correlations. An adequacy bought that way is
+      evidence of an uncalibrated intervention, not of a good transfer.
+      **N6 refined**: on adequacy failure the run now calibrates BEFORE revising.
+      `shape` → re-identify; `observation` → an intervention, do not re-specify
+      around it. They need opposite responses and mtram used to confuse them.
+- [ ] `mtram` v4: the aggregates and SPS tools the CLI already has.
 - [ ] Add `drtran` to the `atsw` umbrella once the port leaves beta.
 
 ## Inherited from the C — to watch in the port

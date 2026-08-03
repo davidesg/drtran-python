@@ -85,6 +85,11 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
 3. estimate            estima conjuntamente; presenta la ECUACIÓN
 4. diagnose            adecuación (k>=0) y exogeneidad (k<0)
    plot_residuals      serie + ACF/PACF, el panel de fue (el mismo que ART)
+   calibrate           SI LA ADECUACIÓN FALLA, ANTES DE REVISAR NADA: ¿es la
+                       forma o es UNA observación? Piden respuestas opuestas.
+   plot_calibration    la VERIFICACIÓN: la CCF con y sin la anomalía. Un anómalo
+                       infla la varianza y aplasta TODOS los retardos a la vez;
+                       en la escuela eso se comprueba mirando, no se supone.
 5. impulse_response    nu(k), acumulada y GANANCIA, con errores típicos
    plot_impulse_response
 6. forecast            nivel + variación + anual, con bandas
@@ -413,6 +418,57 @@ def diagnose(name: str, link_index: int = 0) -> str:
         drtran.transfer_adequacy(f, link_index=link_index, embed=f.embed))
 
 
+@mcp.tool()
+def calibrate(name: str, link_index: int = 0, threshold: float = 3.5) -> str:
+    """Which observations are BENDING the instruments — and what to do about it.
+
+    Leave-one-out over the CCF and the adequacy portmanteau. Its verdict is the
+    branch to take at node N6 when adequacy fails, and the two branches need
+    OPPOSITE responses:
+
+    * **shape** — no single observation explains the failure → re-identify
+      (b, r, s);
+    * **observation** — the verdict rests on one point → that is an
+      INTERVENTION. Re-specifying the shape around it is how a model acquires a
+      lag nobody can interpret. Interventions are calibrated in `art`, on the
+      univariate rung, and travel here in the `.pre`.
+
+    This is NOT ART's scan run again: an anomaly in the output's univariate
+    residuals may be explained by the INPUT once the transfer is in the model.
+    What survives the joint fit is the genuine one.
+    """
+    from .calibrate import calibrate as _cal
+    from .calibrate import report_calibration
+
+    f = _require_fit(name)
+    return report_calibration(_cal(f, link_index=link_index,
+                                   threshold=threshold))
+
+
+@mcp.tool()
+def plot_calibration(name: str, link_index: int = 0, path: str = "") -> str:
+    """PLOT the CCF **with and without** the dominant anomaly — the verification.
+
+    In the school's teaching this is a fact to VERIFY, not to infer, and it is
+    easy to see: an anomaly inflates the residual variance, which is the divisor
+    of every correlation, so it flattens ALL the lags at once — not only the ones
+    it touches. Take the point out and the coefficients come back.
+
+    Show this beside `calibrate`'s table. The number (`CCF x`) states the claim;
+    the picture is what lets the analyst check it.
+    """
+    from .calibrate import calibrate as _cal
+    from .calibrate import plot_calibration as _pcal
+    from .plots import save
+
+    f = _require_fit(name)
+    cal = _cal(f, link_index=link_index)
+    if not cal.anomalies:
+        raise ValueError("no hay ninguna anomalía por encima del umbral: "
+                         "nada que verificar")
+    return save(_pcal(cal), _png(name, f"cal{link_index}", path))
+
+
 # ── 5. structure ───────────────────────────────────────────────────────────
 @mcp.tool()
 def impulse_response(name: str, link_index: int = 0) -> str:
@@ -612,13 +668,32 @@ def build_model(name: str, horizon: int = 12) -> str:
                 bad.append(k)
         if not bad or revised:
             break
-        # La adecuación falla: la FORMA es la equivocada, no el ajuste. Se vuelve
-        # a N1 con el instrumento fino -- el preblanqueo bivariante de `identify`,
-        # que mira un enlace de cerca -- en vez del barrido de red, que es un
-        # rastreo grueso del sistema entero. Una sola vez, como dice el nodo N6.
-        log += ["", "    La adecuación falla: la FORMA del enlace es la",
-                "    equivocada. Vuelvo a N1 con el preblanqueo bivariante,",
-                "    que es el instrumento fino. Una sola revisión."]
+        # La adecuación falla, y hay DOS causas que piden respuestas opuestas.
+        # Antes de revisar la forma hay que descartar que sea UNA observación:
+        # reespecificar alrededor de un anómalo es como un modelo acaba con un
+        # retardo que nadie sabe interpretar.
+        from .calibrate import calibrate as _cal
+        por_obs = []
+        for k in list(bad):
+            cal = _cal(f, link_index=k)
+            if cal.verdict == "observation":
+                d = cal.decisive[0]
+                por_obs.append((k, d))
+                bad.remove(k)
+                nm = f"{net.names[links[k].inp]} -> {net.names[links[k].out]}"
+                log += ["",
+                        f"    ⚠ {nm}: la adecuación NO falla por la forma, falla",
+                        f"      por UNA observación ({d.date}): sin ella la p pasa",
+                        f"      de {cal.p_transfer:.4f} a {d.p_transfer_without:.4f}.",
+                        "      Eso es una INTERVENCIÓN, y se calibra en `art`, en",
+                        "      el escalón univariante, no reespecificando aquí.",
+                        "      NO reviso (b,r,s) de este enlace."]
+        if not bad:
+            break
+        log += ["", "    La adecuación falla y ninguna observación suelta lo",
+                "    explica: la FORMA es la equivocada. Vuelvo a N1 con el",
+                "    preblanqueo bivariante, que es el instrumento fino. Una",
+                "    sola revisión."]
         for k in bad:
             lk = links[k]
             cs_k = build_cast_spec(specs, links=[Link(lk.out, lk.inp, 0, 0, 0)])
