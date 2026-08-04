@@ -6,6 +6,14 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+# Productos de una ejecucion en el propio arbol: el CLI escribe NAME.out y
+# NAME.html cuando no se le da -o. Uno se colo en 560ec4f antes de que existiera
+# esta regla, y .gitignore no destraquea lo ya versionado.
 *.out
 *.html
 !docs/*.html
+*.pre
+!tests/**/*.pre
+*.1.pre
+*.dag
+*.cns
