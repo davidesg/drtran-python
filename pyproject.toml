@@ -49,7 +49,12 @@ drtran-py = "drtran.cli:main"
 mtram = "drtran.mcp_server:main"   # transfer-model MCP (pip install "drtran[mcp]")
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.1.2"]
+# mcp<2 is NOT conservatism: mcp 2.0.0 REMOVED `mcp.server.fastmcp`, which is
+# where FastMCP lives and what this server imports. An unbounded `mcp>=1.2`
+# resolves to 2.x on any fresh install and mtram then fails to import at all.
+# Verified: 1.27.2 works, 2.0.0 raises ModuleNotFoundError. Lift the cap only
+# after porting the import.
+mcp = ["mcp>=1.2,<2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.1.3"]
 plots = ["matplotlib>=3.6", "pyfug>=2.0"]
 test = ["pytest>=7"]
 

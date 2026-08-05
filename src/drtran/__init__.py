@@ -52,7 +52,18 @@ from .pre import PreSpec, check_scale, load_pre, next_pre_path, write_pre
 from .report import build_forecast_result, write_forecast_report
 from .slots import Slot, SlotTable, build_slots, read_cns
 
-__version__ = "0.1.0b1"
+# Read from the installed metadata rather than repeated here: this line said
+# "0.1.0b1" while pyproject.toml said "0.1.0", so `drtran.__version__` reported a
+# version that had not existed for some time. Two places to change is one place
+# too many, and the one that drifts is always the one nobody builds from.
+try:
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+    try:
+        __version__ = _pkg_version("drtran")
+    except PackageNotFoundError:            # running from a source tree
+        __version__ = "0.0.0.dev0"
+except ImportError:                         # pragma: no cover
+    __version__ = "0.0.0.dev0"
 
 __all__ = [
     "PreSpec", "load_pre", "check_scale", "write_pre", "next_pre_path",

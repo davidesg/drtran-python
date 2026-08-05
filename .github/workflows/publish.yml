@@ -49,11 +49,17 @@ jobs:
           python -m twine check dist/*
 
       - name: Smoke-test the built wheel
+        # Install WITH the [mcp] extra: `mcp_server` refuses to import without
+        # it, by design, so a bare install cannot smoke-test the mtram surface.
+        # The first run of this workflow failed exactly here — the wheel was
+        # fine, the test was not.
         run: |
-          python -m pip install dist/drtran-*-py3-none-any.whl
+          WHL=$(ls dist/drtran-*-py3-none-any.whl)
+          python -m pip install "${WHL}[mcp]"
           python -c "import drtran; print('drtran', drtran.__version__)"
           python -c "from drtran.mcp_server import mcp; import asyncio; \
-                     print('mtram tools:', len(asyncio.run(mcp.list_tools())))"
+                     n=len(asyncio.run(mcp.list_tools())); print('mtram tools:', n); \
+                     assert n >= 18, n"
 
       - uses: actions/upload-artifact@v4
         with:
