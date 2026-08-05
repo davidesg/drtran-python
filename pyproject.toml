@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drtran"
-version = "0.1.0b1"
+version = "0.1.0"
 description = "Box-Jenkins transfer function models by exact maximum likelihood — the bridge from fue (univariate) to drvarma (exact VARMA likelihood)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "fue>=0.1.7",
-    "drvarma>=0.1.1",
+    "drvarma>=0.1.2",
 ]
 
 [project.urls]
@@ -42,7 +42,7 @@ drtran-py = "drtran.cli:main"
 mtram = "drtran.mcp_server:main"   # transfer-model MCP (pip install "drtran[mcp]")
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.1.1"]
+mcp = ["mcp>=1.2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.1.2"]
 plots = ["matplotlib>=3.6", "pyfug>=2.0"]
 test = ["pytest>=7"]
 

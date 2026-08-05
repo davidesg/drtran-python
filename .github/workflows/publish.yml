@@ -1,0 +1,78 @@
+name: Publish to PyPI
+
+# Builds the sdist and the universal wheel and publishes them on a v* tag.
+#
+# NO BINARY WHEELS, and that is correct: drtran is PURE PYTHON. It compiles
+# nothing — the numerics live in its dependencies, `fue` (univariate cast,
+# Box-Cox) and `drvarma` (the exact VARMA likelihood and the optimiser), and
+# those are the projects that ship per-platform wheels. One `py3-none-any`
+# wheel covers every platform this package can be installed on.
+#
+# Auth: PyPI Trusted Publishing (OIDC) — no API token in secrets.
+# FIRST RELEASE ONLY: because `drtran` does not exist on PyPI yet, the publisher
+# has to be pre-registered as a PENDING publisher before the first tag —
+# pypi.org → Your projects → Publishing → "Add a pending publisher":
+#     project  drtran
+#     owner    davidesg
+#     repo     drtran-python
+#     workflow publish.yml
+#     environment  pypi
+# Without that, the first upload fails with "invalid or non-existent
+# authentication information" and the tag has to be re-cut.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:      # manual run, builds and tests without publishing
+
+jobs:
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+
+      - name: Check the metadata
+        # twine needs packaging>=24.2 to understand the PEP 639
+        # `License-Expression` field setuptools>=77 emits; an older one rejects
+        # a perfectly valid distribution.
+        run: |
+          python -m pip install --upgrade "packaging>=24.2"
+          python -m twine check dist/*
+
+      - name: Smoke-test the built wheel
+        run: |
+          python -m pip install dist/drtran-*-py3-none-any.whl
+          python -c "import drtran; print('drtran', drtran.__version__)"
+          python -c "from drtran.mcp_server import mcp; import asyncio; \
+                     print('mtram tools:', len(asyncio.run(mcp.list_tools())))"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: pypi
+    permissions:
+      id-token: write                   # required for Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: What is about to be published
+        run: ls -la dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

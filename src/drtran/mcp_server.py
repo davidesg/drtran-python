@@ -153,6 +153,25 @@ def _png(name: str, kind: str, path: str = "") -> str:
 
 
 # ── 1. the input: .pre files, the ladder's contract ────────────────────────
+def _require_link(fit, link_index, what):
+    """Refuse clearly when a link-based tool is called on a diagonal model.
+
+    Adequacy, exogeneity and the calibration are all ABOUT a link; without one
+    there is nothing to compute. These used to raise a bare IndexError, which
+    reads like a bug in the tool rather than a missing step in the analysis —
+    and the missing step is always the same one, `set_network`.
+    """
+    links = getattr(fit.cast_spec, "links", None) or []
+    if not links:
+        raise ValueError(
+            f"the model has no transfer: it was estimated diagonally, so there "
+            f"is nothing to {what}. Identify a link with identify_link, fix it "
+            f"with set_network, and estimate again.")
+    if link_index >= len(links):
+        raise ValueError(f"there is no link {link_index}; the model has "
+                         f"{len(links)} (indices 0..{len(links) - 1})")
+
+
 @mcp.tool()
 def load_pre(name: str, paths: str) -> str:
     """Load the `.pre` files of a case. THE FIRST ONE IS THE OUTPUT.
@@ -414,6 +433,7 @@ def diagnose(name: str, link_index: int = 0) -> str:
     model.
     """
     f = _require_fit(name)
+    _require_link(f, link_index, "test for adequacy or exogeneity")
     return drtran.report_adequacy(
         drtran.transfer_adequacy(f, link_index=link_index, embed=f.embed))
 
@@ -441,6 +461,7 @@ def calibrate(name: str, link_index: int = 0, threshold: float = 3.5) -> str:
     from .calibrate import report_calibration
 
     f = _require_fit(name)
+    _require_link(f, link_index, "calibrate")
     return report_calibration(_cal(f, link_index=link_index,
                                    threshold=threshold))
 
@@ -462,6 +483,7 @@ def plot_calibration(name: str, link_index: int = 0, path: str = "") -> str:
     from .plots import save
 
     f = _require_fit(name)
+    _require_link(f, link_index, "plot the calibration")
     cal = _cal(f, link_index=link_index)
     if not cal.anomalies:
         raise ValueError("no hay ninguna anomalía por encima del umbral: "
