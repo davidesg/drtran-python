@@ -246,6 +246,13 @@ def _signif(p):
     return ""
 
 
+def _wrap_note(text, width=66):
+    """The convergence note, wrapped and marked, under the status line."""
+    import textwrap
+    lines = textwrap.wrap(text, width)
+    return ["  ! " + lines[0]] + ["    " + ln for ln in lines[1:]]
+
+
 def report_fit(fit, table, names, se=None):
     """The estimated model, slot by slot.
 
@@ -262,8 +269,10 @@ def report_fit(fit, table, names, se=None):
            f"  series        : {', '.join(names)}",
            f"  log-likelihood: {fit.loglik:.6f}",
            f"  status        : {fit.status}  (termcode={fit.termcode}, "
-           f"iterations={fit.nit})",
-           ""]
+           f"iterations={fit.nit})"]
+    if fit.convergence_note:
+        out += _wrap_note(fit.convergence_note)
+    out += [""]
     if se is None or se.ifault:
         out += ["  parameter                 estimate", "  " + "-" * 42]
     else:
