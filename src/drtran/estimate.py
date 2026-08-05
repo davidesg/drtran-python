@@ -119,7 +119,7 @@ def x0_full(cast_spec, slots):
 
 
 def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
-        sptol=1e-7, embed=True, slots=None):
+        sptol=1e-7, embed=True, slots=None, typx=1e-3):
     """Estimate the joint model and return a `Fit`.
 
     `embed=True` (the default, as in the C) puts the transfer INSIDE the VARMA;
@@ -141,6 +141,15 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     improvement**, which here is NORMAL when starting at the optimum — the case
     of the diagonal rung, where the `.pre`'s seeds already are it. 4-5 is a real
     failure.
+
+    `typx` is the typical parameter size the stopping tests are relative to.
+    `qnewtopt.c` hardcodes it to 1, which is wrong whenever the parameters are
+    much smaller: at `refactor=1` the deterministic omegas are ~1e-4, the
+    gradient test becomes an absolute tolerance it can never meet and the step
+    test one it meets at once, so a run that has REACHED the optimum reports
+    termcode 2 instead of 1 — or, on a large model, keeps iterating to `maxits`.
+    The default floor of 1e-3 makes the tests relative to each parameter; pass
+    `typx=None` to reproduce the C exactly.
     """
     from drvarma import _qnewt
 
@@ -191,7 +200,8 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     def func1(xk1):
         return objective(xk1[1:npar + 1])
 
-    _fk, _bfac, nit, termcode = _qnewt.raxopt(func1, npar, xk, maxits, grtol, sptol)
+    _fk, _bfac, nit, termcode = _qnewt.raxopt(func1, npar, xk, maxits, grtol,
+                                              sptol, typx)
     x_hat = xk[1:npar + 1].copy()
 
     ll, ifa = _ll(x_hat)
