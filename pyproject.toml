@@ -26,8 +26,15 @@ classifiers = [
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
-    "fue>=0.1.7",
-    "drvarma>=0.1.2",
+    # >=0.1.9 for the same reason as drvarma below: every fue binary wheel before
+    # it was inert (cffi absent from the runtime dependencies).
+    "fue>=0.1.9",
+    # >=0.1.3, not 0.1.2: 0.1.2 was the first release with binary wheels but they
+    # could not LOAD -- cffi was missing from its runtime dependencies, so the
+    # extension silently degraded to the pure-Python fallback. Since drtran
+    # scores every likelihood through drvarma's compiled `elf_c`, pinning lower
+    # would let a user install the inert engine and never know.
+    "drvarma>=0.1.3",
 ]
 
 [project.urls]
