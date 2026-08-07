@@ -103,8 +103,18 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    Su (b, r, s) va directo a set_network y MANDA sobre el propuesto.
    plot_ccf            el mismo gráfico suelto, si lo quieres volver a ver
    identify_network    CCF de los residuos del DIAGONAL -> propone el DAG entero
-3. estimate            estima conjuntamente; presenta la ECUACIÓN
-4. diagnose            adecuación (k>=0) y exogeneidad (k<0)
+3. estimate            estima conjuntamente. Devuelve la ECUACIÓN, la GANANCIA
+   con su error típico, y el contraste de RAZÓN DE VEROSIMILITUDES contra el
+   escalón diagonal: "converge" y "merecía la pena" son afirmaciones distintas
+   y la tabla de parámetros sólo contesta la primera. Un modelo con todos sus
+   parámetros significativos puede no mejorar sobre el diagonal.
+4. diagnose            adecuación (k>=0) y exogeneidad (k<0) — Y LA BIFURCACIÓN
+   ⚠ SI LA ADECUACIÓN FALLA, NO RE-ESPECIFIQUES TODAVÍA. Hay dos causas que
+   piden respuestas OPUESTAS y sólo se distinguen mirando: `calibrate` PRIMERO.
+   Si es la FORMA -> vuelve a identify_link. Si es UNA OBSERVACIÓN -> es una
+   intervención y se calibra en `art`, no aquí: re-especificar la forma
+   alrededor de un anómalo es como un modelo acaba con un retardo que nadie
+   sabe interpretar.
    plot_residuals      serie + ACF/PACF, el panel de fue (el mismo que ART)
    calibrate           SI LA ADECUACIÓN FALLA, ANTES DE REVISAR NADA: ¿es la
                        forma o es UNA observación? Piden respuestas opuestas.
@@ -147,6 +157,7 @@ _SPECS: dict[str, list] = {}       # name -> [PreSpec, ...], first is the output
 _LINKS: dict[str, list] = {}       # name -> [Link, ...]
 _FITS: dict[str, object] = {}      # name -> Fit
 _TABLES: dict[str, object] = {}    # name -> SlotTable
+_DIAG: dict[str, float] = {}       # name -> logL del escalón diagonal
 
 
 def _require(name: str):
@@ -191,6 +202,9 @@ def _require_link(fit, link_index, what):
     if link_index >= len(links):
         raise ValueError(f"there is no link {link_index}; the model has "
                          f"{len(links)} (indices 0..{len(links) - 1})")
+
+
+_gate_name = [""]
 
 
 def _diagonal_gate(specs):
@@ -247,6 +261,7 @@ def _diagonal_gate(specs):
         return lines
 
     diff = float(f.loglik) - total
+    _DIAG[_gate_name[0]] = float(f.loglik)     # lo usa `estimate` para el LR
     lines.append(f"  Ajuste diagonal conjunto (drtran): **{f.loglik:.6f}**")
     lines.append(f"  Diferencia con la suma: **{diff:+.2e}**")
     lines.append("")
@@ -365,6 +380,7 @@ def load_pre(name: str, paths: str, check: bool = True) -> str:
         out += ["  AVISO: " + w for w in warn]
 
     if check:
+        _gate_name[0] = name
         out += [""] + _diagonal_gate(specs)
     else:
         out += ["", "## 2. Escalón diagonal — OMITIDO (check=False)", "",
@@ -867,6 +883,87 @@ def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
 
 
 # ── 3. estimation ──────────────────────────────────────────────────────────
+def _what_the_transfer_bought(name, f, cs):
+    """¿Mereció la pena la transferencia? Y ¿cuánto mueve, en qué unidades?
+
+    Tres cosas que la tabla de parámetros no contesta y el analista sí pregunta.
+
+    **La razón de verosimilitudes contra el escalón diagonal.** El escalón ya
+    está calculado -- es la puerta de `load_pre` -- asi que comparar no cuesta
+    nada, y es la unica forma de saber si los parametros de la transferencia se
+    han ganado su sitio. Sin esto, "el ajuste converge" y "el ajuste vale para
+    algo" se confunden.
+
+    **La GANANCIA con su error tipico.** Es el numero sobre el que se actua: el
+    efecto acumulado de un cambio permanente de la entrada. No aparece en la
+    tabla porque no es un parametro, sino omega(1) = w0 - w1 - ..., y esa resta
+    es la que una convencion de signo invierte -- ya paso una vez, con la
+    verosimilitud impecable.
+
+    **La ECUACIÓN.** Las instrucciones de mtram llevaban ordenando "PRESENTA
+    SIEMPRE LA ECUACIÓN QUE DEVUELVE EL TOOL" desde el principio, y ningun tool
+    devolvia una: ni este, ni el C. Era una instruccion que apuntaba a algo
+    inexistente.
+    """
+    import numpy as np
+    from scipy import stats as _st
+
+    lines = ["", "  ── QUÉ HA COMPRADO LA TRANSFERENCIA " + "─" * 22, ""]
+
+    # la ecuacion, enlace a enlace
+    nm = [sp.name for sp in _require(name)]
+    for li, lk in enumerate(cs.links or []):
+        try:
+            ir = drtran.impulse_response(f, link_index=li)
+        except Exception:                                  # noqa: BLE001
+            continue
+        num = f"omega(B)" if lk.s else "omega_0"
+        den = f"/delta(B)" if lk.r else ""
+        pot = f"·B^{lk.b}" if lk.b else ""
+        lines.append(f"    {nm[lk.out]}_t  =  [{num}{den}]{pot} · "
+                     f"{nm[lk.inp]}_t  +  N_t"
+                     f"     (b={lk.b}, r={lk.r}, s={lk.s})")
+        g, gse = float(ir.gain), getattr(ir, "se_gain", None)
+        if gse is not None and np.isfinite(gse) and gse > 0:
+            t = g / gse
+            lines.append(f"      GANANCIA = omega(1) = {g:+.6f}   "
+                         f"(e.t. {gse:.6f},  t = {t:.2f})")
+        else:
+            lines.append(f"      GANANCIA = omega(1) = {g:+.6f}")
+        lines.append("      El efecto ACUMULADO sobre "
+                     f"{nm[lk.out]} de un cambio PERMANENTE de una unidad en "
+                     f"{nm[lk.inp]}, en la escala transformada.")
+        lines.append("")
+
+    # razon de verosimilitudes contra el escalon diagonal
+    diag = _DIAG.get(name)
+    if diag is None:
+        lines += ["    (No hay verosimilitud diagonal guardada: se calculó con "
+                  "`load_pre(check=False)`. Vuelve a cargar con check=True para "
+                  "poder contrastar si la transferencia se gana su sitio.)"]
+        return lines
+
+    npar_tr = sum(1 + lk.r + lk.s for lk in (cs.links or []))
+    lr = 2.0 * (float(f.loglik) - float(diag))
+    pval = float(_st.chi2.sf(lr, npar_tr)) if npar_tr > 0 and lr > 0 else 1.0
+    lines += [f"    Diagonal (sin transferencia): {diag:.6f}",
+              f"    Con transferencia          : {float(f.loglik):.6f}",
+              f"    LR = 2·Δ = {lr:.2f}  con {npar_tr} parámetro"
+              f"{'s' if npar_tr != 1 else ''} más   ->   p = {pval:.4g}", ""]
+    if pval < 0.01:
+        lines.append("    ✅ La transferencia se gana su sitio con holgura.")
+    elif pval < 0.05:
+        lines.append("    La transferencia se gana su sitio, sin holgura.")
+    else:
+        lines += ["    🛑 La transferencia NO mejora significativamente sobre "
+                  "el modelo diagonal. Sus parámetros pueden salir "
+                  "individualmente significativos y aun así no aportar: eso es "
+                  "lo que este contraste mide y la tabla de arriba no.",
+                  "",
+                  "    Antes de darla por buena, revisa la identificación."]
+    return lines
+
+
 @mcp.tool()
 def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     """Estimate every parameter JOINTLY by exact maximum likelihood.
@@ -901,10 +998,90 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     se = standard_errors(f)
     head = ("[Claude: muestra el bloque ``` siguiente TAL CUAL, verbatim, "
             "antes de comentar nada]\n\n```\n")
-    return head + report_fit(f, table, [s.name for s in specs], se) + "\n```"
+    body = report_fit(f, table, [s.name for s in specs], se)
+    extra = ""
+    if cs.links:
+        try:
+            extra = "\n" + "\n".join(_what_the_transfer_bought(name, f, cs))
+        except Exception as exc:                           # noqa: BLE001
+            extra = f"\n  (no se pudo contrastar la transferencia: {str(exc)[:120]})"
+    return head + body + extra + "\n```"
 
 
 # ── 4. diagnosis ───────────────────────────────────────────────────────────
+def _what_now(ad, name, link_index):
+    """El nodo N6: qué hacer con el veredicto. Las ramas piden cosas OPUESTAS.
+
+    Un diagnóstico que dice "adecuado / no adecuado" y calla deja al analista
+    con la parte difícil. Y en el caso de fallo, la respuesta correcta depende
+    de algo que todavía no se ha mirado: si el veredicto lo sostiene la FORMA o
+    una sola OBSERVACIÓN. Re-especificar (b,r,s) alrededor de un anómalo es
+    exactamente como un modelo adquiere un retardo que nadie sabe interpretar.
+    """
+    lines = ["", "  ── QUÉ HACER AHORA " + "─" * 39, ""]
+
+    if not ad.exogenous:
+        lines += ["    🛑 LA EXOGENEIDAD FALLA (p = %.4f). Eso NO se arregla "
+                  "cambiando (b, r, s): un modelo de transferencia de una sola "
+                  "entrada supone que la salida no adelanta a la entrada, y "
+                  "aquí lo hace. Es el mismo hallazgo que un DAG cíclico por "
+                  "otra puerta -- el sistema es SIMULTÁNEO." % ad.p_exog,
+                  "",
+                  "      · si es real -> `sima`, que estima VARMA sin imponer "
+                  "exogeneidad;",
+                  "      · si sospechas de un anómalo COMÚN a las dos series, "
+                  "se calibra en `art` y vuelve en el `.pre`.",
+                  "",
+                  "    Lo de abajo sobre la adecuación es secundario mientras "
+                  "esto no se resuelva."]
+
+    if ad.adequate:
+        if ad.exogenous:
+            lines += ["    ✅ El modelo pasa las dos pruebas: la forma de la "
+                      "transferencia es adecuada y la entrada se comporta como "
+                      "exógena.",
+                      "",
+                      "      Siguiente: `impulse_response` (nu(k), acumulada y "
+                      "ganancia con sus bandas), `forecast`, y `evaluate` si "
+                      "quieres error fuera de muestra.",
+                      "",
+                      "      Antes de darlo por cerrado, dos miradas baratas: "
+                      "`plot_residuals` (serie + ACF/PACF, el panel de fue) "
+                      "para ver lo que un portmanteau agregado no ve, y "
+                      "`calibrate` para saber si el veredicto de adecuación "
+                      "descansa en una sola observación. Un modelo adecuado "
+                      "GRACIAS a un punto es tan frágil como uno inadecuado "
+                      "POR un punto."]
+    else:
+        lines += ["    🛑 LA ADECUACIÓN FALLA (p = %.4f): queda estructura en "
+                  "la CCF a k >= 0, así que la FORMA de la transferencia no "
+                  "recoge todo lo que hay." % ad.p_transfer,
+                  "",
+                  "      ⚠ NO re-especifiques todavía. Hay DOS causas y piden "
+                  "respuestas OPUESTAS, y sólo se distinguen mirando:",
+                  "",
+                  f"      1. `calibrate({name!r}, link_index={link_index})` "
+                  "PRIMERO. Dice si el veredicto se sostiene en la forma o en "
+                  "una sola observación.",
+                  "      2. · si es la FORMA -> vuelve a `identify_link` y "
+                  "revisa (b, r, s) con la CCF delante;",
+                  "         · si es una OBSERVACIÓN -> es una INTERVENCIÓN, y "
+                  "se calibra en `art`, sobre el escalón univariante, no aquí. "
+                  "Re-especificar la forma alrededor de un anómalo es como un "
+                  "modelo acaba con un retardo que nadie sabe interpretar.",
+                  "",
+                  "      `plot_calibration` enseña la CCF con y sin la "
+                  "observación sospechosa: en la escuela eso se comprueba "
+                  "mirando, no se supone."]
+
+    if ad.significant_lags is not None and len(ad.significant_lags):
+        lines += ["",
+                  "    (Los cruces individuales de arriba son orientativos: con "
+                  "~25 retardos al 5 % se espera alguno por azar. El contraste "
+                  "conjunto es el portmanteau, no el recuento de barras.)"]
+    return lines
+
+
 @mcp.tool()
 def diagnose(name: str, link_index: int = 0) -> str:
     """Is the transfer adequate, and is the input really exogenous?
@@ -920,8 +1097,9 @@ def diagnose(name: str, link_index: int = 0) -> str:
     """
     f = _require_fit(name)
     _require_link(f, link_index, "test for adequacy or exogeneity")
-    return drtran.report_adequacy(
-        drtran.transfer_adequacy(f, link_index=link_index, embed=f.embed))
+    ad = drtran.transfer_adequacy(f, link_index=link_index, embed=f.embed)
+    return (drtran.report_adequacy(ad)
+            + "\n" + "\n".join(_what_now(ad, name, link_index)))
 
 
 @mcp.tool()

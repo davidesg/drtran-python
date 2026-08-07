@@ -223,3 +223,67 @@ def test_the_other_band_actually_removes_it():
     # and the proposal itself is unchanged, which is why this is a note and not
     # a stop: only the discarded weight moves.
     assert (con.b, con.r, con.s) == (hau.b, hau.r, hau.s)
+
+
+# ── estimation: what the transfer bought ───────────────────────────────────
+def test_estimate_reports_the_equation_and_the_gain():
+    """mtram's instructions have always ordered "PRESENT THE EQUATION the tool
+    returns", and no tool returned one — not this one, not the C. The gain is
+    the number a reader acts on and it was not in the table either, because it
+    is not a parameter but omega(1) = w0 - w1 - ..., and that subtraction is
+    exactly what a sign convention inverts."""
+    M.load_pre("EQ", f"{ES},{WTI}")
+    M.set_network("EQ", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("EQ")
+    assert "ES_CPI_t" in out and "WTI_t" in out and "N_t" in out
+    assert "GANANCIA" in out and "0.027146" in out
+    assert "e.t." in out, "the gain comes without its standard error"
+
+
+def test_estimate_contrasts_against_the_diagonal_rung():
+    """"It converged" and "it was worth adding" are different claims, and the
+    parameter table only answers the first. The diagonal likelihood is already
+    computed by `load_pre`'s gate, so the comparison is free."""
+    M.load_pre("LR", f"{ES},{WTI}")
+    M.set_network("LR", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("LR")
+    assert "-767.424" in out and "-718.287" in out
+    assert "LR = 2" in out and "98.2" in out
+    assert "se gana su sitio" in out
+
+
+def test_without_the_gate_it_says_it_cannot_contrast():
+    """`check=False` skips the diagonal fit, so there is nothing to compare
+    against — and that must be said, not silently omitted."""
+    M.load_pre("NOLR", f"{ES},{WTI}", check=False)
+    M.set_network("NOLR", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("NOLR")
+    assert "check=False" in out
+
+
+# ── diagnosis: node N6, whose branches want opposite things ────────────────
+def test_diagnose_says_what_to_do_when_it_passes():
+    M.load_pre("OK6", f"{ES},{WTI}", check=False)
+    M.set_network("OK6", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("OK6")
+    out = M.diagnose("OK6")
+    assert "QUÉ HACER AHORA" in out and "✅" in out
+    assert "impulse_response" in out
+    # a model adequate BECAUSE of one point is as fragile as one inadequate
+    # because of one, so the calibration is suggested even on success
+    assert "calibrate" in out
+
+
+def test_diagnose_sends_you_to_calibrate_before_respecifying():
+    """THE branch that matters. When adequacy fails there are two causes and
+    they want opposite responses, and they are only told apart by looking:
+    re-specifying (b,r,s) around an anomaly is how a model acquires a lag
+    nobody can interpret."""
+    M.load_pre("BAD6", f"{ES},{WTI}", check=False)
+    M.set_network("BAD6", '[{"out": 0, "inp": 1, "b": 6, "r": 0, "s": 0}]')
+    M.estimate("BAD6")
+    out = M.diagnose("BAD6")
+    assert "LA ADECUACIÓN FALLA" in out
+    assert "NO re-especifiques todavía" in out
+    assert "calibrate" in out and "PRIMERO" in out
+    assert "INTERVENCIÓN" in out
