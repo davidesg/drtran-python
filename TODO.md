@@ -587,16 +587,27 @@ uso.
 - [ ] `mtram` v4: the aggregates (`-a`) and SPS/out-of-sample tools the CLI
       already has, wrapped as MCP tools.
 - [ ] Decide whether `polytropos` names the launcher or nothing at all
+      **(lo único que queda del empaquetado: el paraguas ya está montado)**
       (`ARCHITECTURE_MCP.md` §4b). Recommendation there: `atsw[mcp]` for the
       distribution, `polytropos` for the launcher if the codename is wanted, and
       **no tools and no voice** — in MCP the client already sees every connected
       server, so a fourth voice adds something to learn without adding anything
       to do. At most one read-only resource: what is installed and whether it is
       consistent, which no individual server can answer.
-- [ ] Add `mtram` to the `atsw` umbrella when the port leaves beta.
-- [ ] Add `drtran` to the `atsw` umbrella once the port leaves beta.
+- [x] **`drtran` y `mtram` en el paraguas `atsw` — HECHO.** `atsw 1.2.1` declara
+      `drtran[mcp]>=0.1.0` y `drvarma[mcp]>=0.1.3`, así que `pip install atsw`
+      trae los dos motores y sus MCP (mtram y sima) con art y fue. Estas dos
+      líneas se quedaron sin marcar cuando se hizo.
 
 ## Inherited from the C — to watch in the port
+
+- [x] **BUG-1, la guarda del círculo unidad en TODO orden AR — CERRADO en los
+      dos (2026-08-07).** Python `dedd110`, C `a4e5051`. Se comprueba por las
+      RAÍCES vía `chekma`. Verificarlo corrigió la ficha: en el camino por
+      DEFECTO (cast empotrado) esa guarda nunca se ejecutaba —el AR no se
+      comprobaba en absoluto— así que el daño documentado era del PUERTO, que
+      la copió a sus dos casts. Rehomologado: 48 ejecuciones idénticas.
+      Detalle en `docs/BUGS.md`.
 
 - [ ] **The optimizer degrades with `refactor=1`.** In the C it hangs for over 2
       minutes without converging at Delta-log ~0.002, and converges in 23
