@@ -174,16 +174,16 @@ output today:
 1. the **gain**, with its economic reading — "si ΔlnM1 aumenta un 1 %, lnQ a
    largo plazo aumenta un 3 %"  ✅ *(we report it since this session)*
 2. the **mean lag** — "aproximadamente un año", "siete trimestres", "un año y
-   medio"  ❌
+   medio"  ✅ *(desde el nivel 1)*
 3. the **irf/srf shape** read out loud — "todos los valores de la irf son
    positivos, por eso la srf es monótona creciente"  ~
 4. the **% reduction in residual variance versus the univariate model** — 44 %,
-   53 %, 23 %, 37 %  ❌
+   53 %, 23 %, 37 %  ✅ *(desde el nivel 1)*
 5. **how many intervention parameters it needed** versus the univariate — often
-   one FEWER  ❌
+   one FEWER  ❌ **— lo único de esta lista que sigue abierto**
 6. any **change in the order of integration** — lnE is I(2) univariately and
    I(1) once ΔlnM1's effects are removed, which they flag as paradoxical and
-   possible only in finite samples  ❌
+   possible only in finite samples  ✅ *(nivel 3, vía la raíz MA)*
 7. the **LR test of the economic hypothesis**, using the final parametrisation
    with the restriction relaxed  ~ *(we do LR against the diagonal rung, which
    is the same machinery pointed at a different hypothesis)*
