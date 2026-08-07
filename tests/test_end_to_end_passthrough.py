@@ -336,3 +336,82 @@ def test_a_diagonal_fit_reproduces_the_univariate_optima_exactly(ladder):
     conj = np.array([x[table.names.index(n)] for n in nombres])
     univ = np.array([o for it in specs[0].model.interventions for o in it.omega])
     assert np.max(np.abs(conj - univ[:len(conj)])) < 1e-6
+
+
+def test_the_instructions_describe_the_sequence_this_pipeline_actually_walks():
+    """mtram's instructions and this pipeline must not drift apart.
+
+    They HAD drifted: the instructions said ART "estima el mejor modelo
+    univariante de cada serie y lo deja escrito ahí [en el .pre]". It does not.
+    art identifies and writes an `.inp` with every parameter at zero — asserted
+    above in `test_only_fue_produces_a_pre` — and fue is what estimates and
+    writes the `.pre`. That is a one-stage error in the description of a
+    five-stage chain, and it is the same misreading this test file was written
+    to correct.
+
+    So the instructions now carry the sequence explicitly, and this pins the
+    facts a reader would use it to act on.
+    """
+    from drtran.mcp_server import _INSTRUCTIONS as I
+
+    assert "LA SECUENCIA COMPLETA" in I
+    # quién produce qué, que es donde estaba el error
+    assert "ART NO PRODUCE EL `.pre`" in I
+    assert "quien estima y escribe el `.pre` es FUE" in I
+    # el ciclo, no una lista lineal: N6 devuelve a la identificación
+    assert "vuelve a identify_link" in I
+    # y la salida vuelve a entrar en el ciclo como .inp
+    assert "write_inp devuelve los bloques al ciclo" in I
+
+
+def test_every_tool_named_in_the_sequence_exists():
+    """A sequence that names a tool which is not there sends the assistant to
+    call something that does not exist — and the failure surfaces as a broken
+    tool call in front of the analyst, not as a docs bug."""
+    import re
+
+    from drtran import mcp_server as MS
+    from drtran.mcp_server import _INSTRUCTIONS as I
+
+    i = I.index("LA SECUENCIA COMPLETA")
+    bloque = I[i:I.index("mtram NO identifica", i)]
+    nombrados = set(re.findall(r"\b(load_pre|identify_link|refine_link|"
+                               r"set_network|estimate|diagnose|overfit|"
+                               r"impulse_response|forecast|evaluate|"
+                               r"write_inp)\b", bloque))
+    assert len(nombrados) >= 10, f"la secuencia nombra pocos tools: {nombrados}"
+    for t in sorted(nombrados):
+        assert callable(getattr(MS, t, None)), f"la secuencia nombra {t}, que no existe"
+
+
+def test_the_architecture_doc_names_only_tools_that_exist():
+    """The same drift, one document over. `ARCHITECTURE_MCP.md` is where a
+    developer looks first, and its stage list had accumulated two errors of the
+    kind that are invisible until someone follows it: `write_pre` after the
+    tool became `write_inp`, and `evaluate_out_of_sample`, which has never
+    existed on any surface — the tool is `evaluate`.
+
+    Neither breaks a test. Both send a reader to call something that is not
+    there, which is why they are worth pinning.
+    """
+    import os
+    import re
+
+    from drtran import mcp_server as MS
+
+    doc = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "docs", "ARCHITECTURE_MCP.md")
+    if not os.path.exists(doc):
+        pytest.skip("the architecture doc is not in this checkout")
+    with open(doc) as fh:
+        txt = fh.read()
+    i = txt.index("1. load_pre")
+    bloque = txt[i:txt.index("```", i)]
+
+    # nombres en la columna izquierda: los que un lector tomaría por tools
+    nombrados = {m for m in re.findall(r"^\s{0,3}(?:\d\.\s+)?([a-z_]{4,})\s{2,}",
+                                       bloque, re.M)}
+    nombrados -= {"library", "and"}
+    for n in sorted(nombrados):
+        assert getattr(MS, n, None) is not None, (
+            f"la doc de arquitectura nombra {n!r}, que no existe en mcp_server")

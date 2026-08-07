@@ -195,20 +195,33 @@ Proposed protocol, mirroring ART's four stages:
 
 ```
 0. opening question       guided or autonomous
-1. load_pre               one .pre per series; the first is the OUTPUT
+1. load_pre               one .pre OR .inp per series; the first is the OUTPUT
                           → validate (check_scale), report what each model is
+                          → the DIAGONAL GATE: joint == sum of the univariate
+                          → and WHICH each file was: an optimum, or a
+                            specification still to be estimated (both valid)
 2. identify_link          prewhitening + CCF for one input   → propose (b, r, s)
+                          `ident_pre=` an alternative output model, for the CCF
+                          only, when seasonality is stochastic on one side
+   refine_link            a generous free MA → read the DENOMINATOR off the
+                          shape of nu(k). The CCF cannot show `r`.
    identify_network       residual CCFs of the diagonal fit  → propose the DAG
                           ⚠ CYCLE → say so and route the analyst to `sima`
                           → WAIT for the analyst to prune. Never prune alone.
-3. write_guided           .dag + .cns, unpruned, cycle annotated
+3. set_network            fix the network in memory (a cycle is refused)
+   (drtran.write_guided)  library-only: the draft .dag + .cns, unpruned
 4. estimate               with -n/-c; report the equation VERBATIM
+                          → the output's model whole, the inputs' NAMED
 5. diagnose               transfer adequacy (k ≥ 0) and exogeneity (k < 0)
-6. impulse_response       nu(k), cumulative, gain, with standard errors
+                          → and the REFORMULATION ORDER: relation before noise
+   calibrate              which observation — and which PAIR — bends the CCF
+   overfit                enlarge on purpose (s+1, r+1) and see if it protests
+6. impulse_response       nu(k), cumulative, gain, mean lag, with std. errors
    variance_decomposition ⚠ refuses if Q is not diagonal, and says why
 7. forecast               level + period + annual with bands; aggregates
-   evaluate_out_of_sample -estwin/-C: MAE/RMSE/MAPE by horizon
-8. write_inp              -W: the re-estimated univariate blocks back out
+   evaluate               -estwin/-C: MAE/RMSE/MAPE by horizon
+8. write_inp              -W: the re-estimated univariate blocks back out,
+                          as `.inp` — they are a starting point, not an optimum
 ```
 
 Two tools with no counterpart in ART or drvarma, and they are the reason this

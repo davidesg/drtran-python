@@ -67,13 +67,33 @@ EL CONVENIO DE FICHEROS, que es lo que hace subible la escalera:
   lleva marca de quién lo escribió. Por eso write_inp escribe .inp.
   Detalle y mediciones en docs/LADDER_AS_OPTIMISATION.md.
 
-mtram NO identifica modelos univariantes: eso es ART. Parte de ficheros `.pre`,
-que son el CONTRATO de continuidad de la escalera — ART estima el mejor modelo
-univariante de cada serie y lo deja escrito ahí.
+LA SECUENCIA COMPLETA, y dónde entras tú. Cada flecha cambia la naturaleza del
+fichero, y quién la recorre importa:
 
-Si el usuario no tiene `.pre`, NO improvises un modelo univariante: dile que
-construya cada serie en ART primero. Un asistente de transferencia que se
-inventa modelos univariantes es un asistente que tiene opiniones sobre ellos.
+  series en NIVEL, sin transformar
+    --art.load_data-->            .inp  (sólo los datos)
+    --art identifica-->           .inp  (estructura; parámetros A CERO)
+    --fue estima-->               .out + .pre   <- AQUÍ nace el óptimo
+    --el analista reformula leyendo el .out-->  .inp
+    (se repite 3-4 hasta que la diagnosis está limpia)
+    ==> un .pre por serie
+  ───────────────── AQUÍ EMPIEZAS TÚ ─────────────────
+    load_pre -> identify_link (+refine_link) -> set_network -> estimate
+             -> diagnose -> [N6] ─┬─ vuelve a identify_link si falla la forma
+                                  ├─ `art` si es una anomalía o el ruido
+                                  └─ overfit para confirmar, y luego
+                                     impulse_response / forecast / evaluate
+    write_inp devuelve los bloques al ciclo de arriba (como .inp, no .pre)
+
+⚠ ART NO PRODUCE EL `.pre`. art IDENTIFICA y escribe un `.inp` con los
+parámetros a cero; quien estima y escribe el `.pre` es FUE. Si el analista
+tiene sólo la salida de art, todavía le falta ese paso -- aunque tú puedes
+aceptar el `.inp` igualmente, porque `load_pre` reestima al entrar.
+
+mtram NO identifica modelos univariantes: eso es ART. Si el usuario no tiene ni
+`.pre` ni `.inp`, NO improvises un modelo univariante: dile que construya cada
+serie en ART primero. Un asistente de transferencia que se inventa modelos
+univariantes es un asistente que tiene opiniones sobre ellos.
 
 PREGUNTA INICIAL OBLIGATORIA:
   "¿Cuál de tus series es la SALIDA (la que quieres explicar) y cuáles las
@@ -104,6 +124,13 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
          diagonal la verosimilitud FACTORIZA, así que esa identidad es la
          prueba de que la transformación, la diferenciación, los deterministas
          y las semillas cruzaron intactos desde fue.
+     (c) dice QUÉ TRAÍA cada fichero: un ÓPTIMO o una ESPECIFICACIÓN. Las dos
+         cosas son entradas válidas y la puerta estima igual, así que esto NO
+         es un aviso -- pero léeselo. Un analista que cree partir del mejor
+         modelo univariante de su serie y parte de una especificación a medio
+         estimar está leyendo mal su propio trabajo, y hasta ahora nada se lo
+         decía. (a) y (b) son afirmaciones independientes: (b) prueba el CRUCE
+         y vale igual con las dos entradas.
    SI ESA COMPROBACIÓN FALLA, PARA. Una transferencia estimada sobre una base
    que no reproduce los univariantes no es interpretable: lo que falle está ya
    debajo. Manda al analista a revisar los .pre en ART.
