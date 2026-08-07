@@ -375,6 +375,150 @@ def load_pre(name: str, paths: str, check: bool = True) -> str:
 
 
 # ── 2. identification ──────────────────────────────────────────────────────
+def _before_you_choose(idt, cs, link):
+    """La regla de parada: hay situaciones en que elegir un orden es prematuro.
+
+    No delega en `calibrate`, y no por pereza: `calibrate` trabaja sobre los
+    residuos ESTRUCTURALES de un ajuste, asi que exige un modelo ya estimado
+    con un enlace. Mandar ahi desde aqui seria dar un consejo que no se puede
+    seguir todavia. Lo que si esta disponible en el momento de decidir es el
+    par PREBLANQUEADO, que es de donde sale la CCF, y sobre el se puede
+    preguntar lo mismo: ¿descansa este dibujo en unas pocas observaciones?
+
+    Devuelve (lineas, parar). `parar=True` significa que mtram NO debe
+    presentar un orden como si fuera la conclusion.
+    """
+    import numpy as np
+    from .plots import prewhitened_pair
+
+    lines, parar = [], False
+
+    # 0. ¿Hay algo que leer? SE COMPRUEBA PRIMERO, y el orden importa.
+    #
+    # `has_relationship` es un test DEBIL: sobre datos sin ninguna relacion
+    # siguen apareciendo barras significativas por azar -- con ~25 retardos al
+    # 5% se esperan una o dos -- asi que sigue valiendo True y el `b` que se
+    # lee de ellas es aleatorio. Medido sobre simulaciones con omega ~ 0:
+    # b salio 10, 20, 8, 10, 13, y `has_relationship` True en todas.
+    #
+    # El discriminante que si separa es cuanto sobresale el PICO sobre la
+    # banda. Medido: ruido 1.0-1.5, seNal 7.6-7.8. No hay zona gris, y el corte
+    # en 2 esta lejos de ambos lados.
+    #
+    # Va antes que la exogeneidad a proposito: sobre ruido el portmanteau de
+    # k<0 tambien rechaza a veces por azar (p = 0.036 en una de las
+    # simulaciones), y anunciar "hay retroalimentacion" cuando lo que hay es
+    # ruido manda al analista a `sima` a estimar un sistema simultaneo que no
+    # existe. Decir "no veo nada" es el diagnostico correcto y el barato.
+    import numpy as _np
+    try:
+        _ccf = _np.asarray(idt.ccf, float)
+        _lags = _np.asarray(idt.lags)
+        _pico = float(_np.abs(_ccf[_lags >= 0]).max()) / float(idt.threshold)
+    except Exception:                                      # noqa: BLE001
+        _pico = float("inf")
+    if _pico < 2.0:
+        parar = True
+        lines += ["", "  🛑 ── PARA: LA CCF NO SE DISTINGUE DEL RUIDO " + "─" * 14,
+                  "",
+                  f"    El pico de la CCF en k >= 0 apenas sobresale de la "
+                  f"banda ({_pico:.2f} veces). Sobre datos SIN relación siguen "
+                  "saliendo barras significativas por azar — con ~25 retardos "
+                  "al 5 % se esperan una o dos — así que las que ves no bastan "
+                  "para leer un retardo: el `b` que saldría de ahí sería "
+                  "aleatorio.",
+                  "",
+                  "    Como referencia, en simulaciones con una transferencia "
+                  "real este cociente sale entre 7 y 8; sin relación, entre 1 "
+                  "y 1.5.",
+                  "",
+                  "    Antes de concluir que no hay relación: un anómalo INFLA "
+                  "la varianza y hunde TODOS los retardos a la vez, así que "
+                  "una CCF aplastada no dice 'no hay relación', dice 'no puedo "
+                  "verla'. Mira el gráfico, y si sospechas de un punto, se "
+                  "calibra en `art` sobre el escalón univariante.",
+                  "",
+                  "    No propongo orden."]
+        return lines, parar
+
+    # 1. Exogeneidad. Es un hallazgo ESTRUCTURAL, no un parametro que afinar.
+    if not idt.exogenous:
+        parar = True
+        lines += ["", "  🛑 ── PARA: LA ENTRADA NO ES EXÓGENA " + "─" * 22, "",
+                  f"    El portmanteau sobre k < 0 rechaza "
+                  f"(p = {idt.p_exogeneity:.4f}, "
+                  f"{idt.n_signif_negative} barras significativas a la "
+                  "izquierda). La salida ADELANTA a la entrada.",
+                  "",
+                  "    Un modelo de transferencia de una sola entrada asume que "
+                  "eso no pasa, así que NO es cuestión de elegir mejor (b,r,s): "
+                  "la especificación entera no se sostiene. Es el mismo "
+                  "hallazgo que un DAG cíclico llegando por otra puerta — el "
+                  "sistema es SIMULTÁNEO.",
+                  "",
+                  "    Dos salidas, y sólo el analista puede escoger:",
+                  "      · el sistema es de verdad simultáneo -> `sima`, que "
+                  "estima VARMA sin imponer exogeneidad;",
+                  "      · o hay un anómalo COMÚN a las dos series creando "
+                  "correlación espuria a ambos lados: se calibra en `art`, "
+                  "sobre el escalón univariante, y vuelve aquí en el `.pre`.",
+                  "",
+                  "    No propongo orden. Pedírmelo igualmente es legítimo, "
+                  "pero el resultado no será interpretable como transferencia."]
+        return lines, parar
+
+    # 2. Ni una barra: red de seguridad para el caso extremo.
+    if not idt.has_relationship:
+        parar = True
+        lines += ["", "  🛑 ── PARA: NO HAY RELACIÓN QUE IDENTIFICAR " + "─" * 15,
+                  "",
+                  "    Ninguna barra de la CCF supera la banda en k >= 0. O no "
+                  "hay transferencia, o algo la está tapando.",
+                  "",
+                  "    Antes de concluir que no hay relación, mira el gráfico: "
+                  "un anómalo INFLA la varianza y hunde TODOS los retardos a la "
+                  "vez, así que una CCF entera aplastada no dice 'no hay "
+                  "relación', dice 'no puedo verla'. Se calibra en `art`."]
+        return lines, parar
+
+    # 3. ¿Descansa la CCF en unas pocas observaciones? Se puede preguntar SIN
+    #    ajustar nada: r(k) es una media de productos, asi que basta mirar
+    #    cuanto pesa cada observacion en el retardo dominante.
+    try:
+        a, beta = prewhitened_pair(cs, link)
+        a = np.asarray(a, float); beta = np.asarray(beta, float)
+        a = (a - a.mean()); beta = (beta - beta.mean())
+        k = int(idt.b)
+        n = min(len(a), len(beta))
+        prod = a[:n - k] * beta[k:n] if k else a[:n] * beta[:n]
+        tot = float(np.abs(prod.sum()))
+        if tot > 0 and len(prod) > 10:
+            share = np.abs(prod) / tot
+            worst = int(np.argmax(share))
+            top = float(share[worst])
+            # 3 veces el peso medio de una observacion ya es desproporcion; por
+            # encima del 15% del total, el retardo dominante es basicamente un
+            # punto.
+            if top > max(0.15, 3.0 / len(prod)):
+                lines += ["", "  ⚠ ── UNA OBSERVACIÓN PESA DEMASIADO " + "─" * 22,
+                          "",
+                          f"    En el retardo dominante (k = {k}), UNA sola "
+                          f"observación aporta el {100 * top:.0f} % de la "
+                          "correlación (la nº %d de %d en el tramo "
+                          "preblanqueado)." % (worst + 1, len(prod)),
+                          "",
+                          "    Eso no invalida la propuesta, pero sí quiere "
+                          "decir que el orden que elijas puede estar leyendo un "
+                          "punto en vez de una dinámica. Míralo en el gráfico "
+                          "antes de fijarlo; y cuando estimes, `calibrate` te "
+                          "dirá si el veredicto de adecuación descansa en esa "
+                          "misma observación."]
+    except Exception:                                      # noqa: BLE001
+        pass                                               # es un aviso, no un gate
+
+    return lines, parar
+
+
 @mcp.tool()
 def identify_link(name: str, input_index: int = 1, band: str = "constant") -> str:
     """Identify (b, r, s) of ONE link by prewhitening and the CCF.
@@ -406,7 +550,10 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant") -> st
     except Exception as exc:                               # noqa: BLE001
         txt += ["", f"  (no se pudo dibujar la CCF: {str(exc)[:120]})"]
 
-    txt += _identification_choice(idt, name, input_index, specs)
+    avisos, parar = _before_you_choose(idt, cs, cs.links[0])
+    txt += avisos
+    if not parar:
+        txt += _identification_choice(idt, name, input_index, specs)
     return "\n".join(txt)
 
 

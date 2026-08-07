@@ -202,3 +202,49 @@ def test_a_wrong_delay_is_visibly_worse(bank):
         lls[b] = float(M._FITS["b2s1"].loglik)
     assert lls[c["b"]] > lls[c["b"] + 1], (
         f"the true delay does not fit better: {lls}")
+
+
+# ── the stopping rule: some situations make choosing an order premature ────
+@pytest.mark.parametrize("seed", [12, 99, 7])
+def test_noise_is_reported_as_noise_not_as_feedback(seed):
+    """With no relationship at all, mtram must say "I cannot see anything" —
+    not propose a delay, and not announce feedback.
+
+    Both wrong answers are available and both are worse than silence.
+    `has_relationship` stays True on pure noise, because with ~25 lags at 5 %
+    one or two bars are significant by chance, and the `b` read off them is
+    random: measured 10, 20, 8, 10, 13 across seeds. And the exogeneity
+    portmanteau over k < 0 also rejects by chance sometimes (p = 0.036 in one
+    of these), which would send the analyst to `sima` to estimate a
+    simultaneous system that does not exist.
+
+    The discriminator that does separate them is how far the PEAK stands above
+    the band: 1.0-1.5 on noise, 7.6-7.8 on a real transfer. No grey zone.
+    """
+    g = _gen()
+    d = tempfile.mkdtemp(prefix="mtram_noise_")
+    g.build_case(d, "NZ", 2, 0, 0, [0.0005], [], seed=seed)
+    M.load_pre(f"NZ{seed}", f"{d}/NZ_Y.pre,{d}/NZ_X.pre", check=False)
+    out = M.identify_link(f"NZ{seed}")
+    assert "NO SE DISTINGUE DEL RUIDO" in out
+    assert "No propongo orden" in out
+    assert "set_network" not in out, "it proposed an order on noise"
+
+
+@pytest.mark.parametrize("tag", ["b2s1", "b0s1"])
+def test_a_real_transfer_is_not_stopped(bank, tag):
+    """The other half of the rule: a stopping rule that also fires on signal
+    would just be an off switch."""
+    _load(bank, tag, check=False)
+    out = M.identify_link(tag)
+    assert "PARA:" not in out
+    assert "set_network" in out
+
+
+def test_the_single_observation_warning_does_not_fire_on_clean_data(bank):
+    """A warning that fires on clean simulated data is worth nothing. Measured
+    there: the heaviest observation carries 2-5 % of the dominant lag's
+    correlation, against a 15 % threshold."""
+    _load(bank, "b2s1", check=False)
+    out = M.identify_link("b2s1")
+    assert "UNA OBSERVACIÓN PESA DEMASIADO" not in out
