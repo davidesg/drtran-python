@@ -557,6 +557,52 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant") -> st
     return "\n".join(txt)
 
 
+def _band_fragile(idt):
+    """Retardos cuyo veredicto DEPENDE de qué banda se use.
+
+    TASTE dibuja y publica la banda CONSTANTE, 2/sqrt(N), sin corregir por el
+    retardo -- `PLOTS3.PAS` la escribe literal ("BANDAS 2.0/SQRT(N)") y la
+    traza con la misma formula. El C de drtran hace lo mismo, asi que ese es
+    nuestro defecto: es lo que hace el oraculo, y cambiarlo romperia la unica
+    referencia externa que no comparte antepasado con la familia.
+
+    Pero Haugh (1976) tiene razon en que a retardo k solo hay N-|k| productos,
+    de modo que la banda honesta es 2/sqrt(N-|k|), MAS ANCHA. La constante
+    sobredetecta en los retardos altos -- que son justo los estacionales.
+
+    El propio TASTE es inconsistente aqui, y a proposito: para el chi-cuadrado
+    SI divide por (nobs-i) (`PLOTS3.PAS:49`), y para la banda del grafico no.
+    Es la construccion estandar de Ljung-Box junto a una banda constante por
+    comodidad de trazado; vieja y deliberada, no nuestra.
+
+    Asi que no se cambia el criterio: se seNala donde los dos discrepan, que es
+    lo que el analista necesita para saber si un hallazgo es solido o cuelga de
+    la convencion.
+
+    Devuelve {k: (banda_constante, banda_haugh)} para los k significativos bajo
+    la constante y NO bajo la de Haugh.
+    """
+    import numpy as _np
+    try:
+        thr = float(idt.threshold)
+        n = (2.0 / thr) ** 2                    # thr = 2/sqrt(N)
+        ccf = _np.asarray(idt.ccf, float)
+        lags = list(_np.asarray(idt.lags))
+    except Exception:                                      # noqa: BLE001
+        return {}
+    out = {}
+    for k in (idt.significant_non_negative or []):
+        if k not in lags:
+            continue
+        r = abs(float(ccf[lags.index(k)]))
+        if n - abs(k) <= 1:
+            continue
+        haugh = 2.0 / _np.sqrt(n - abs(k))
+        if r > thr and r <= haugh:
+            out[int(k)] = (thr, float(haugh))
+    return out
+
+
 def _identification_choice(idt, name, input_index, specs):
     """Lo que se descarta, las alternativas, y la pregunta.
 
@@ -592,6 +638,18 @@ def _identification_choice(idt, name, input_index, specs):
             if freq > 1 and k % freq == 0:
                 marca = f"   <-- MÚLTIPLO DE LA FRECUENCIA ({k // freq}x{freq})"
             lines.append(f"      k = {k:<4d}{val}{marca}")
+        frag = _band_fragile(idt)
+        for k in fuera:
+            if k in frag:
+                c, h = frag[k]
+                lines += ["",
+                          f"      ⚖ k = {k}: su significación DEPENDE DE LA "
+                          f"BANDA. Supera la constante 2/√N = {c:.4f} (la que "
+                          f"usa TASTE y el C, y la que usamos por defecto) pero "
+                          f"NO la de Haugh 2/√(N−|k|) = {h:.4f}. A este retardo "
+                          f"las dos difieren un {100 * (h / c - 1):.0f} %. "
+                          "Con la banda del artículo original este peso no "
+                          "existiría."]
         lines += ["",
                   "    Un pico aislado en un múltiplo de la frecuencia suele ser "
                   "estacionalidad que quedó en la entrada, o un anómalo. Pero "
@@ -599,6 +657,23 @@ def _identification_choice(idt, name, input_index, specs):
                   "descarte. Si la CCF entera se ve aplastada, sospecha de un "
                   "anómalo -- infla la varianza y hunde TODOS los retardos a la "
                   "vez -- y pasa por `calibrate` antes de elegir orden."]
+
+    # Si un retardo FRAGIL cae DENTRO del bloque, no es un detalle: es (b, r, s)
+    # lo que depende de la convencion, no un peso marginal que se descarta.
+    frag_all = _band_fragile(idt)
+    dentro = [k for k in frag_all if k in usados]
+    if dentro:
+        lines += ["", "  ⚖ ── LA PROPUESTA MISMA DEPENDE DE LA BANDA " + "─" * 15,
+                  ""]
+        for k in sorted(dentro):
+            c, h = frag_all[k]
+            lines.append(f"    k = {k} está DENTRO del bloque propuesto y sólo "
+                         f"es significativo con la banda constante "
+                         f"({c:.4f}) — con la de Haugh ({h:.4f}) no lo sería.")
+        lines += ["",
+                  "    Es decir: el propio (b, r, s) que te propongo cambia "
+                  "según la convención de banda. Míralo en el gráfico antes de "
+                  "fijarlo; `band=\"haugh-box\"` te da la otra lectura."]
 
     # (a) las alternativas, cada una con su comando exacto
     lines += ["", "  ── DECIDE TÚ " + "─" * 48, ""]

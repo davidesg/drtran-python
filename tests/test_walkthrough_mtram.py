@@ -188,3 +188,38 @@ def test_it_distinguishes_no_tail_from_a_tail_that_does_not_decay():
     M.load_pre("ID5", f"{ES},{WTI}", check=False)
     out = M.identify_link("ID5")          # canonical block is {0,1} = 2 lags
     assert "no hay cola que evaluar" in out
+
+
+# ── the band convention, shown rather than silently resolved ────────────────
+def test_a_band_dependent_weight_is_flagged_as_such():
+    """The canonical k=24 is significant under one band and not the other, and
+    the margin is 4 %: r = -0.1423 against 0.1364 (constant) and 0.1447 (Haugh).
+
+    We keep the CONSTANT band as the default because that is what the oracle
+    does — TASTE's `PLOTS3.PAS` prints "BANDAS 2.0/SQRT(N)" and draws it with
+    the same formula — and changing it would break the only external reference
+    that shares no ancestry with this family. But Haugh is right that at lag k
+    there are only N-|k| products, so the constant band over-detects at high
+    lags, which are the seasonal ones. Showing the disagreement costs nothing
+    and lets the analyst see that the finding is fragile.
+    """
+    M.load_pre("BAND", f"{ES},{WTI}", check=False)
+    out = M.identify_link("BAND")
+    assert "DEPENDE DE LA BANDA" in out
+    assert "0.1364" in out and "0.1447" in out
+    assert "TASTE" in out
+
+
+def test_the_other_band_actually_removes_it():
+    """The flag must correspond to a real change, not a decorative caveat."""
+    import drtran
+    from drtran.cast import Link, build_cast_spec
+    M.load_pre("BAND2", f"{ES},{WTI}", check=False)
+    cs = build_cast_spec(M._SPECS["BAND2"], links=[Link(0, 1, 0, 0, 0)])
+    con = drtran.identify(cs, cs.links[0], band="constant")
+    hau = drtran.identify(cs, cs.links[0], band="haugh-box")
+    assert 24 in (con.significant_non_negative or [])
+    assert 24 not in (hau.significant_non_negative or [])
+    # and the proposal itself is unchanged, which is why this is a note and not
+    # a stop: only the discarded weight moves.
+    assert (con.b, con.r, con.s) == (hau.b, hau.r, hau.s)
