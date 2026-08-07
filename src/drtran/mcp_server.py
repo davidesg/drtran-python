@@ -158,6 +158,7 @@ _LINKS: dict[str, list] = {}       # name -> [Link, ...]
 _FITS: dict[str, object] = {}      # name -> Fit
 _TABLES: dict[str, object] = {}    # name -> SlotTable
 _DIAG: dict[str, float] = {}       # name -> logL del escalón diagonal
+_DIAG_FIT: dict[str, object] = {}  # name -> Fit diagonal (para la varianza)
 
 
 def _require(name: str):
@@ -262,6 +263,7 @@ def _diagonal_gate(specs):
 
     diff = float(f.loglik) - total
     _DIAG[_gate_name[0]] = float(f.loglik)     # lo usa `estimate` para el LR
+    _DIAG_FIT[_gate_name[0]] = f
     lines.append(f"  Ajuste diagonal conjunto (drtran): **{f.loglik:.6f}**")
     lines.append(f"  Diferencia con la suma: **{diff:+.2e}**")
     lines.append("")
@@ -883,6 +885,61 @@ def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
 
 
 # ── 3. estimation ──────────────────────────────────────────────────────────
+def _estimation_situation(f, cs, name):
+    """Lo que la escuela lee de la tabla y drtran no leía.
+
+    Brajín §2.3.1 detecta sobreparametrización por errores estándar altos y por
+    CORRELACIONES ALTAS entre parámetros; Muñoz 6.4.3 usa exactamente eso para
+    declarar FALLIDO un experimento de sobreajuste. Y 6.4.5 lee un denominador
+    de .99(.01) como implausible por su consecuencia: la ganancia y el retardo
+    medio salen "excesivamente altos" y no significativos.
+    """
+    from .school import (dead_time_suspect, denominator_near_unit,
+                         worst_correlations)
+    from .estimate import standard_errors
+
+    t = _TABLES.get(name)
+    if t is None:
+        return []
+    try:
+        se = standard_errors(f)
+    except Exception:                                      # noqa: BLE001
+        return []
+
+    out = []
+    for li, lk in enumerate(cs.links or []):
+        near = denominator_near_unit(f, t, se, link_index=li)
+        for nmd, v, e in near:
+            out += ["", f"    ⚠ {nmd} = {v:+.4f} está muy cerca de 1. Un "
+                    "denominador así manda nu(1) a infinito, así que LA "
+                    "GANANCIA Y EL RETARDO MEDIO DE ABAJO NO SON FIABLES: "
+                    "salen grandes y con errores típicos que los dejan sin "
+                    "significación. Suele indicar que la cola se está "
+                    "modelando con un factor que el dato no sostiene."]
+        sus, w0, w0e, tt = dead_time_suspect(f, t, se, link_index=li)
+        if sus:
+            out += ["", f"    ⚠ omega{li + 1}[0] = {w0:+.4f} no se distingue "
+                    f"de −1 (t = {tt:.2f}). En la parametrización en que la "
+                    "restricción de largo plazo se impone RESTANDO el input al "
+                    "output, ese −1 es el denominador asomando por la resta, y "
+                    "señala que el TIEMPO MUERTO es al menos un periodo mayor "
+                    "que el especificado (Muñoz 6.4.4, 6.4.5)."]
+
+    pairs, nflag = worst_correlations(f, se, t, top=3, flag=0.9)
+    if nflag:
+        out += ["", f"    ⚠ {nflag} par(es) de parámetros con |correlación| "
+                "≥ .9 — la situación de estimación está MAL DEFINIDA:"]
+        out += [f"        {a} ~ {b}: {r:+.3f}" for a, b, r in pairs
+                if abs(r) >= 0.9]
+        out += ["      No es un veredicto: puede ser sobreparametrización a "
+                "quitar, o una sobreparametrización NECESARIA. Muñoz 6.4.4 "
+                "conserva un par a −.93 porque al quitar uno se mueven muchos "
+                "otros parámetros y al quitar el otro la media de los residuos "
+                "deja de ser cero. Se decide probando qué se rompe al quitar "
+                "cada uno."]
+    return out
+
+
 def _what_the_transfer_bought(name, f, cs):
     """¿Mereció la pena la transferencia? Y ¿cuánto mueve, en qué unidades?
 
@@ -910,6 +967,8 @@ def _what_the_transfer_bought(name, f, cs):
 
     lines = ["", "  ── QUÉ HA COMPRADO LA TRANSFERENCIA " + "─" * 22, ""]
 
+    lines += _estimation_situation(f, cs, name)
+
     # la ecuacion, enlace a enlace
     nm = [sp.name for sp in _require(name)]
     for li, lk in enumerate(cs.links or []):
@@ -933,6 +992,22 @@ def _what_the_transfer_bought(name, f, cs):
         lines.append("      El efecto ACUMULADO sobre "
                      f"{nm[lk.out]} de un cambio PERMANENTE de una unidad en "
                      f"{nm[lk.inp]}, en la escala transformada.")
+
+        # La ganancia dice CUÁNTO y el retardo medio dice CUÁNDO. La escuela
+        # reporta los dos en todos sus casos ("la ganancia es 3.1 y el retardo
+        # medio, aproximadamente un año"), y sin el segundo el modelo está a
+        # medio leer.
+        ml, mlse = getattr(ir, "mean_lag", float("nan")), \
+            getattr(ir, "se_mean_lag", float("nan"))
+        if getattr(ir, "monotone", False) and np.isfinite(ml):
+            per = "periodos" if abs(ml) != 1 else "periodo"
+            extra = (f" (e.t. {mlse:.4f})" if np.isfinite(mlse) else "")
+            lines.append(f"      RETARDO MEDIO = {ml:.4f} {per}{extra}   "
+                         "— cuándo llega, en media, ese efecto.")
+        elif np.isfinite(float(ir.gain)):
+            lines.append("      RETARDO MEDIO: no definido — la respuesta CAMBIA "
+                         "DE SIGNO, y promediar retardos de efectos que se "
+                         "cancelan no mide nada. Lee la irf.")
         lines.append("")
 
     # razon de verosimilitudes contra el escalon diagonal
@@ -950,6 +1025,18 @@ def _what_the_transfer_bought(name, f, cs):
               f"    Con transferencia          : {float(f.loglik):.6f}",
               f"    LR = 2·Δ = {lr:.2f}  con {npar_tr} parámetro"
               f"{'s' if npar_tr != 1 else ''} más   ->   p = {pval:.4g}", ""]
+    # La reducción de varianza residual: es como la escuela cierra CADA caso
+    # ("una reducción del 44 % en relación a su modelo univariante"), y dice lo
+    # mismo que el LR en las unidades en que el analista piensa.
+    try:
+        from .school import variance_reduction
+        red = variance_reduction(f, _DIAG_FIT.get(name), series_index=0)
+        if red == red:
+            lines += [f"    Varianza residual de {nm[0]}: **{100 * red:.1f} % "
+                      "menos** que con su modelo univariante.", ""]
+    except Exception:                                      # noqa: BLE001
+        pass
+
     if pval < 0.01:
         lines.append("    ✅ La transferencia se gana su sitio con holgura.")
     elif pval < 0.05:

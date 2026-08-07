@@ -54,6 +54,20 @@ class ImpulseResponse:
     se_cum: np.ndarray = None      # (K+1,)
     gain: float = float("nan")     # nu(1) = omega(1)/delta(1)
     se_gain: float = float("nan")
+    # Retardo medio de respuesta: l = SUM k·nu_k / SUM nu_k = nu'(B)/nu(B) en
+    # B=1 (Brajín 2004, ec. 2.8-2.9). La escuela lo reporta en TODOS sus casos
+    # junto a la ganancia -- "la ganancia es 3.1 y el retardo medio un año" --
+    # porque la ganancia dice CUÁNTO y el retardo medio dice CUÁNDO, y un
+    # modelo de transferencia sin lo segundo está a medio leer.
+    #
+    # Sólo está definido si la respuesta es MONÓTONA (nu_k >= 0 para todo k, o
+    # <= 0 para todo k), que es la condición que la propia definición exige: el
+    # "retardo medio" de una respuesta que cambia de signo es una media de
+    # cosas que se cancelan, y puede salir fuera del rango de los retardos o
+    # con signo absurdo. `monotone` dice si se puede leer.
+    mean_lag: float = float("nan")
+    se_mean_lag: float = float("nan")
+    monotone: bool = False
 
     @property
     def t(self):
@@ -160,11 +174,27 @@ def impulse_response(fit, link_index=0, K=None, cov="auto", xitol=-1e-3):
         g[i] = (gu - gd) / (2.0 * h)
     se_gain = math.sqrt(max(float(g @ cov @ g), 0.0))
 
+    # ── retardo medio ────────────────────────────────────────────────────
+    # l = N/D con N = SUM k·nu_k y D = SUM nu_k = ganancia, asi que
+    #   dl/dtheta = (SUM k·J_k - l·SUM J_k) / D
+    # y el jacobiano J ya esta calculado arriba para las bandas de nu.
+    ks = np.arange(len(nu), dtype=float)
+    nz = nu[np.abs(nu) > 0]
+    monotone = bool(len(nz) == 0 or np.all(nz >= 0) or np.all(nz <= 0))
+    mean_lag = se_mean_lag = float("nan")
+    if monotone and abs(gain) > 1e-12:
+        mean_lag = float(np.sum(ks * nu) / gain)
+        if J is not None and cov is not None:
+            gl = (J.T @ ks - mean_lag * J.sum(axis=0)) / gain
+            se_mean_lag = math.sqrt(max(float(gl @ cov @ gl), 0.0))
+
     return ImpulseResponse(link_index=link_index, b=b, r=r, s=s,
                            out_name=cs.series[link.out].name,
                            inp_name=cs.series[link.inp].name,
                            nu=nu, se=se, cum=cum, se_cum=se_cum,
-                           gain=gain, se_gain=se_gain)
+                           gain=gain, se_gain=se_gain,
+                           mean_lag=mean_lag, se_mean_lag=se_mean_lag,
+                           monotone=monotone)
 
 
 def report_irf(irfs):

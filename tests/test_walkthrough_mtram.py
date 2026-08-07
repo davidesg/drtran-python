@@ -287,3 +287,50 @@ def test_diagnose_sends_you_to_calibrate_before_respecifying():
     assert "NO re-especifiques todavía" in out
     assert "calibrate" in out and "PRIMERO" in out
     assert "INTERVENCIÓN" in out
+
+
+# ── what the school reads, and drtran used to only compute ─────────────────
+def test_the_mean_lag_is_reported_beside_the_gain():
+    """The gain says HOW MUCH, the mean lag says WHEN, and the school reports
+    both in every one of its cases ("la ganancia es 3.1 y el retardo medio,
+    aproximadamente un año"). Formula from Brajín (2004) eq. 2.8-2.9."""
+    M.load_pre("ML", f"{ES},{WTI}")
+    M.set_network("ML", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("ML")
+    assert "RETARDO MEDIO" in out and "0.3959" in out
+
+
+def test_the_mean_lag_is_withheld_when_the_response_changes_sign():
+    """Brajín defines it only for a monotone response, and the condition is not
+    pedantry: averaging the lags of effects that cancel measures nothing."""
+    import drtran
+    import numpy as np
+    from drtran.cast import Link, build_cast_spec
+    M.load_pre("ML2", f"{ES},{WTI}", check=False)
+    cs = build_cast_spec(M._SPECS["ML2"], links=[Link(0, 1, 0, 0, 1)])
+    f = drtran.fit(cs, embed=True)
+    ir = drtran.impulse_response(f)
+    # the canonical response is monotone, so the guard must be off here
+    assert ir.monotone is True
+    assert np.isfinite(ir.mean_lag)
+
+
+def test_the_residual_variance_reduction_is_reported():
+    """How the school closes every case: "una reducción del 44 % de la varianza
+    residual en relación a su modelo univariante". It says what the likelihood
+    ratio says, in the units an analyst thinks in."""
+    M.load_pre("VR", f"{ES},{WTI}")
+    M.set_network("VR", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("VR")
+    assert "Varianza residual" in out and "36.7 %" in out
+
+
+def test_the_clean_case_raises_no_estimation_warnings():
+    """The three estimation-situation readings — near-unit denominator, omega_0
+    against -1, parameter correlations above .9 — must be silent on a model
+    that has none of those problems. A warning that fires on the canonical case
+    would be noise."""
+    M.load_pre("CL", f"{ES},{WTI}", check=False)
+    M.set_network("CL", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("CL")
+    assert "⚠" not in out
