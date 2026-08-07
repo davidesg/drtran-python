@@ -281,10 +281,12 @@ def cast_diagonal(x, cast_spec):
         for k in range(qs[i]):
             THETA[k, i, i] = thetas[i][k]
 
-    # The C's constraint (shootx [12]): an AR(1) pinned to the unit circle is
-    # rejected before calling elf, rather than letting the likelihood blow up.
+    # The C's constraint (shootx [12]), CORRECTED — see `ar_is_stationary`.
+    # The original tests |phi[0]| >= 0.999 for EVERY order, and phi[0] is only
+    # a root when p = 1. This checks the roots, which is what the C does three
+    # lines below for the MA, with `chekma`.
     for i in range(m):
-        if ps[i] >= 1 and abs(phis[i][0]) >= 0.999:
+        if ps[i] >= 1 and not ar_is_stationary(phis[i][:ps[i]]):
             return None, None, None, None, None, 1
 
     return PHI, THETA, np.asarray(mus, float), W, sigma, 0
@@ -375,3 +377,64 @@ def x0_from_pre(cast_spec):
                 ratios[i - 1] = math.log(s2[i] / s2[0])
     parts.append(ratios)
     return np.concatenate(parts)
+
+
+def ar_is_stationary(phi, tol=0.0):
+    """Is the AR operator `1 - phi_1 B - ... - phi_p B^p` stationary?
+
+    Stationary iff every root of that polynomial lies OUTSIDE the unit circle.
+
+    This replaces the C's guard at `tran_shootx.c:629`, which tests
+    `|phi[0]| >= 0.999` for **every** order `p >= 1`. For p = 1 that is at
+    least the right quantity — there `phi[0]` is the reciprocal of the root —
+    but for p >= 2 it is not a root at all. In an AR(2) the stationary region
+    is the triangle |phi2| < 1, phi2 + phi1 < 1, phi2 - phi1 < 1, in which
+    **phi1 reaches 2**, so every AR(2) with complex roots and phi1 > 1 is
+    stationary and was rejected. That is not an exotic corner: it is exactly
+    where the persistent cycles live.
+
+    Measured, with the guard disabled, on the canonical pair:
+
+        phi1    phi2     |root|   stationary   ifault
+        0.9500  -0.5200   1.387       yes         0
+        1.0354  -0.5184   1.389       yes         0     <- was rejected
+        1.6000  -0.8000   1.118       yes         0     <- was rejected
+        2.1000  -1.0500   0.782       NO          3     <- elf catches it
+
+    And the guard turns out to be over-broad even at p = 1, its own stated
+    case. Unguarded, every stationary AR(1) evaluates cleanly up to
+    phi = 0.9999 (|root| = 1.0001, ifault 0); phi = 1 exactly gives ifault 2
+    and phi > 1 gives ifault 3. So `elf` already rejects precisely the right
+    set, and the 0.999 threshold was discarding a live strip of stationary
+    parameter space below it.
+
+    The guard is KEPT rather than deleted, for the reason it exists: rejecting
+    before calling `elf` is cheaper than a full likelihood evaluation, and it
+    hands the line search a clean refusal. What changes is only that it now
+    rejects the right region — and it mirrors what `tran_shootx.c` already does
+    three lines below for the MA, where `chekma` builds the companion matrix
+    and looks at eigenvalue moduli, generic in the operator.
+
+    `tol` widens the rejection if a numerical margin is ever wanted; the
+    default is the mathematical boundary, which is where `elf` also sits.
+    """
+    import numpy as _np
+
+    phi = _np.asarray(phi, float)
+    if not len(phi):
+        return True
+    if not _np.all(_np.isfinite(phi)):
+        return False
+    # 1 - phi_1 z - ... - phi_p z^p, highest power first for np.roots
+    coef = _np.r_[-phi[::-1], 1.0]
+    nz = _np.flatnonzero(coef)
+    if not len(nz):
+        return True
+    coef = coef[nz[0]:]                     # descarta ceros de cabecera
+    if len(coef) < 2:
+        return True
+    try:
+        r = _np.abs(_np.roots(coef))
+    except Exception:                       # noqa: BLE001
+        return False
+    return bool(len(r) == 0 or _np.min(r) > 1.0 + tol)

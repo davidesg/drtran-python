@@ -1,4 +1,8 @@
-"""BUG-1: la guarda del circulo unidad se aplica a TODO orden AR, no solo a AR(1).
+"""BUG-1 -- CORREGIDO 2026-08-07. Este script era la reproduccion; ahora es la
+VERIFICACION. Antes toda fila con phi1 >= 0.999 devolvia ifault=1; hoy todas las
+estacionarias devuelven 0. Lo que sigue describe el defecto que habia.
+
+BUG-1: la guarda del circulo unidad se aplica a TODO orden AR, no solo a AR(1).
 
 `cast.py:286` y `embed.py:224` llevan, identica:
 
@@ -71,8 +75,9 @@ for phi1, phi2 in [(0.30, 0.00),      # AR(1) benigno
           f"{'SI' if est else 'no':>13} {d:12d} {e:11d}")
 
 print("""
-Todas las filas con phi1 >= 0.999 son ESTACIONARIAS (modulo de las raices > 1) y
-aun asi devuelven ifault=1: la verosimilitud ni se llega a evaluar.
+Todas las filas con phi1 >= 0.999 son ESTACIONARIAS (modulo de las raices > 1).
+ANTES devolvian ifault=1 y la verosimilitud ni se llegaba a evaluar; ahora
+devuelven 0.
 
 Consecuencia mas grave que el propio ifault: cuando el punto de partida esta por
 DEBAJO de 0.999, el optimizador no falla -- avanza hasta la barrera y se queda
@@ -84,7 +89,17 @@ una pared invisible.
 
 El sesgo no es aleatorio -- excluye justamente los ciclos persistentes.
 
-ARREGLO: comprobar la estacionariedad por las RAICES del polinomio (o
-parametrizar por coeficientes de reflexion, Monahan 1984), y dejar la guarda de
-phi[0] solo cuando ps[i] == 1.
+ARREGLO APLICADO: `cast.ar_is_stationary` comprueba la estacionariedad por las
+RAICES del polinomio, para cualquier orden. La guarda se queda -- rechazar antes
+de llamar a elf es mas barato que evaluar la verosimilitud -- pero rechaza ahora
+la region correcta, igual que `chekma` hace para el MA tres lineas mas abajo en
+el propio C.
+
+Y resulto ser mas ancha de lo que decia este informe: tambien sobraba en p=1.
+Medido con la guarda desactivada, todo AR(1) estacionario evalua limpio hasta
+phi=0.9999 (ifault 0); phi=1 exacto da ifault 2 y phi>1 da ifault 3. Es decir,
+elf ya rechazaba por su cuenta el conjunto correcto, y el umbral 0.999 tiraba
+una franja viva de espacio paramétrico por debajo de la frontera de verdad.
+
+PENDIENTE: la misma correccion en el C (`tran_shootx.c:629`).
 """)

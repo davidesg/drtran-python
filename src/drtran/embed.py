@@ -47,6 +47,7 @@ import math
 import numpy as np
 
 from .cast import build_sigma, compute_irf
+from .cast import ar_is_stationary
 
 
 def poly_mul(a, b):
@@ -221,8 +222,12 @@ def cast_embedded(x, cast_spec, with_phi0=False):
     n = min(len(w) for w in ws)
     W = np.column_stack([w[len(w) - n:] for w in ws])
 
+    # The C's constraint (shootx [12]), CORRECTED — see `ar_is_stationary`.
+    # The original tests |phi[0]| >= 0.999 for EVERY order, and phi[0] is only
+    # a root when p = 1. This checks the roots, which is what the C does three
+    # lines below for the MA, with `chekma`.
     for i in range(m):
-        if ps[i] >= 1 and abs(phis[i][0]) >= 0.999:
+        if ps[i] >= 1 and not ar_is_stationary(phis[i][:ps[i]]):
             return None, None, None, None, None, 1
 
     ph, th, sg, phi0 = normalize_phi0(PHI, THETA, sigma)
