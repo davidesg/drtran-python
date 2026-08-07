@@ -107,3 +107,84 @@ def test_link_tools_refuse_clearly_without_a_link(tool):
     M.estimate("DIAG")
     with pytest.raises(ValueError, match="no transfer|no link"):
         getattr(M, tool)("DIAG")
+
+
+# ── the gate: load_pre must prove the bridge before anything else ───────────
+def test_load_pre_confirms_the_roles():
+    """Which series is the output is decision node N0 — the data cannot answer
+    it — so the roles must be stated back for confirmation, not assumed."""
+    out = M.load_pre("GATE", f"{ES},{WTI}")
+    assert "SALIDA" in out and "ES_CPI" in out
+    assert "entrada" in out and "WTI" in out
+    assert "orden" in out.lower(), "does not warn that the order decides the roles"
+
+
+def test_load_pre_proves_the_diagonal_rung():
+    """THE gate. With a diagonal structure the exact likelihood factorises, so
+    the joint fit must equal the sum of the univariate ones. That identity is
+    what says the transform, the differencing, the deterministics and the seeds
+    all survived the crossing from fue — and until it holds, no transfer result
+    from this case means anything."""
+    out = M.load_pre("GATE2", f"{ES},{WTI}")
+    assert "-767.4243" in out, "the canonical joint/sum value is not reported"
+    assert "✅" in out and "consolidado" in out
+
+
+def test_the_expected_early_stop_is_not_reported_as_a_warning():
+    """On the diagonal rung the `.pre` seeds ALREADY are the optimum, so the
+    optimiser stops at once. The generic termcode-2 note says "suspect an
+    ill-conditioned likelihood, distrust the standard errors, reduce the order"
+    — every clause of which is false here, and this is the most prominent place
+    it would appear."""
+    out = M.load_pre("GATE3", f"{ES},{WTI}")
+    assert "ESPERADO" in out
+    assert "ill-conditioned" not in out, "the false alarm is back"
+
+
+def test_check_false_says_it_skipped_the_gate():
+    out = M.load_pre("GATE4", f"{ES},{WTI}", check=False)
+    assert "OMITIDO" in out
+
+
+# ── guided mode: identify_link must PROPOSE, not conclude ───────────────────
+def test_identify_link_emits_the_plot_with_the_numbers():
+    """In guided mode the analyst decides by looking at the CCF. A table of
+    r(k) does not carry the SHAPE, which is what separates a decaying tail from
+    an isolated spike, so the plot has to arrive in the same call."""
+    M.load_pre("ID", f"{ES},{WTI}", check=False)
+    out = M.identify_link("ID")
+    assert "GRÁFICO DE LA CCF" in out and ".png" in out
+
+
+def test_identify_link_says_what_it_discarded():
+    """The canonical case has a significant weight at k=24 that the contiguous
+    block drops. Dropping it may well be right — but it is a JUDGEMENT, and
+    until now the analyst was never told one had been made."""
+    M.load_pre("ID2", f"{ES},{WTI}", check=False)
+    out = M.identify_link("ID2")
+    assert "DEJA FUERA" in out
+    assert "k = 24" in out
+    assert "MÚLTIPLO DE LA FRECUENCIA" in out, "does not flag it as seasonal"
+
+
+def test_identify_link_offers_the_exact_set_network_call():
+    """Confirming must be one copy-paste, and dissenting just as easy."""
+    M.load_pre("ID3", f"{ES},{WTI}", check=False)
+    out = M.identify_link("ID3")
+    assert "set_network" in out and '"b": 0' in out and '"s": 1' in out
+
+
+def test_identify_link_frames_it_as_a_proposal():
+    M.load_pre("ID4", f"{ES},{WTI}", check=False)
+    out = M.identify_link("ID4")
+    assert "NO UN VEREDICTO" in out
+    assert "ESPERA" in out
+
+
+def test_it_distinguishes_no_tail_from_a_tail_that_does_not_decay():
+    """`identify` only assesses the tail when the block has >= 3 lags. With a
+    shorter block the rule never ran, and saying "the tail does not decay"
+    would claim it was looked at and rejected."""
+    M.load_pre("ID5", f"{ES},{WTI}", check=False)
+    out = M.identify_link("ID5")          # canonical block is {0,1} = 2 lags
+    assert "no hay cola que evaluar" in out

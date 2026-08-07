@@ -78,9 +78,30 @@ decide. Detalle en docs/DECISION_NODES.md.
 ══════════════════════════════════════════════════════
 LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
 ══════════════════════════════════════════════════════
-1. load_pre            carga los .pre. El PRIMERO es la salida.
-2. identify_link       preblanqueo + CCF de un enlace -> propone (b, r, s)
-   plot_ccf            EL INSTRUMENTO: enséñaselo y léelo CON el analista
+1. load_pre            carga los .pre. El PRIMERO es la SALIDA.
+   ⚠ SIEMPRE PRIMERO, Y LEE SU SALIDA ENTERA AL USUARIO. Hace dos cosas que
+   son la puerta de entrada a todo lo demás:
+     (a) DECLARA los papeles -- quién es la salida y quiénes las entradas -- y
+         hay que CONFIRMARLOS con el analista antes de seguir. Cuál es la
+         salida no lo decide el dato (nodo N0); cargar en el orden equivocado
+         produce en silencio un modelo de otra cosa.
+     (b) estima el modelo DIAGONAL, sin transferencia, y comprueba que
+         reproduce la suma de las verosimilitudes univariantes. Con estructura
+         diagonal la verosimilitud FACTORIZA, así que esa identidad es la
+         prueba de que la transformación, la diferenciación, los deterministas
+         y las semillas cruzaron intactos desde fue.
+   SI ESA COMPROBACIÓN FALLA, PARA. Una transferencia estimada sobre una base
+   que no reproduce los univariantes no es interpretable: lo que falle está ya
+   debajo. Manda al analista a revisar los .pre en ART.
+2. identify_link       preblanqueo + CCF -> PROPONE (b, r, s) y EMITE EL GRÁFICO
+   ⚠ ES EL NODO N1, Y LA RAZÓN DE SER DEL MODO GUIADO. La heurística lee un
+   bloque CONTIGUO de barras significativas: eso es una regla, no un juicio.
+   Presenta SIEMPRE: (i) el gráfico, (ii) las alternativas con su motivo,
+   (iii) lo que la propuesta DEJA FUERA -- y ESPERA. El analista ve cosas que
+   un bloque contiguo no captura: un pico estacional aislado, una cola que la
+   regla no alcanza, un anómalo que aplasta todos los retardos a la vez.
+   Su (b, r, s) va directo a set_network y MANDA sobre el propuesto.
+   plot_ccf            el mismo gráfico suelto, si lo quieres volver a ver
    identify_network    CCF de los residuos del DIAGONAL -> propone el DAG entero
 3. estimate            estima conjuntamente; presenta la ECUACIÓN
 4. diagnose            adecuación (k>=0) y exogeneidad (k<0)
@@ -172,13 +193,137 @@ def _require_link(fit, link_index, what):
                          f"{len(links)} (indices 0..{len(links) - 1})")
 
 
-@mcp.tool()
-def load_pre(name: str, paths: str) -> str:
-    """Load the `.pre` files of a case. THE FIRST ONE IS THE OUTPUT.
+def _diagonal_gate(specs):
+    """Estimate the DIAGONAL model and check it reproduces the univariate fits.
 
-    `paths` is a comma-separated list. These are ART's output: each carries a
-    series and the univariate model ART estimated for it. mtram does not build
-    univariate models — if one is missing, send the analyst to ART.
+    This is mtram's protocol, not drtran's arithmetic: the library has always
+    been able to fit a link-less cast, and `tests/test_baseline_univariate.py`
+    has always asserted the identity. What was missing was doing it AT THE
+    RIGHT MOMENT — before the analyst is shown anything about a transfer.
+
+    With a diagonal structure the exact likelihood factorises, so
+    `logL(joint) == sum_i logL(series i)`. Every part of the crossing from fue
+    is in that identity: the transform, the differencing, the deterministics,
+    the seeds and the cast. If it holds, the univariate rung is intact and a
+    transfer estimated on top of it is worth reading. If it does not, the base
+    is wrong and nothing above it means anything.
+    """
+    import numpy as np
+    from drtran.cast import build_cast_spec
+
+    lines = ["## 2. Escalón diagonal — la prueba de que el puente está bien", ""]
+
+    uni, failed = [], []
+    for sp in specs:
+        try:
+            m = sp.model
+            m.fit()
+            uni.append((sp.name, float(m.loglik)))
+        except Exception as exc:                           # noqa: BLE001
+            failed.append((sp.name, str(exc)[:120]))
+    if failed:
+        lines += ["  🛑 No se puede estimar el univariante de: "
+                  + ", ".join(n for n, _ in failed)]
+        lines += [f"     {n}: {e}" for n, e in failed]
+        lines += ["", "  Sin la referencia univariante no hay nada contra lo "
+                  "que validar. Revísalo en ART antes de seguir."]
+        return lines
+
+    total = sum(v for _, v in uni)
+    lines.append("  | serie | log-verosimilitud univariante (fue) |")
+    lines.append("  |---|---|")
+    for n, v in uni:
+        lines.append(f"  | {n} | {v:.6f} |")
+    lines.append(f"  | **suma** | **{total:.6f}** |")
+    lines.append("")
+
+    try:
+        cs = build_cast_spec(specs, links=[])              # sin transferencia
+        f = drtran.fit(cs, embed=True)
+    except Exception as exc:                               # noqa: BLE001
+        lines += [f"  🛑 El ajuste diagonal conjunto falla: {str(exc)[:200]}", "",
+                  "  drtran no acepta estos modelos. El puente fue → drtran NO "
+                  "está consolidado y no tiene sentido añadir una transferencia."]
+        return lines
+
+    diff = float(f.loglik) - total
+    lines.append(f"  Ajuste diagonal conjunto (drtran): **{f.loglik:.6f}**")
+    lines.append(f"  Diferencia con la suma: **{diff:+.2e}**")
+    lines.append("")
+
+    # 1e-4 en la log-verosimilitud es el margen con que se fijo la identidad en
+    # tests/test_baseline_univariate.py; por debajo es ruido de optimizacion.
+    if abs(diff) < 1e-4:
+        lines += ["  ✅ **Coinciden.** El puente fue → drtran está consolidado: "
+                  "drtran acepta estos modelos y los reproduce. La estructura "
+                  "univariante queda tan bien representada como en ART, que es "
+                  "la condición para que lo que añadas encima signifique algo."]
+    else:
+        lines += ["  🛑 **NO coinciden.** Con estructura diagonal la "
+                  "verosimilitud FACTORIZA, así que la diferencia sólo puede "
+                  "venir de que algo se perdió al cruzar desde fue: la "
+                  "transformación, la diferenciación, los deterministas, las "
+                  "semillas o el cast.",
+                  "",
+                  "  No sigas: una transferencia estimada sobre una base que no "
+                  "reproduce los univariantes no es interpretable."]
+
+    lines += ["",
+              f"  Situación de estimación: {f.status} (termcode={f.termcode}, "
+              f"{f.nit} iteraciones), sobre un problema cuya respuesta se "
+              "conoce de antemano."]
+
+    # El aviso genérico de termcode 2/3 dice "sospecha mal condicionamiento,
+    # desconfía de los errores estándar, baja el orden". AQUÍ eso es falso y
+    # además es el sitio donde más se leería: en el escalón diagonal las
+    # semillas del `.pre` YA SON el óptimo -- cada serie viene estimada por ML
+    # exacta desde ART -- así que parar de inmediato es la confirmación de que
+    # todo está en su sitio, no un síntoma. Sólo se emite el aviso cuando el
+    # optimizador realmente buscó y aun así no certificó por gradiente.
+    parada_esperada = f.termcode in (2, 3) and f.nit <= 2 and abs(diff) < 1e-4
+    if parada_esperada:
+        lines += ["", "  (Parar en la primera iteración es lo ESPERADO aquí, no "
+                  "un aviso: las semillas del `.pre` ya son el óptimo del "
+                  "escalón diagonal, porque cada serie llega estimada por ML "
+                  "exacta desde ART. El optimizador no mejora nada porque no "
+                  "hay nada que mejorar.)"]
+    else:
+        note = getattr(f, "convergence_note", None)
+        if note:
+            lines += ["", "  ! " + note]
+    return lines
+
+
+@mcp.tool()
+def load_pre(name: str, paths: str, check: bool = True) -> str:
+    """Load the `.pre` files of a case, CONFIRM the roles, and prove the bridge.
+
+    `paths` is a comma-separated list; **the FIRST one is the OUTPUT**. These
+    are ART's output: each carries a series and the univariate model ART
+    estimated for it. mtram does not build univariate models — if one is
+    missing, send the analyst to ART.
+
+    Two things happen here, and the second is the point.
+
+    **It states the roles and asks you to confirm them.** Which series is the
+    output is not something the data can decide (decision node N0); it is the
+    question the analyst arrives with. Loading in the wrong order silently
+    produces a model of the wrong thing, so the roles are printed back for
+    confirmation before anything else happens.
+
+    **It then estimates the DIAGONAL model — no transfer — and checks it
+    reproduces the univariate fits.** With a diagonal structure the exact
+    likelihood factorises, so the joint fit MUST equal the sum of the separate
+    ones. That identity is drtran's validation gate: it is what says the cast,
+    the transform, the deterministics and the seeds all survived the crossing
+    from fue intact. Until it holds, no transfer result from this case means
+    anything, because the thing the transfer is added to is already wrong.
+
+    It also reads out the estimation situation before any transfer complicates
+    it: how the optimiser terminated on a problem whose answer is known.
+
+    `check=False` skips the estimation and only loads — for a case big enough
+    that the wait is not worth it, at the price of flying blind.
     """
     ps = [p.strip() for p in paths.split(",") if p.strip()]
     if len(ps) < 2:
@@ -197,18 +342,35 @@ def load_pre(name: str, paths: str) -> str:
     _LINKS.pop(name, None)
     _FITS.pop(name, None)
 
-    out = [f"Caso {name!r}: {len(specs)} series.",
-           f"  SALIDA : {specs[0].name}  ({specs[0].nobs} obs, freq {specs[0].freq})"]
+    out = [f"# Caso {name!r} — {len(specs)} series", "",
+           "## 1. Confirma los papeles",
+           "",
+           f"  **SALIDA**  (la que quieres explicar):  {specs[0].name}"
+           f"   — {specs[0].nobs} obs, freq {specs[0].freq}"]
     for s in specs[1:]:
-        out.append(f"  entrada: {s.name}  ({s.nobs} obs, freq {s.freq})")
-    out.append("")
+        out.append(f"  entrada                             :  {s.name}"
+                   f"   — {s.nobs} obs, freq {s.freq}")
+    out += ["",
+            "  El primer `.pre` es la SALIDA. Cuál es la salida no lo decide el "
+            "dato: es la pregunta con la que llega el analista. Si el orden no "
+            "es el que querías, vuelve a cargar con el orden correcto — todo lo "
+            "que venga después estaría explicando la serie equivocada.",
+            "", "  Transformación que trae cada uno de ART:"]
     for s in specs:
         m = s.model
-        out.append(f"  {s.name}: lambda={m.boxlam:g} d={m.d} D={m.D} "
+        out.append(f"    {s.name}: lambda={m.boxlam:g} d={m.d} D={m.D} "
                    f"refactor={m.refactor:g} deterministas={len(m.interventions)}")
     if warn:
         out.append("")
         out += ["  AVISO: " + w for w in warn]
+
+    if check:
+        out += [""] + _diagonal_gate(specs)
+    else:
+        out += ["", "## 2. Escalón diagonal — OMITIDO (check=False)", "",
+                "  No se ha comprobado que drtran reproduzca los modelos "
+                "univariantes. Sin esa comprobación, un resultado de "
+                "transferencia no dice nada: lo que falle estará ya en la base."]
     return "\n".join(out)
 
 
@@ -231,7 +393,109 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant") -> st
         raise ValueError(f"input_index fuera de rango (1..{len(specs)-1})")
     cs = build_cast_spec(specs, links=[Link(0, input_index, 0, 0, 0)])
     idt = drtran.identify(cs, cs.links[0], band=band)
-    return drtran.report_identification(idt, names=(specs[input_index].name, specs[0].name))
+    inp, out = specs[input_index].name, specs[0].name
+    txt = [drtran.report_identification(idt, names=(inp, out))]
+
+    # EL GRÁFICO VA CON LOS NÚMEROS, no en otra llamada. En modo guiado el
+    # analista decide mirando la CCF; una tabla de r(k) no lleva la FORMA, que
+    # es lo que distingue una cola que decae de un pico aislado.
+    try:
+        png = plot_ccf(name, input_index=input_index)
+        txt += ["", f"  GRÁFICO DE LA CCF: {png}",
+                "  Enséñaselo al analista y léelo CON él antes de decidir nada."]
+    except Exception as exc:                               # noqa: BLE001
+        txt += ["", f"  (no se pudo dibujar la CCF: {str(exc)[:120]})"]
+
+    txt += _identification_choice(idt, name, input_index, specs)
+    return "\n".join(txt)
+
+
+def _identification_choice(idt, name, input_index, specs):
+    """Lo que se descarta, las alternativas, y la pregunta.
+
+    `report_identification` dice lo que la heurística PROPONE. Esto dice lo que
+    la heurística DESCARTÓ y por qué, y convierte la propuesta en una pregunta.
+    Es la razón de ser del modo guiado: la máquina propone leyendo un bloque
+    contiguo, y el ojo del analista ve cosas que un bloque contiguo no captura
+    -- un pico estacional aislado, una cola que decae, un anómalo que aplasta
+    todos los retardos a la vez.
+    """
+    b, r, sm = int(idt.b), int(idt.r), int(idt.s)
+    freq = int(getattr(specs[0].model.series, "freq", 1) or 1)
+    lines = []
+
+    # (b) lo descartado
+    usados = set(range(b, b + sm + 1))
+    fuera = [k for k in (idt.significant_non_negative or []) if k not in usados]
+    lines += ["", "  ── LO QUE LA PROPUESTA DEJA FUERA " + "─" * 26, ""]
+    if not fuera:
+        lines.append("    Nada: todos los pesos significativos en k >= 0 caben "
+                     f"en el bloque contiguo b..b+s = {b}..{b + sm}.")
+    else:
+        lines.append("    Estos pesos SON significativos y la propuesta NO los "
+                     "incluye, por no ser contiguos al bloque:")
+        lines.append("")
+        nu = list(idt.nu) if idt.nu is not None else []
+        lg = list(idt.lags) if idt.lags is not None else []
+        for k in fuera:
+            val = ""
+            if k in lg and len(nu) == len(lg):
+                val = f"  nu = {nu[lg.index(k)]:+.4f}"
+            marca = ""
+            if freq > 1 and k % freq == 0:
+                marca = f"   <-- MÚLTIPLO DE LA FRECUENCIA ({k // freq}x{freq})"
+            lines.append(f"      k = {k:<4d}{val}{marca}")
+        lines += ["",
+                  "    Un pico aislado en un múltiplo de la frecuencia suele ser "
+                  "estacionalidad que quedó en la entrada, o un anómalo. Pero "
+                  "puede ser real: míralo en el gráfico antes de aceptar que se "
+                  "descarte. Si la CCF entera se ve aplastada, sospecha de un "
+                  "anómalo -- infla la varianza y hunde TODOS los retardos a la "
+                  "vez -- y pasa por `calibrate` antes de elegir orden."]
+
+    # (a) las alternativas, cada una con su comando exacto
+    lines += ["", "  ── DECIDE TÚ " + "─" * 48, ""]
+    alts = list(idt.alternatives or [])
+    if not alts:
+        lines.append("    La heurística no propone ninguna estructura: no hay "
+                     "bloque significativo que leer. Mira el gráfico.")
+        return lines
+
+    for i, alt in enumerate(alts):
+        ab, ar, asx, why = alt
+        etiqueta = chr(ord("A") + i)
+        lines.append(f"    [{etiqueta}]  b={ab}  r={ar}  s={asx}   — {why}")
+        lines.append(f"         set_network({name!r}, "
+                     f'\'[{{"out": 0, "inp": {input_index}, "b": {ab}, '
+                     f'"r": {ar}, "s": {asx}}}]\')')
+        lines.append("")
+    if len(alts) == 1:
+        # Precisión que importa: la regla del denominador exige un bloque de al
+        # menos TRES retardos antes de mirar la cola (identify.py: nblock >= 3).
+        # Con un bloque más corto la cola no se evalúa siquiera, y decir "no
+        # decae geométricamente" daría a entender que se miró y se descartó.
+        nblock = sm + 1
+        if nblock < 3:
+            lines += [f"    (Sólo hay una alternativa. El bloque significativo "
+                      f"tiene {nblock} retardo{'s' if nblock != 1 else ''}, y la "
+                      "regla del denominador pide al menos 3 antes de evaluar "
+                      "la cola: NO es que la cola no decaiga, es que no hay "
+                      "cola que evaluar. Si tú ves un decaimiento que la regla "
+                      "no alcanza a leer, pide r=1 y compáralos.)", ""]
+        else:
+            lines += ["    (Sólo hay una alternativa: el bloque da para evaluar "
+                      "la cola y NO decae de forma geométrica, así que un "
+                      "denominador no la resumiría. Un r>0 cambia una cola por "
+                      "un parámetro; sin decaimiento regular, sólo añade uno.)",
+                      ""]
+    lines += ["    ⚠ ESTO ES UNA PROPUESTA, NO UN VEREDICTO. Se lee de un bloque "
+              "contiguo de barras significativas, que es una regla, no un "
+              "juicio. Presenta las alternativas al analista con su motivo, "
+              "enséñale el gráfico y ESPERA. Si ve otra cosa -- otro retardo "
+              "inicial, una cola que la regla no vio, un pico que sí quiere "
+              "incluir -- su (b, r, s) va directo a `set_network` y manda sobre "
+              "el de aquí."]
+    return lines
 
 
 @mcp.tool()

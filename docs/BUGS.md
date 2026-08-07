@@ -1,0 +1,185 @@
+# Defects found in use
+
+Found while building climate → wheat-price transfer functions on annual data
+(project *Joseph's Cycles*, 2026-08-06/07): five markets, samples of 45–81
+observations, output = ARIMA(2,1,1) on log prices, input = a rainfall series in
+levels. That workload is not the one the port was homologated on — the canonical
+case is monthly, `refactor=100`, AR(1) — and it is what surfaced these.
+
+Each entry says what it is, how it was found, and what it costs. The two with a
+number are defects; the rest are things to watch.
+
+Reproductions are self-contained (they use the `.pre` files in the repo root):
+
+```
+python3 scripts/repro_ar2_phi1_bound.py
+python3 scripts/repro_alineacion_por_indice.py
+```
+
+---
+
+## BUG-1. The unit-circle guard is applied to every AR order (a C bug, inherited)
+
+**Symptom.** `estimate` and `identify_network` return `ifault=1` ("the likelihood
+could not be evaluated") with no further diagnosis, for a model fue estimates
+without complaint.
+
+**Cause.** `cast.py:286` and `embed.py:224` carry, identically:
+
+```python
+if ps[i] >= 1 and abs(phis[i][0]) >= 0.999:
+    return None, None, None, None, None, 1
+```
+
+and so does the original, `tran_shootx.c:629`:
+
+```c
+if (p_ord[i] >= 1 && fabs(phi[i][1]) >= 0.999) { *ifaultx = 1; goto cleanup; }
+```
+
+The comment states the intent — *an AR(1) pinned to the unit circle* — and for
+p = 1 the test is right: there `phi[0]` **is** the root. But the condition is
+`ps[i] >= 1`, i.e. every order. In an AR(2), `phi[0]` is not a root: the
+stationary region is the triangle |phi2| < 1, phi2 + phi1 < 1, phi2 − phi1 < 1,
+in which **phi1 reaches 2**. Every AR(2) with complex roots and phi1 > 1 is
+stationary and is rejected.
+
+**Evidence** (`scripts/repro_ar2_phi1_bound.py`, both casts):
+
+| phi1 | phi2 | \|roots in B\| | stationary | ifault diag | ifault emb |
+|---|---|---|---|---|---|
+| 0.3000 | 0.0000 | 3.333 | yes | 0 | 0 |
+| 0.9500 | −0.5200 | 1.387 | yes | 0 | 0 |
+| 0.9900 | −0.5200 | 1.387 | yes | 0 | 0 |
+| 1.0020 | −0.5425 | 1.358 | yes | **1** | **1** |
+| 1.0354 | −0.5184 | 1.389 | yes | **1** | **1** |
+| 1.6000 | −0.8000 | 1.118 | yes | **1** | **1** |
+
+**Why it is worse than an `ifault`.** When the starting point sits *below* 0.999
+nothing fails. `estimate.py` returns 1.0 ("does not improve") at every rejected
+point, so the line search never crosses the barrier and the optimiser **pins**
+against it. On a real case — London wheat prices, 1816–1896, n=81 — seeding
+phi1 = 0.90 gives
+
+```
+phi_1[B^1]   0.998998   s.e. 1e-06   t = 1.04e+06
+```
+
+against a true maximum of 1.0354 (fue, univariate). A publishable-looking
+estimate, pressed against an invisible wall, whose only tell is an absurd
+t-statistic. The distortion is not random: it excludes exactly the **persistent
+cycles**, which is what this class of study is about. Two of five markets in that
+study (London era B, period 8.2 y; Strasbourg era B with the 1847 intervention,
+7.6 y) could not be tested at all.
+
+**Note the asymmetry.** Three lines below, in the same block, the MA *is* checked
+properly, by roots, with `chekma` — which builds the companion matrix and looks
+at eigenvalue moduli, and is generic in the operator. The right machinery is
+already next door.
+
+**Fix.** Check AR stationarity by the **roots** of the polynomial (the same
+companion-matrix route as `chekma`, or a reflection-coefficient parametrisation,
+Monahan 1984), and keep the `phi[0]` guard only when `ps[i] == 1`. It should be
+fixed in the C as well.
+
+---
+
+## BUG-2. The series are paired by INDEX, not by date, silently
+
+**Symptom.** None. That is the problem: two series that do not share a single
+period can be crossed and the fit goes through without a word.
+
+**Cause.** Each `.pre` declares its start date and fue reads it (`spec.ts.start`),
+but nothing compares it across series:
+
+* `pre.load_pre` reads each file on its own and never looks at another's `start`;
+* `mcp_server.load_pre` walks the list checking only that the file exists and
+  calling `check_scale`. It compares neither `start`, nor `freq`, nor even
+  `nobs`, and its summary prints `(N obs, freq F)` — **the date appears nowhere**;
+* `cast.py:252` aligns "at the END (the last observation is the same date)" and
+  trims to the shortest. That comment describes the case it was written for —
+  different d/D over the *same* window — but nothing checks the premise when the
+  windows are different stretches of calendar.
+
+**Evidence** (`scripts/repro_alineacion_por_indice.py`). The same pair is
+identified twice, changing only the declared start date of the input:
+
+```
+--- input declared at (2002, 1)   (output at (2002, 1); years in common: yes)
+    band  : 0.136399  => n = (2/band)^2 = 215
+    r(0..4): [0.492301  0.309836  0.024815  0.027188 -0.107454]
+    (b,r,s): (0, 0, 1)      Q exog: 18.296880 (p=0.788374)
+
+--- input declared at (2052, 1)   (output at (2002, 1); years in common: NONE)
+    band  : 0.136399  => n = (2/band)^2 = 215
+    r(0..4): [0.492301  0.309836  0.024815  0.027188 -0.107454]
+    (b,r,s): (0, 0, 1)      Q exog: 18.296880 (p=0.788374)
+```
+
+Identical to the last decimal, with **no overlapping period at all** in the
+second: the date takes no part in the computation.
+
+**How it showed up in real use.** Loading a price series for 1700–1896 (197 obs)
+against rainfall for 1766–2024 (259 obs), the identification reported a band of
+0.1429 = 2/sqrt(196) — so it had used 196 pairs, when the real overlap
+(1766–1896) is 131 observations. It was pairing the 1700 price with the 1766
+rainfall, 66 years out, and proposed `b=18` in earnest. The only thing that gave
+it away was that 2/sqrt(n) did not match the overlap.
+
+**Fix.** Intersect by date when the case is built — or, at a minimum, refuse the
+load when `start`/`freq`/`nobs` are not compatible. And print the date range in
+`mcp_server.load_pre`'s summary, which today gives only a count.
+
+---
+
+## To watch
+
+### `check_scale`'s advice is right for lambda=0 and wrong for lambda=1
+
+The rule is `refactor < 10` and the message always says *regenerate the .pre with
+refactor=100*. For a log model with d=1 that is correct and it does solve the
+problem: it puts the series in percent. For an **untransformed** series in levels
+it is the wrong direction — rainfall at ~900 mm becomes ~90000. What such a
+series needs is to be **divided**. The message should be conditioned on
+`boxlam` and on the magnitude of the series.
+
+Also: the consequence is worse than "the optimizer degrades" (the TODO's wording,
+inherited from the C). At `refactor=1` the two casts can reach **contradictory
+scientific conclusions** on the same data. On one of the study's links:
+
+| | omega | t | theta |
+|---|---|---|---|
+| `embed=True`, refactor=1 | 0.001423 | 1.26 | 0.500 |
+| `embed=False`, refactor=1 | 0.000070 | **3.87** | **1.000** (boundary) |
+| either one, refactor=100 | — | **1.26** | 0.500 |
+
+Both of the first two reported `CONVERGED (step)`. Fixing the scale makes both
+converge by gradient and agree. Anyone who reads only the second line publishes a
+significant effect that does not exist.
+
+See `scripts/repro_refactor1_relgrad.py` and the TODO entry *The optimizer
+degrades with `refactor=1`*.
+
+### `CONVERGED (step)` is a generous label for termcode 2
+
+`termcode 2` is the step-tolerance stop: the step collapsed while the gradient may
+still be appreciable. The accompanying warning says exactly that and says it well,
+but the status line leads with the word CONVERGED, which is an invitation to move
+on. `STOPPED (steptol)` would read closer to the truth, and returning the gradient
+norm would let the analyst judge instead of guess.
+
+### `identify_link` hands over economically impossible lags with no joint test
+
+It takes "each significant weight as a free omega" from the contiguous block, so
+an isolated noise spike at k=7, k=14 or k=18 becomes a formal proposal. With
+n≈46 and ~40 lags scanned, two crossings are exactly what chance delivers. The
+tool already computes the k>=0 portmanteau in `diagnose`; reporting it in
+`identify_link` too would let the analyst see *there is no joint evidence of a
+transfer* **before** being handed a `b=7` that looks like a finding.
+
+### Unconfirmed: `plot_ccf`'s Q does not match `identify_link`'s
+
+The figure was labelled `Q(20) = 102.8` while `identify_link` reported
+`Q(20) = 24.5` for k < 0 on the same link; from the plotted r(k) neither side
+comes near 102.8 (roughly 28 for k >= 0). Either it is a different statistic or
+the label is wrong. Not chased down — recorded as a suspicion, not a diagnosis.
