@@ -334,3 +334,52 @@ def test_the_clean_case_raises_no_estimation_warnings():
     M.set_network("CL", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
     out = M.estimate("CL")
     assert "⚠" not in out
+
+
+# ── nivel 2: el orden de reparación ────────────────────────────────────────
+def test_diagnose_looks_at_the_noise_too():
+    """`diagnose` used to read one instrument (the CCF) and pronounce on the
+    model. The reformulation order needs BOTH: the CCF says whether the relation
+    holds, the residual ACF says whether the noise does."""
+    M.load_pre("RO", f"{ES},{WTI}", check=False)
+    M.set_network("RO", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("RO")
+    out = M.diagnose("RO")
+    assert "Ljung-Box sobre la ACF" in out
+    assert "EL RUIDO, Y EN QUÉ ORDEN" in out
+
+
+def test_the_canonical_case_has_both_instruments_clean():
+    """Which is the point of using it as the reference case, and the check that
+    the noise Q is corrected by the right number of parameters: by the joint
+    vector it came out p = 0.0017 and this model would look broken."""
+    M.load_pre("RO2", f"{ES},{WTI}", check=False)
+    M.set_network("RO2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("RO2")
+    out = M.diagnose("RO2")
+    assert "Los dos instrumentos limpios" in out
+
+
+def test_the_asymmetry_is_stated_when_both_fail():
+    """The rule only earns its place in the case it was written for. Built by
+    hand rather than hunted for in real data: what is being tested is that the
+    branch says the right thing, not that some dataset reaches it."""
+    from drtran import mcp_server as _M
+
+    class _Ad:
+        adequate, exogenous = False, True
+        p_transfer, p_exog = 0.001, 0.5
+        significant_lags = []
+    M.load_pre("RO3", f"{ES},{WTI}", check=False)
+    M.set_network("RO3", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("RO3")
+    # forzamos el ruido a "malo" pidiendo una corrección absurda de g.l.
+    import drtran.school as sch
+    real = sch.noise_adequacy
+    try:
+        sch.noise_adequacy = lambda *a, **k: (99.0, 0.001, 24, 21)
+        txt = "\n".join(_M._reformulation_order(_Ad(), "RO3", 0))
+    finally:
+        sch.noise_adequacy = real
+    assert "FALLAN LOS DOS" in txt
+    assert "primero la RELACIÓN, después el RUIDO" in txt

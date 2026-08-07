@@ -248,3 +248,105 @@ def test_the_single_observation_warning_does_not_fire_on_clean_data(bank):
     _load(bank, "b2s1", check=False)
     out = M.identify_link("b2s1")
     assert "UNA OBSERVACIÓN PESA DEMASIADO" not in out
+
+
+# ── nivel 2: el procedimiento, no sólo el número ───────────────────────────
+@pytest.mark.parametrize("tag,truth_r", [("b1r1", 1), ("b2r1", 1),
+                                         ("b2s1", 0), ("b0s2", 0)])
+def test_refine_reads_the_denominator_off_the_free_weights(bank, tag, truth_r):
+    """`r` is the one order the CCF cannot show you: in a sample, an infinite
+    geometric tail and a long finite one look alike. The school's answer is to
+    estimate a generous free MA and read the SHAPE of the weights — decaying
+    gradually means a denominator, cutting off means none.
+
+    This is the test that says whether that reading works, and it is only
+    answerable against generated data: the cases carry a denominator or they do
+    not, and we chose which.
+    """
+    _load(bank, tag, check=False)
+    out = M.refine_link(tag)
+    if truth_r:
+        assert "firma de un DENOMINADOR" in out, out[-800:]
+        assert '"r": 1' in out
+    else:
+        assert "se cortan" in out, out[-800:]
+        assert '"r": 0' in out
+
+
+def test_refine_recovers_the_whole_structure(bank):
+    """Not just r — the command it proposes must be the truth, all three
+    orders. A reading that gets the shape right and the delay wrong sends the
+    analyst to a model that fits nothing."""
+    _load(bank, "b1r1", check=False)
+    out = M.refine_link("b1r1")
+    assert '"b": 1, "r": 1, "s": 0' in out, out[-600:]
+
+
+def test_overfit_confirms_a_model_fitted_at_the_truth(bank):
+    """Brajín §2.3.1's doctrine, on data where the truth is known: enlarging a
+    correctly specified model must leave the extra parameters non-significant.
+    If this failed, `overfit` would be telling analysts to grow every model
+    they build."""
+    _, c = _load(bank, "b2s1", check=False)
+    M.set_network("b2s1", '[{"out": 0, "inp": 1, "b": 2, "r": 0, "s": 1}]')
+    M.estimate("b2s1")
+    out = M.overfit("b2s1")
+    assert "CONFIRMADO" in out, out
+
+
+def test_overfit_refuses_to_confirm_a_model_that_is_too_small(bank):
+    """The other half. Fitted one weight short of the truth, the enlargement
+    must come back significant — otherwise `overfit` confirms everything and
+    confirms nothing."""
+    _load(bank, "b0s2", check=False)
+    M.set_network("b0s2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 0}]')
+    M.estimate("b0s2")
+    out = M.overfit("b0s2")
+    assert "NO está cerrado" in out, out
+
+
+def test_overfit_leaves_the_session_model_alone(bank):
+    """An overfitting experiment that leaves the case estimated at the enlarged
+    model is a trap: the analyst rejects it, carries on, and everything after
+    comes out of the model they just rejected."""
+    _load(bank, "b2s1", check=False)
+    M.set_network("b2s1", '[{"out": 0, "inp": 1, "b": 2, "r": 0, "s": 1}]')
+    M.estimate("b2s1")
+    before = list(M._FITS["b2s1"].cast_spec.links), float(M._FITS["b2s1"].loglik)
+    M.overfit("b2s1")
+    after = list(M._FITS["b2s1"].cast_spec.links), float(M._FITS["b2s1"].loglik)
+    assert before == after
+
+
+def test_the_noise_correction_uses_the_series_own_parameters(bank):
+    """The Ljung-Box on ONE series' ACF is a statement about THAT series'
+    model. Correcting it by the joint parameter vector is what a naive reading
+    of "number of estimated parameters" gives, and it inflates significance on
+    every multivariate fit — measured on the canonical case, 21 degrees of
+    freedom against 7, p = 0.34 against p = 0.0017."""
+    from drtran.school import npar_for_series
+    _load(bank, "b2s1", check=False)
+    M.set_network("b2s1", '[{"out": 0, "inp": 1, "b": 2, "r": 0, "s": 1}]')
+    M.estimate("b2s1")
+    f = M._FITS["b2s1"]
+    n_series = npar_for_series(f, 0)
+    n_joint = M._TABLES["b2s1"].n_free
+    assert n_series < n_joint
+    # los 2 pesos del enlace entran, porque se estiman del mismo residuo
+    assert n_series >= 2
+
+
+def test_a_redundant_denominator_is_named_as_redundant(bank):
+    """Adding r+1 to a model that needs no denominator makes the last numerator
+    weight and the new delta describe the same tail, and they correlate at .92.
+    That is the EXPECTED outcome, not a data accident, and the report has to say
+    so — otherwise "experimento fallido" reads as "bad data" and the analyst
+    goes looking for a problem that is not there."""
+    _load(bank, "b2s1", check=False)
+    M.set_network("b2s1", '[{"out": 0, "inp": 1, "b": 2, "r": 0, "s": 1}]')
+    M.estimate("b2s1")
+    out = M.overfit("b2s1")
+    assert "EXPERIMENTO FALLIDO" in out
+    assert "la ampliación es redundante" in out
+    # y aun así el modelo queda confirmado por la ampliación que SÍ salió
+    assert "CONFIRMADO por 1 de 2" in out

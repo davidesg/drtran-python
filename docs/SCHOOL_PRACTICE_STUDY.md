@@ -254,14 +254,39 @@ than a p-value, and worth knowing as the school's own working criterion.
 
 ### Tier 2 — procedural, changes what the assistant says
 
-6. **The reformulation order** (§1.1) into `diagnose`'s branch: when the CCF and
+6. **The reformulation order** (§1.1) into `diagnose`'s branch: ✅ implemented
+   — **and it required fixing something else first.** Stating the rule needs
+   BOTH instruments, and `diagnose` only read the CCF. Adding the noise
+   Ljung-Box exposed a live defect: `plot_residuals` corrected the degrees of
+   freedom by the JOINT parameter vector (17 on the canonical case) for a
+   statistic about ONE series whose own model has 3. That turned p = 0.34 into
+   p = 0.0017 and made a clean model look broken. Both now use
+   `school.npar_for_series`. when the CCF and
    the residual ACF are both bad, fix the RELATION first. The asymmetry
    argument, stated, so the analyst knows why.
-7. **An `overfit` tool.** After adequacy, add MA terms to `v(B)` one at a time
+7. **An `overfit` tool.** ✅ implemented — `overfit`, s+1 and r+1, refitted
+   jointly and compared by likelihood ratio, with the session's model left
+   untouched (an experiment that leaves the case estimated at the enlarged
+   model is a trap). Testing it against known truth found one thing worth
+   reporting specifically: on a model that needs no denominator, r+1 makes the
+   last numerator weight and the new delta describe the SAME tail, and they
+   correlate at .92. So a "failed experiment" verdict there is the EXPECTED
+   outcome, not a data accident, and the report says so — otherwise "fallido"
+   reads as "bad data" and sends the analyst hunting for a problem that is not
+   there. The aggregate verdict was also loosened: confirming on the
+   experiments that ran cleanly and saying plainly which did not reach a
+   verdict, rather than throwing away the whole test because one arm failed. After adequacy, add MA terms to `v(B)` one at a time
    and report whether they are significant and whether the estimation situation
    degrades. Every case does this; none of them skip it, even when nothing looks
    wrong.
-8. **A `refine` path for identification**: estimate a generous pure-MA `v(B)`,
+8. **A `refine` path for identification**: ✅ implemented — `refine_link`. Reads
+   the pattern off **nu(k)**, not the raw omegas: with omega(B) = w0 − w1B − …
+   a positive tail comes out with negative omegas, and the ratio between
+   consecutive weights inherits a spurious sign flip on the first step. nu is
+   also literally what the school writes when it writes "v(B) = .35 + .21B +
+   .40B² …". Against generated data it recovers the whole structure — b=1, r=1,
+   s=0 on a case built with a geometric tail, and "they cut off, no
+   denominator" on a pure MA. estimate a generous pure-MA `v(B)`,
    show the weights, and read the decay pattern back to the analyst as evidence
    for or against a denominator. This is what the cases actually do, and it is
    strictly more informative than reading the CCF once.
@@ -292,13 +317,24 @@ that this is the intended workflow.
 
 ## 5. What changed on contact with the data
 
-Tier 1 is implemented, in `drtran/school.py` (the computations, mute) and read
-out in `mcp_server` (the narrative). One of the five did not survive contact
-intact — see item 3 above: the `ω₀ ≈ −1` reflex turned out to be an artefact of
+Tiers 1 and 2 are implemented, in `drtran/school.py` (the computations, mute)
+and read out in `mcp_server` (the narrative). Two things did not survive contact
+intact.
+
+**Tier 1, item 3** did not survive as stated — see item 3 above: the `ω₀ ≈ −1` reflex turned out to be an artefact of
 a specific parametrisation rather than a general diagnostic, which is only
-visible if you test it against a case whose answer you already know. It is the
-same lesson as everything else in this session: a rule that never fires and a
-rule that fires wrongly are indistinguishable from the outside.
+visible if you test it against a case whose answer you already know.
+
+**Tier 2 uncovered a live defect rather than confirming a doctrine.** Writing
+the reformulation order meant computing a noise Ljung-Box, and that exposed
+`plot_residuals` correcting its degrees of freedom by the joint parameter
+vector — 17 parameters against a series whose own model has 3, turning p = 0.34
+into p = 0.0017. The panel had been reporting that number in every multivariate
+fit. The theses did not point at it; implementing what they say did.
+
+Both are the same lesson: a rule that never fires and a rule that fires wrongly
+are indistinguishable from the outside, and only a case with a known answer
+tells them apart.
 
 ## 6. The one-line summary
 

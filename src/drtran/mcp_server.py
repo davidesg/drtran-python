@@ -102,6 +102,15 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    regla no alcanza, un anómalo que aplasta todos los retardos a la vez.
    Su (b, r, s) va directo a set_network y MANDA sobre el propuesto.
    plot_ccf            el mismo gráfico suelto, si lo quieres volver a ver
+   refine_link         LA SEGUNDA LECTURA, y la que decide el DENOMINADOR.
+                       Estima una MA libre y generosa y enseña los pesos nu(k)
+                       con sus errores típicos. Si decaen gradualmente, la
+                       relación pide un denominador; si se cortan, no. La CCF
+                       NO puede enseñar `r`: en una muestra, una cola
+                       geométrica infinita y una finita larga se parecen. Los
+                       casos de la escuela pasan SIEMPRE por aquí, y por eso
+                       llegan a modelos de dos parámetros donde una lectura
+                       única de la CCF propone seis.
    identify_network    CCF de los residuos del DIAGONAL -> propone el DAG entero
 3. estimate            estima conjuntamente. Devuelve la ECUACIÓN, la GANANCIA
    con su error típico, y el contraste de RAZÓN DE VEROSIMILITUDES contra el
@@ -121,6 +130,16 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    plot_calibration    la VERIFICACIÓN: la CCF con y sin la anomalía. Un anómalo
                        infla la varianza y aplasta TODOS los retardos a la vez;
                        en la escuela eso se comprueba mirando, no se supone.
+   overfit             AMPLÍA el modelo a propósito (s+1, r+1) y mira si
+                       protesta. Los seis casos de Muñoz lo hacen y ninguno se
+                       lo salta: un portmanteau adecuado dice que el modelo no
+                       está CONTRADICHO, no que no hubiera uno mejor. Y un
+                       sobreajuste con correlaciones altas es un experimento
+                       FALLIDO, que no confirma nada -- ni a favor ni en contra.
+   ⚠ EL ORDEN DE REFORMULACIÓN NO ES INDIFERENTE. Si fallan a la vez la CCF
+   (relación) y la ACF residual (ruido): **primero la relación**. Una relación
+   mal especificada ensucia las dos; un ruido mal especificado sólo ensucia la
+   ACF. `diagnose` mira los dos instrumentos y lo dice.
 5. impulse_response    nu(k), acumulada y GANANCIA, con errores típicos
    plot_impulse_response
 6. forecast            nivel + variación + anual, con bandas
@@ -739,6 +758,116 @@ def _identification_choice(idt, name, input_index, specs):
 
 
 @mcp.tool()
+def refine_link(name: str, input_index: int = 1, b: int = -1,
+                smax: int = 6) -> str:
+    """Estimate a GENEROUS pure MA and read the denominator off its weights.
+
+    What Muñoz's cases actually do, and what `identify_link` does not: the CCF
+    is read once to get a delay, and then a free-form numerator is ESTIMATED —
+
+      "v(B) = .35 + .21B + .40B² + .16B³ + .64B⁴ + .29B⁵ + .34B⁶ … De hecho,
+       esto equivale a una estimación de los primeros términos de la ccf."
+
+    and the SHAPE of the estimates decides the parametrisation:
+
+      "Se observa que el valor absoluto de los mismos decrece conforme aumenta
+       el retardo, lo que parece indicar que la relación requiere un factor
+       AR(1) con parámetro positivo."
+
+    Strictly more informative than reading the CCF once, and for one concrete
+    reason: these weights are estimated JOINTLY with the noise model, while the
+    prewhitened CCF is not. It is also how a denominator gets proposed at all —
+    r is the one order the CCF cannot show you, because an infinite geometric
+    tail and a long finite one look alike in a sample.
+
+    `b` defaults to the delay `identify_link` reads. The session's network and
+    estimated model are left untouched.
+    """
+    from .school import decay_pattern
+
+    specs = _require(name)
+    cs0 = build_cast_spec(specs, links=[Link(0, input_index, 0, 0, 0)])
+    idt = drtran.identify(cs0, cs0.links[0])
+    if b < 0:
+        b = int(idt.b)
+
+    lk = Link(0, input_index, b, 0, int(smax))
+    f, table, se = _fit_variant(name, [lk], embed=True)
+    if f is None:
+        return (f"```\n  La MA libre de orden {smax} no converge en b={b}. "
+                f"Baja `smax`, o revisa el retardo.\n```")
+
+    # nu, no los omegas crudos. Es lo que la escuela escribe cuando escribe
+    # "v(B) = .35 + .21B + .40B² ...": la RESPUESTA, no los parámetros. Y es
+    # inmune a la convención de signo -- con omega(B) = w0 - w1 B - ..., una
+    # cola positiva sale con los omegas en negativo y la razón entre pesos
+    # consecutivos hereda un cambio de signo espurio en el primer paso.
+    ir = drtran.impulse_response(f, link_index=0)
+    K = b + smax
+    ws = [float(v) for v in np.asarray(ir.nu, float)[:K + 1]]
+    es = [float(v) for v in np.asarray(ir.se, float)[:K + 1]]
+    pat = decay_pattern(ws[b:], es[b:])
+
+    nm = [sp.name for sp in specs]
+    out = ["```", f"  NUMERADOR LIBRE de {nm[0]} <- {nm[input_index]}   "
+           f"(b={b}, r=0, s={smax})", "",
+           "  Esto NO es un modelo candidato: es una estimación conjunta de "
+           "los primeros pesos de la respuesta nu(k), para leerles la forma.",
+           "", "    retardo       nu(k)       e.t.        t",
+           "    " + "-" * 44]
+    for k in range(b, K + 1):
+        e = es[k]
+        t = ws[k] / e if e == e and e > 0 else float("nan")
+        mark = "  *" if (e == e and e > 0 and abs(t) > 1.96) else ""
+        out.append(f"    {k:>4}   {ws[k]:>+11.6f}  {e:>10.6f}  "
+                   f"{t:>7.2f}{mark}")
+    out.append("")
+
+    sig = pat["significant"]
+    if not sig:
+        out += ["  Ningún peso es significativo. Con un retardo leído de la "
+                "CCF y una MA libre que no encuentra nada, lo que hay entre "
+                "estas dos series no sostiene una transferencia.",
+                "  → vuelve a `identify_link` y mira la regla de parada."]
+    else:
+        last = b + sig[-1]
+        out.append(f"  Pesos significativos hasta el retardo {last}.")
+        if pat["suggests_denominator"]:
+            sign = "NEGATIVO" if pat["alternating"] else "POSITIVO"
+            out += ["",
+                    f"  ▸ Los pesos DECRECEN en valor absoluto de forma "
+                    f"gradual (razón ≈ {pat['ratio']:+.3f}). Eso es la firma "
+                    f"de un DENOMINADOR: un factor AR(1) con parámetro "
+                    f"{sign}.",
+                    "",
+                    "    Un denominador compra esa cola entera con UN "
+                    "parámetro, donde el numerador libre gasta uno por "
+                    "retardo. Y es el orden que la CCF no puede enseñarte: en "
+                    "una muestra, una cola geométrica infinita y una finita "
+                    "larga se parecen.",
+                    "",
+                    f"    Prueba:  set_network({name!r}, "
+                    f'\'[{{"out": 0, "inp": {input_index}, "b": {b}, '
+                    f'"r": 1, "s": {max(0, sig[0])}}}]\')']
+        else:
+            s_prop = sig[-1]
+            out += ["",
+                    "  ▸ Los pesos NO decrecen gradualmente: se cortan. Eso es "
+                    "un numerador finito, sin denominador.",
+                    "",
+                    f"    Prueba:  set_network({name!r}, "
+                    f'\'[{{"out": 0, "inp": {input_index}, "b": {b}, '
+                    f'"r": 0, "s": {s_prop}}}]\')']
+        out += ["",
+                "  Los pesos no significativos se quitan; los casos de la "
+                "escuela lo hacen sistemáticamente y a veces dejan huecos "
+                "(sólo los retardos pares, por ejemplo). Eso hoy se impone "
+                "con un fichero de restricciones en `estimate(cns_path=...)`."]
+    out.append("```")
+    return "\n".join(out)
+
+
+@mcp.tool()
 def identify_network(name: str, nlags: int = 0) -> str:
     """Propose the whole NETWORK from the residual CCFs of the DIAGONAL fit.
 
@@ -878,7 +1007,12 @@ def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
     if ifa:
         raise ValueError(f"no se pueden obtener los residuos: ifault={ifa}")
     freq = int(getattr(cs.series[series_index].spec.model.series, "freq", 1) or 1)
-    npar = len(f.xfree) if f.xfree is not None else len(f.x)
+    # los parámetros de ESTA serie, no los del vector conjunto: la Q del panel
+    # es un enunciado sobre el modelo de esta serie, y corregir por los 17
+    # parámetros de un ajuste conjunto donde su modelo tiene 3 convierte
+    # p = 0.34 en p = 0.0017 -- ver school.npar_for_series
+    from .school import npar_for_series
+    npar = npar_for_series(f, series_index)
     fig = _pr(a[:, series_index], npar=npar, freq=freq, lags=(lags or None),
               title=f"residuals — {cs.names[series_index]}")
     return save(fig, _png(name, f"res{series_index}", path))
@@ -1161,12 +1295,90 @@ def _what_now(ad, name, link_index):
                   "observación sospechosa: en la escuela eso se comprueba "
                   "mirando, no se supone."]
 
+    lines += _reformulation_order(ad, name, link_index)
+
     if ad.significant_lags is not None and len(ad.significant_lags):
         lines += ["",
                   "    (Los cruces individuales de arriba son orientativos: con "
                   "~25 retardos al 5 % se espera alguno por azar. El contraste "
                   "conjunto es el portmanteau, no el recuento de barras.)"]
     return lines
+
+
+def _reformulation_order(ad, name, link_index):
+    """En qué ORDEN se arregla lo que está mal. Muñoz §2.6 p.42.
+
+    Este es el enunciado más codificable de todo el capítulo metodológico, y
+    mtram no lo decía en ninguna parte:
+
+      "La especificación inadecuada de la relación v(B) puede generar la
+       apariencia (en acf/pacf residuales) de especificación inadecuada del
+       ruido theta(B) A LA VEZ QUE una ccf que requiere reformulación de la
+       relación. Sin embargo, la especificación inadecuada del ruido NO puede
+       dar la impresión en ccf de especificación inadecuada de la relación.
+       Por estas razones, se reformula v(B) hasta que parezca adecuada ANTES
+       de reformular theta(B)."
+
+    La contaminación va en UNA dirección: una relación mal especificada
+    ensucia la ACF residual **y** la CCF; un ruido mal especificado sólo
+    ensucia la ACF. Así que cuando los dos instrumentos fallan a la vez, el
+    orden de reparación no es cuestión de gusto -- está determinado, y el
+    analista que empieza por el ruido persigue un síntoma y puede iterar
+    mucho tiempo sin converger.
+
+    Para decirlo hay que MIRAR los dos instrumentos, y hasta ahora `diagnose`
+    sólo miraba uno.
+    """
+    f = _FITS.get(name)
+    if f is None:
+        return []
+    try:
+        from .school import noise_adequacy
+        Q, p, k, df = noise_adequacy(f, series_index=0)
+    except Exception:                                      # noqa: BLE001
+        return []
+    if not (p == p):                                       # NaN
+        return []
+
+    noise_bad, rel_bad = p < 0.05, not ad.adequate
+    out = ["", "  ── EL RUIDO, Y EN QUÉ ORDEN " + "─" * 30, "",
+           f"    Ljung-Box sobre la ACF del residuo del output: "
+           f"Q({k}) = {Q:.2f},  g.l. = {df},  p = {p:.4f}"]
+
+    if rel_bad and noise_bad:
+        out += ["",
+                "    ⚠ FALLAN LOS DOS -- y el orden de reparación NO es "
+                "indiferente: **primero la RELACIÓN, después el RUIDO**.",
+                "",
+                "      La contaminación va en una sola dirección. Una relación "
+                "v(B) mal especificada ensucia la ACF residual Y la CCF a la "
+                "vez; un ruido mal especificado sólo puede ensuciar la ACF, "
+                "nunca la CCF (Muñoz §2.6). Así que la ACF sucia que ves "
+                "puede ser un síntoma de la relación, mientras que la CCF "
+                "sucia no puede venir del ruido.",
+                "",
+                "      Reformula (b, r, s) hasta que la CCF quede limpia y "
+                "VUELVE A MIRAR la ACF: puede haberse arreglado sola. Empezar "
+                "por el ruido es perseguir un síntoma, y se puede iterar mucho "
+                "tiempo sin converger."]
+    elif noise_bad and not rel_bad:
+        out += ["",
+                "    La CCF está limpia y la ACF no: la RELACIÓN se sostiene y "
+                "lo que falta es estructura en el RUIDO. Eso no se toca aquí "
+                "-- el modelo del ruido viene del `.pre` del output; "
+                "reidentifícalo en `art` y vuelve con el `.pre` nuevo.",
+                "",
+                "      (Este es el único caso en que el ruido es la primera "
+                "parada, y es limpio precisamente porque la CCF descarta la "
+                "otra causa.)"]
+    elif rel_bad:
+        out += ["",
+                "    La ACF del ruido está limpia, así que lo que falla es la "
+                "RELACIÓN y sólo la relación. No hay ambigüedad de orden aquí."]
+    else:
+        out += ["", "    Los dos instrumentos limpios: la relación y el ruido "
+                "se sostienen por separado."]
+    return out
 
 
 @mcp.tool()
@@ -1187,6 +1399,159 @@ def diagnose(name: str, link_index: int = 0) -> str:
     ad = drtran.transfer_adequacy(f, link_index=link_index, embed=f.embed)
     return (drtran.report_adequacy(ad)
             + "\n" + "\n".join(_what_now(ad, name, link_index)))
+
+
+def _fit_variant(name, links, embed=None):
+    """Ajusta una variante de la red SIN tocar el estado de la sesión.
+
+    Un experimento de sobreajuste que deja el caso estimado en el modelo
+    ampliado es una trampa: el analista lo rechaza, sigue trabajando, y todo
+    lo que hace después sale del modelo que acaba de rechazar.
+    """
+    from drtran.estimate import standard_errors
+    from drtran.slots import build_slots
+
+    cs = build_cast_spec(_require(name), links=links)
+    table = build_slots(cs)
+    f = drtran.fit(cs, x0=drtran.x0_full(cs, table),
+                   embed=(f_embed(name) if embed is None else embed),
+                   slots=table)
+    if f.ifault:
+        return None, None, None
+    return f, table, standard_errors(f)
+
+
+def f_embed(name):
+    f = _FITS.get(name)
+    return True if f is None else bool(f.embed)
+
+
+@mcp.tool()
+def overfit(name: str, link_index: int = 0) -> str:
+    """Overfit ON PURPOSE: enlarge the transfer and see whether it protests.
+
+    Every one of Muñoz's six cases does this, and none of them skips it even
+    when nothing looks wrong — an adequate portmanteau says the model is not
+    contradicted, and that is not the same as saying nothing better was
+    available. Brajín §2.3.1 states the doctrine: a model is confirmed by
+    enlarging it and finding the extra parameters non-significant.
+
+    Two enlargements, one at a time: one more numerator weight (s+1) and one
+    denominator (r+1). Each is refitted jointly and compared by likelihood
+    ratio with 1 degree of freedom.
+
+    **A failed experiment is not a confirmation.** Muñoz 6.4.3 abandons an
+    overfit because "la situación de estimación está mal definida (altas
+    correlaciones entre muchos de los parámetros de relación), por lo que este
+    experimento puede considerarse FALLIDO" — the enlarged model says nothing
+    about the small one, in either direction. That distinction is reported.
+
+    The session's estimated model is left untouched.
+    """
+    from scipy import stats as _st
+
+    from .school import worst_correlations
+
+    f0 = _require_fit(name)
+    _require_link(f0, link_index, "overfit")
+    links = list(f0.cast_spec.links)
+    lk = links[link_index]
+    ll0 = float(f0.loglik)
+
+    out = ["```", f"  SOBREAJUSTE de {name!r}, enlace {link_index} "
+           f"(b={lk.b}, r={lk.r}, s={lk.s})", "",
+           f"  Modelo actual:  logL = {ll0:.6f}", ""]
+
+    trials = [("s+1  (un peso más en el numerador)",
+               Link(lk.out, lk.inp, lk.b, lk.r, lk.s + 1),
+               f"omega{link_index + 1}[{lk.s + 1}]"),
+              ("r+1  (un denominador)",
+               Link(lk.out, lk.inp, lk.b, lk.r + 1, lk.s),
+               f"delta{link_index + 1}[{lk.r + 1}]")]   # delta_0 = 1 va implícito
+
+    verdicts = []
+    for label, newlk, slot in trials:
+        v = list(links); v[link_index] = newlk
+        f1, t1, se1 = _fit_variant(name, v)
+        if f1 is None:
+            out += [f"  {label}", "    ✗ no converge — eso ya es información: "
+                    "el parámetro extra no tiene dónde ir.", ""]
+            verdicts.append(("no converge", label)); continue
+        ll1 = float(f1.loglik)
+        lr = 2.0 * (ll1 - ll0)
+        p = float(1.0 - _st.chi2.cdf(max(lr, 0.0), 1))
+        val, err = school_slot(f1, t1, se1, slot)
+        pairs, nflag = worst_correlations(f1, se1, t1, top=3)
+        out += [f"  {label}",
+                f"    logL = {ll1:.6f}   LR = {lr:.3f}  (1 g.l.)  p = {p:.4f}"]
+        if val is not None and err and err > 0:
+            out.append(f"    {slot} = {val:+.6f}  (e.t. {err:.6f}, "
+                       f"t = {val / err:.2f})")
+        elif val is not None:
+            out.append(f"    {slot} = {val:+.6f}  (sin error típico)")
+        if nflag:
+            worst = pairs[0] if pairs else ("", "", float("nan"))
+            out += [f"    ⚠ EXPERIMENTO FALLIDO: {nflag} pareja(s) de "
+                    "parámetros con |correlación| >= .9 "
+                    f"({worst[0]} / {worst[1]}: {worst[2]:+.3f}). La "
+                    "situación de estimación del modelo ampliado está mal "
+                    "definida, así que NO dice nada sobre el pequeño -- ni a "
+                    "favor ni en contra (Muñoz 6.4.3)."]
+            # Un caso concreto que NO es mala suerte: el último peso del
+            # numerador contra el denominador nuevo. Los dos describen la misma
+            # cola, así que sobre un modelo que no necesita denominador la
+            # colinealidad es la respuesta ESPERADA, no un accidente. Decirlo
+            # evita que el analista lea "fallido" como "mal dato".
+            tail = {f"omega{link_index + 1}[{lk.s}]",
+                    f"delta{link_index + 1}[{lk.r + 1}]"}
+            if newlk.r > lk.r and {worst[0], worst[1]} == tail:
+                out += ["      (Y aquí la pareja es el último peso del "
+                        "numerador contra el denominador nuevo: los dos "
+                        "describen la misma cola. Sobre un modelo que NO "
+                        "necesita denominador esa colinealidad es lo que "
+                        "cabe esperar -- el experimento no fracasa por los "
+                        "datos, fracasa porque la ampliación es redundante.)"]
+            verdicts.append(("fallido", label))
+        elif p < 0.05:
+            out += ["    → el parámetro extra SÍ aporta. El modelo actual se "
+                    "queda corto por ese lado."]
+            verdicts.append(("aporta", label))
+        else:
+            out += ["    → no aporta. Por este lado el modelo actual se "
+                    "sostiene."]
+            verdicts.append(("no aporta", label))
+        out.append("")
+
+    kinds = [k for k, _ in verdicts]
+    clean = [lb for k, lb in verdicts if k == "no aporta"]
+    failed = [lb for k, lb in verdicts if k in ("fallido", "no converge")]
+    if "aporta" in kinds:
+        out += ["  El modelo NO está cerrado: alguna ampliación aporta. "
+                "Cámbiala con `set_network` y vuelve a `estimate` y "
+                "`diagnose` -- una ampliación significativa cambia también el "
+                "veredicto de adecuación, no sólo la verosimilitud."]
+    elif clean:
+        out += ["  ✅ CONFIRMADO por %d de %d ampliaciones: no significativas "
+                "y con la estimación bien definida. Esto es más que un "
+                "portmanteau adecuado -- un portmanteau dice que el modelo no "
+                "está CONTRADICHO; esto dice que ampliarlo no compra nada."
+                % (len(clean), len(verdicts))]
+        if failed:
+            out += ["  Las otras (%s) no llegaron a veredicto, y eso no cuenta "
+                    "ni a favor ni en contra." % "; ".join(failed)]
+    else:
+        out += ["  Sin veredicto: NINGUNA ampliación salió bien condicionada, "
+                "y un sobreajuste mal condicionado se descarta, no se "
+                "interpreta. El modelo no queda confirmado ni desmentido."]
+    out += ["", f"  (El modelo estimado de {name!r} sigue siendo el de antes: "
+            "estas variantes no se han guardado.)", "```"]
+    return "\n".join(out)
+
+
+def school_slot(fit, table, se, name):
+    """`school._slot` por la puerta principal, para los tools de arriba."""
+    from .school import _slot
+    return _slot(fit, table, se, name)
 
 
 @mcp.tool()
