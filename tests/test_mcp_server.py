@@ -36,9 +36,18 @@ def caso():
 
 # ── the entry contract: .pre, not raw series ─────────────────────────────────
 def test_it_starts_from_pre_files_and_the_first_is_the_output():
-    out = mtram.load_pre("x", f"{ES},{WTI}")
-    assert "SALIDA : ES_CPI" in out
-    assert "entrada: WTI" in out
+    """The roles must be stated back, and the transform each `.pre` carries.
+
+    Asserted by SUBSTANCE, not by layout: this test used to pin the exact
+    spacing (`"SALIDA : ES_CPI"`), so re-wording the report broke it while
+    nothing about the behaviour had changed. A test that fails on formatting
+    trains you to stop reading its failures.
+    """
+    out = mtram.load_pre("x", f"{ES},{WTI}", check=False)
+    salida = next(l for l in out.splitlines() if "SALIDA" in l)
+    assert "ES_CPI" in salida, "the output series is not on the SALIDA line"
+    entrada = next(l for l in out.splitlines() if "entrada" in l)
+    assert "WTI" in entrada, "the input series is not on the entrada line"
     # it reports what each .pre carries, so the analyst can see the rung below
     assert "lambda=0 d=1" in out and "deterministas=11" in out
 
