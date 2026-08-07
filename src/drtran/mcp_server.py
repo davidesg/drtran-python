@@ -1331,6 +1331,104 @@ def _what_the_transfer_bought(name, f, cs):
     return lines
 
 
+def _by_series(body, cs, names, link_index_of=None):
+    """Reagrupa la tabla del motor por SERIE, sin recalcular ni un número.
+
+    El motor devuelve las 21 filas en una sola lista plana, y en ella conviven
+    tres cosas que el analista no lee igual: la ECUACIÓN de la salida (la
+    transferencia, sus deterministas y su ruido), los modelos univariantes de
+    las ENTRADAS, y la estructura de covarianzas. Mezcladas, el único indicio
+    de a quién pertenece cada fila es el sufijo `_1` / `_2` del nombre, que
+    nadie lee. Un `omega_d2[3,0]` en medio de la lista parece parte de la
+    ecuación del output y no lo es.
+
+    Presentamos entonces COMPLETO el modelo del output, y los de las entradas
+    MENCIONADOS -- que es distinto de omitidos, y la diferencia importa: en el
+    ajuste conjunto las entradas SE ESTIMAN aquí, no vienen congeladas del
+    `.pre`. Callarlas daría a entender lo contrario.
+
+    **Las filas se copian TAL CUAL de la salida del motor.** No se recalcula el
+    valor, ni el error típico, ni el estadístico t: se reordenan líneas de
+    texto. Un segundo sitio donde se calculara un error típico es un segundo
+    sitio donde puede desviarse, y ya hemos pagado esa factura una vez con la
+    corrección de grados de libertad del panel de residuos.
+    """
+    import re
+
+    lines = body.split("\n")
+    # cabecera hasta la regla, filas hasta la línea en blanco, y el resto
+    try:
+        i0 = next(i for i, l in enumerate(lines) if set(l.strip()) == {"-"})
+    except StopIteration:
+        return None
+    i1 = next((i for i in range(i0 + 1, len(lines)) if not lines[i].strip()),
+              len(lines))
+    head, rows, tail = lines[:i0 + 1], lines[i0 + 1:i1], lines[i1:]
+
+    def owner(row):
+        """A qué serie (1-based) pertenece la fila, o 0 si es de covarianzas."""
+        nm = row.strip().split(" ")[0]
+        if re.match(r"^(omega|delta)\d+\[", nm):        # enlace -> del output
+            return 1
+        m = re.match(r"^(?:omega_d|delta_d|phi_|theta_)(\d+)\[", nm)
+        if m:
+            return int(m.group(1))
+        m = re.match(r"^mu\[(\d+)\]", nm)
+        if m:
+            return int(m.group(1))
+        return 0
+
+    def kind(row):
+        nm = row.strip().split(" ")[0]
+        if re.match(r"^(omega|delta)\d+\[", nm):
+            return "enlace"
+        if re.match(r"^(omega_d|delta_d)", nm):
+            return "det"
+        return "ruido"
+
+    out_rows = [r for r in rows if owner(r) == 1]
+    cov_rows = [r for r in rows if owner(r) == 0]
+    inp_rows = {}
+    for r in rows:
+        o = owner(r)
+        if o > 1:
+            inp_rows.setdefault(o, []).append(r)
+
+    L = list(head)
+    def _seccion(titulo, filas):
+        if filas:
+            L.append(f"  · {titulo}")
+            L.extend(filas)
+
+    L.append("")
+    L.append(f"  ══ EL MODELO DE {names[0]} — la salida, completo "
+             + "═" * max(0, 20 - len(names[0])))
+    _seccion("transferencia (lo que entra de fuera)",
+             [r for r in out_rows if kind(r) == "enlace"])
+    _seccion(f"deterministas de {names[0]}",
+             [r for r in out_rows if kind(r) == "det"])
+    _seccion("ruido N_t (su ARMA)",
+             [r for r in out_rows if kind(r) == "ruido"])
+
+    if inp_rows:
+        L.append("")
+        L.append("  ══ LOS MODELOS DE LAS ENTRADAS " + "═" * 26)
+        L.append("    Se estiman AQUÍ, conjuntamente con todo lo demás -- no "
+                 "vienen congelados del `.pre`, que sólo aporta la semilla.")
+        L.append("    Van aparte porque no forman parte de la ecuación de "
+                 f"{names[0]}: describen cómo se genera cada entrada.")
+        for si in sorted(inp_rows):
+            L.append("")
+            L.append(f"  · {names[si - 1]}")
+            L.extend(inp_rows[si])
+    if cov_rows:
+        L.append("")
+        L.append("  ══ COVARIANZAS ENTRE INNOVACIONES " + "═" * 23)
+        L.extend(cov_rows)
+    L.extend(tail)
+    return "\n".join(L)
+
+
 def _integration_order(name, f):
     """¿El ruido quedó SOBREDIFERENCIADO al meter la entrada?
 
@@ -1427,7 +1525,12 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     se = standard_errors(f)
     head = ("[Claude: muestra el bloque ``` siguiente TAL CUAL, verbatim, "
             "antes de comentar nada]\n\n```\n")
-    body = report_fit(f, table, [s.name for s in specs], se)
+    nombres = [s.name for s in specs]
+    body = report_fit(f, table, nombres, se)
+    if cs.links:
+        agrupado = _by_series(body, cs, nombres)
+        if agrupado:
+            body = agrupado
     extra = ""
     if cs.links:
         try:

@@ -9,6 +9,13 @@ case is monthly, `refactor=100`, AR(1) — and it is what surfaced these.
 Each entry says what it is, how it was found, and what it costs. The two with a
 number are defects; the rest are things to watch.
 
+**Reviewed 2026-08-07**, with each claim re-verified rather than taken on
+trust, and each defect assigned to a package — `drtran` (the library and the C
+it ports) or `mtram` (the MCP layer). Verdicts are recorded in each entry
+below. Two were confirmed as real, one is real but minor, one was closed by
+policy, one has since been fixed a different and better way, and the
+"unconfirmed" one turned out not to be a computation defect at all.
+
 Reproductions are self-contained (they use the `.pre` files in the repo root):
 
 ```
@@ -19,6 +26,17 @@ python3 scripts/repro_alineacion_por_indice.py
 ---
 
 ## BUG-1. The unit-circle guard is applied to every AR order (a C bug, inherited)
+
+> **Verdict 2026-08-07: CONFIRMED, and it is `drtran`'s (plus the C).** The
+> decisive test is not that stationary AR(2)s are rejected — the report already
+> showed that — but whether the guard is protecting against something. It is
+> not. With the guard disabled, every stationary AR(2) with phi1 > 1 evaluates
+> normally (`ifault=0`, finite logL, in BOTH casts), and a genuinely
+> non-stationary point (phi1=2.10, phi2=-0.5.., |root|=0.78) is caught by `elf`
+> **on its own**, returning `ifault=3`. So the engine already has the check it
+> needs downstream; the 0.999 guard adds nothing for p=1 that is not already
+> there, and for p>=2 it removes a legitimate region of the parameter space.
+> Not a corner case: the excluded region is exactly the persistent cycles.
 
 **Symptom.** `estimate` and `identify_network` return `ifault=1` ("the likelihood
 could not be evaluated") with no further diagnosis, for a model fue estimates
@@ -86,6 +104,18 @@ fixed in the C as well.
 
 ## BUG-2. The series are paired by INDEX, not by date, silently
 
+> **Verdict 2026-08-07: CONFIRMED, and it belongs to BOTH.** The dates are
+> available — `spec.ts.start`, `.freq`, `.nobs` are all read from the `.pre`
+> and sit unused. `cast.py:252` states the premise in a comment ("the last
+> observation is the same date") and never checks it: that half is `drtran`'s,
+> and a library may be mute about advice without being mute about accepting
+> incompatible input. `mcp_server.load_pre` is the declared GATE and prints a
+> summary with no dates in it: that half is `mtram`'s. The two fixes differ —
+> the library should refuse, the gate should show the window.
+>
+> `tests/test_end_to_end_passthrough.py` now checks the premise holds on the
+> pair that the real art -> fue -> mtram pipeline produces.
+
 **Symptom.** None. That is the problem: two series that do not share a single
 period can be crossed and the fit goes through without a word.
 
@@ -136,6 +166,10 @@ load when `start`/`freq`/`nobs` are not compatible. And print the date range in
 
 ### `check_scale`'s advice is right for lambda=0 and wrong for lambda=1
 
+> **Verdict 2026-08-07: real, minor, `drtran`'s** (`pre.py:91`). Confirmed:
+> the rule is `refactor < 10` and the message is unconditional, with no
+> reference to `boxlam` anywhere in the function.
+
 The rule is `refactor < 10` and the message always says *regenerate the .pre with
 refactor=100*. For a log model with d=1 that is correct and it does solve the
 problem: it puts the series in percent. For an **untransformed** series in levels
@@ -162,6 +196,13 @@ degrades with `refactor=1`*.
 
 ### `CONVERGED (step)` is a generous label for termcode 2
 
+> **Verdict 2026-08-07: will not be changed, and this is policy rather than
+> disagreement.** The optimiser and its announcements are Mauricio's published,
+> refereed work; the criteria and the wording stay as he wrote them unless
+> something demonstrably better has been tested. See
+> `OPTIMIZER_STOPPING_STUDY.md`, whose whole point was that the alternatives
+> tried were not better.
+
 `termcode 2` is the step-tolerance stop: the step collapsed while the gradient may
 still be appreciable. The accompanying warning says exactly that and says it well,
 but the status line leads with the word CONVERGED, which is an invitation to move
@@ -169,6 +210,14 @@ on. `STOPPED (steptol)` would read closer to the truth, and returning the gradie
 norm would let the analyst judge instead of guess.
 
 ### `identify_link` hands over economically impossible lags with no joint test
+
+> **Verdict 2026-08-07: addressed, differently and better, and it is
+> `mtram`'s.** The entry asked for the k>=0 portmanteau to be reported at
+> identification time. What shipped instead is the STOPPING RULE
+> (`_before_you_choose`): the peak-to-band ratio, which was measured to
+> separate cleanly — 1.0-1.5 on pure noise against 7.6-7.8 on a real transfer,
+> no grey zone — where the portmanteau does not. On noise mtram now refuses to
+> propose an order at all. Verified in `tests/test_bank_mtram.py`.
 
 It takes "each significant weight as a free omega" from the contiguous block, so
 an isolated noise spike at k=7, k=14 or k=18 becomes a formal proposal. With
@@ -178,6 +227,19 @@ tool already computes the k>=0 portmanteau in `diagnose`; reporting it in
 transfer* **before** being handed a `b=7` that looks like a finding.
 
 ### Unconfirmed: `plot_ccf`'s Q does not match `identify_link`'s
+
+> **Verdict 2026-08-07: NOT a computation defect. The suspicion pointed at
+> something real and diagnosed it wrongly.** They are two different statistics
+> that share a letter. The figure's label is drvarma's `qccf` — **Hosking's
+> bivariate portmanteau on the stacked 2-variate series**, which aggregates all
+> four entries of the cross-correlation matrix, the two autocorrelations
+> included, at every lag. `identify_link`'s is `chi_test` over ONE side of ONE
+> cross-correlation. 102.8 against 24.5 is the expected ratio, not a
+> discrepancy.
+>
+> What IS a defect, and a small `mtram` one: both are printed as `Q(20) = ...`
+> with nothing saying which is which. Same class of problem as the residual
+> panel's degrees-of-freedom correction — one label, two meanings.
 
 The figure was labelled `Q(20) = 102.8` while `identify_link` reported
 `Q(20) = 24.5` for k < 0 on the same link; from the plotted r(k) neither side

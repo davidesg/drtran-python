@@ -468,3 +468,52 @@ def test_no_movement_is_claimed_without_a_diagonal_to_compare_with():
     M.estimate("IR2")
     moved, mj, md, kind = integration_order_moved(M._FITS["IR2"], None, 0)
     assert moved is False
+
+
+# ── cómo se presentan los modelos ──────────────────────────────────────────
+def test_the_output_model_is_presented_whole_and_the_inputs_are_named():
+    """The engine returns one flat list where three different things live: the
+    OUTPUT's equation, the INPUTS' univariate models, and the covariances. The
+    only clue to which row belongs to whom is the `_1` / `_2` suffix, and an
+    `omega_d2[3,0]` sitting in the middle of the list reads as part of the
+    output's equation when it is not.
+
+    So: the output's model whole, the inputs' NAMED — which is different from
+    omitted, and the difference matters, because in the joint fit the inputs
+    ARE estimated here rather than arriving frozen from the `.pre`.
+    """
+    M.load_pre("PRS", f"{ES},{WTI}", check=False)
+    M.set_network("PRS", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("PRS")
+    assert "EL MODELO DE ES_CPI — la salida, completo" in out
+    assert "LOS MODELOS DE LAS ENTRADAS" in out
+    assert "no vienen congelados del `.pre`" in out
+    # el enlace va en el bloque de la salida, no suelto
+    i_out = out.index("EL MODELO DE ES_CPI")
+    i_inp = out.index("LOS MODELOS DE LAS ENTRADAS")
+    assert i_out < out.index("omega1[0]") < i_inp
+
+
+def test_the_regrouping_loses_no_parameter():
+    """A presentation change that silently dropped a row would be worse than the
+    presentation it replaced. The rows are MOVED, never rebuilt: same count,
+    same text."""
+    from drtran.cli import report_fit
+    from drtran.estimate import standard_errors
+    from drtran.slots import build_slots
+    import drtran as D
+    from drtran.cast import Link, build_cast_spec
+
+    M.load_pre("PRS2", f"{ES},{WTI}", check=False)
+    specs = M._SPECS["PRS2"]
+    cs = build_cast_spec(specs, links=[Link(0, 1, 0, 0, 1)])
+    table = build_slots(cs)
+    f = D.fit(cs, x0=D.x0_full(cs, table), embed=True, slots=table)
+    plano = report_fit(f, table, [s.name for s in specs], standard_errors(f))
+    agrupado = M._by_series(plano, cs, [s.name for s in specs])
+
+    def filas(txt):
+        return {l.strip() for l in txt.split("\n")
+                if l.strip() and l.strip()[0].isalpha()
+                and ("." in l or "(fixed)" in l) and "  " in l.strip()}
+    assert filas(plano) == filas(agrupado)
