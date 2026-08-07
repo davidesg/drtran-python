@@ -25,7 +25,7 @@ python3 scripts/repro_alineacion_por_indice.py
 
 ---
 
-## BUG-1. The unit-circle guard is applied to every AR order — FIXED in Python, OPEN in the C
+## BUG-1. The unit-circle guard is applied to every AR order — FIXED in both
 
 > **Verdict 2026-08-07: CONFIRMED, and it is `drtran`'s (plus the C).** The
 > decisive test is not that stationary AR(2)s are rejected — the report already
@@ -76,6 +76,37 @@ python3 scripts/repro_alineacion_por_indice.py
 > the operator, and the C already reuses it for the delta(B) stability guard.
 > Calling it on `phi` with `p` is the whole fix. It is Mauricio's source, so it
 > is not ours to change unilaterally.
+>
+> ### Applied to the C (2026-08-07, `drtran` a4e5051) — and verifying it
+> ### corrected two things this entry got wrong
+>
+> The fix itself went in as expected: `chekma(m, p, armax->phi, ...)` in place
+> of the scalar test, with the work vectors made dynamic (`chekma` indexes
+> 1..m*p, and `wr[4*MAX_SER]` = `wr[32]` is short as soon as m·max(p,q) > 32 —
+> reachable with a seasonal model and few series. That bound already applied to
+> the MA call; leaving it and adding a second consumer would have been worse).
+>
+> **1. In the DEFAULT path that guard never ran.** The embedded cast
+> (`embed_varma`, the default since `ad8eac3`) returns at line 543, before
+> block 12. Its own check, lines 521-528, calls `chekma` on the MA only: in the
+> default path the AR was not checked at all. The broken guard lived only in
+> the `-S` (subtraction) path.
+>
+> **2. So the damage described above was NOT inherited from the C — it is the
+> PORT's.** `drtran-python` copied the guard into BOTH of its casts, the
+> embedded one included, where the C never had it. The pinning at 0.998998 with
+> t = 1.04e+06 was measured in the Python, and that is where it lived.
+>
+> This entry's original heading — "a C bug, inherited" — was therefore wrong in
+> both halves: the bug was reachable in the C only under `-S`, and the port
+> added its own.
+>
+> **Verification.** That the C fix does something, on the path that runs it: an
+> AR(2) pinned at phi1 = 1.6, phi2 = −0.8 (|roots| = 1.118, stationary), with
+> `-S` — before, `ifault = 1 (estimates not reliable)`, logL = 0.000000; after,
+> logL = −832.259422. And re-homologation over 8 outputs × 3 (b, r, s) × both
+> casts: **48 runs, byte-identical output**. The canonical cases never sat near
+> the barrier, which is why nothing moves.
 
 **Symptom.** `estimate` and `identify_network` return `ifault=1` ("the likelihood
 could not be evaluated") with no further diagnosis, for a model fue estimates
