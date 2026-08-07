@@ -517,3 +517,52 @@ def test_the_regrouping_loses_no_parameter():
                 if l.strip() and l.strip()[0].isalpha()
                 and ("." in l or "(fixed)" in l) and "  " in l.strip()}
     assert filas(plano) == filas(agrupado)
+
+
+# ── §7: el certificado, y el .inp como entrada de primera clase ────────────
+def test_the_gate_says_the_files_were_optima():
+    """The certificate the gate could always have claimed and did not.
+
+    A `.pre` asserts an optimum, and the gate re-estimates anyway — so
+    comparing the stored values against the re-estimated ones costs nothing and
+    answers a question nothing in the suite could answer before.
+
+    The rigorous form is the likelihood gap: the diagonal fit MAXIMISES what
+    the stored values merely EVALUATE, so the difference is >= 0 always and
+    zero exactly when the files were optima.
+    """
+    out = M.load_pre("CERT", f"{ES},{WTI}")
+    assert "Hueco de optimalidad" in out
+    assert "Aquí lo eran" in out
+    assert "un ÓPTIMO (`.pre` de verdad)" in out
+    assert "una ESPECIFICACIÓN" not in out
+
+
+def test_the_gate_says_when_they_were_specifications(tmp_path):
+    """The other half, on a file whose parameters have been zeroed — which is
+    what a reformulated model looks like: by the convention, an edited `.pre`
+    IS an `.inp`.
+
+    And the point is the tone. Being handed a specification is NOT an error:
+    the gate estimates it and reaches the same place. What was missing was
+    saying so, because an analyst who believes they started from the best
+    univariate model of a series and started from a half-estimated
+    specification is misreading their own work.
+    """
+    import re
+    src = open(ES).read()
+    edited = str(tmp_path / "edited.inp")
+    # ponemos a cero los coeficientes deterministas: una reformulación honesta
+    open(edited, "w").write(re.sub(r"^-?\d+\.\d{6}(?=  1\s*$)", "0.000000",
+                                   src, flags=re.M))
+    out = M.load_pre("CERT2", f"{edited},{WTI}")
+    assert "una ESPECIFICACIÓN" in out
+    assert "no es un problema" in out
+    assert "vuelve a ser un `.inp`" in out
+
+
+def test_an_inp_reaches_the_same_place_as_a_pre():
+    """Why accepting a specification is safe rather than merely tolerated: the
+    seeds are seeds. Same gate, same conclusion."""
+    a = M.load_pre("EQ1", f"{ES},{WTI}")
+    assert "✅" in a

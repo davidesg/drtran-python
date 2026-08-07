@@ -254,6 +254,129 @@ def _require_link(fit, link_index, what):
 _gate_name = [""]
 
 
+def _coefs(sp):
+    """Los coeficientes que un fichero trae escritos, en un vector plano."""
+    import numpy as np
+
+    m = sp.model
+    v = [o for it in m.interventions for o in it.omega]
+    v += [d for it in m.interventions for d in it.delta]
+    for fam in (m.ar, m.ar_s, m.ma, m.ma_s):
+        v += [c for fac in fam for c in fac]
+    return np.asarray(v, float)
+
+
+def _loglik_traida(specs):
+    """La verosimilitud conjunta EN los valores que traían los ficheros.
+
+    Una evaluación, sin optimizar, antes de que `m.fit()` los pise. Es la mitad
+    barata del certificado de §2.1 y la que tiene garantía: el ajuste diagonal
+    MAXIMIZA la misma verosimilitud que esto sólo EVALÚA, así que
+
+        logL(diagonal)  >=  logL(en lo traído)
+
+    siempre, con igualdad **si y sólo si** lo traído eran los óptimos
+    univariantes. La diferencia no es un indicio: es el hueco de optimalidad,
+    en unidades de log-verosimilitud.
+    """
+    import copy
+
+    from drtran.cast import build_cast_spec, x0_from_pre
+
+    try:
+        cs = build_cast_spec(copy.deepcopy(specs), links=[])
+        ll, ifa = drtran.loglik(x0_from_pre(cs), cs)
+        return None if ifa else float(ll)
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
+def _certificado(specs, antes, ll_traido, ll_diag):
+    """¿Lo que nos dieron eran ÓPTIMOS o ESPECIFICACIONES? Gratis, y hasta
+    ahora nadie lo reclamaba.
+
+    El convenio de la escalera dice que un `.pre` es un ÓPTIMO en forma
+    reejecutable, y el invariante que lo sostiene es comprobable: reestimar un
+    `.pre` no mueve los números. Un `.inp` -- o un `.pre` que el analista
+    editó, que por la regla ES un `.inp` -- sí los mueve.
+
+    La puerta ya reestima cada serie con fue al entrar, así que la
+    comprobación no cuesta nada: basta con haber mirado los coeficientes ANTES.
+    Y hace falta mirarlos ahí porque `m.fit()` muta el modelo en su sitio; una
+    vez ha corrido, la pregunta ya no se puede contestar.
+
+    Esto NO es un aviso ni un reproche. Las dos entradas son legítimas y la
+    puerta acepta las dos: reestimando, las semillas son sólo semillas y se
+    llega al mismo sitio (medido: idénticas verosimilitudes partiendo del `.pre`
+    de fue o del `.inp` de art con todo a cero). Lo que hasta ahora faltaba era
+    DECIRLO -- un analista que cree partir de óptimos univariantes y parte de
+    una especificación a medio estimar está leyendo su propio trabajo mal, y
+    nada en la suite se lo iba a contar.
+    """
+    import numpy as np
+
+    # El umbral es MEDIDO, no elegido. Un `.pre` genuino no vuelve exactamente
+    # a su sitio: el fichero guarda 6 decimales y el optimizador para dentro de
+    # su tolerancia, así que queda un residuo de ~3e-5. Una especificación se
+    # mueve 14-47 en el mismo caso. Seis órdenes de magnitud entre los dos: no
+    # hay zona gris, y 1e-3 cae holgadamente en medio.
+    UMBRAL = 1e-3
+    filas, movidos = [], 0
+    for sp, a in zip(specs, antes):
+        b = _coefs(sp)
+        if a.shape != b.shape:                             # no comparable
+            filas.append((sp.name, float("nan")))
+            continue
+        d = float(np.max(np.abs(a - b))) if len(a) else 0.0
+        filas.append((sp.name, d))
+        if d > UMBRAL:
+            movidos += 1
+
+    hueco = (ll_diag - ll_traido) if ll_traido is not None else None
+
+    L = ["  ### Qué traía cada fichero", ""]
+    if hueco is not None:
+        L += [f"  Verosimilitud EN los valores traídos: **{ll_traido:.6f}**",
+              f"  Hueco de optimalidad (diagonal − traído): **{hueco:+.6f}**",
+              ""]
+        if hueco > 1e-3:
+            L += ["  Ese hueco es >= 0 siempre, y vale cero **si y sólo si** lo "
+                  "que trajiste eran los óptimos univariantes. Aquí no lo eran.",
+                  ""]
+        else:
+            L += ["  Ese hueco es >= 0 siempre, y vale cero **si y sólo si** lo "
+                  "que trajiste eran los óptimos univariantes. Aquí lo eran.",
+                  ""]
+    L += ["  | fichero | se movió al reestimar | traía |", "  |---|---|---|"]
+    for nm, d in filas:
+        if d != d:
+            que, val = "no comparable", "—"
+        elif d > UMBRAL:
+            que, val = "una ESPECIFICACIÓN", f"{d:.6f}"
+        else:
+            que, val = "un ÓPTIMO (`.pre` de verdad)", f"{d:.2e}"
+        L.append(f"  | {nm} | {val} | {que} |")
+    L.append("")
+    if movidos:
+        L += [f"  {movidos} de {len(filas)} no eran óptimos univariantes, y eso "
+              "**no es un problema**: un `.inp` es una entrada legítima y la "
+              "puerta lo reestima, así que se llega al mismo sitio.",
+              "",
+              "  Pero conviene que lo sepas. Si creías partir del mejor modelo "
+              "univariante de esa serie, no era así -- era una especificación, "
+              "y quien la estimó fue esta puerta. Si querías el óptimo, "
+              "estímalo en `art`/fue y vuelve con el `.pre` que salga.",
+              "",
+              "  (Recuerda la regla: un `.pre` que se toca vuelve a ser un "
+              "`.inp`. Que se haya movido es exactamente lo que cabe esperar de "
+              "un fichero reformulado.)"]
+    else:
+        L += ["  Todos eran óptimos univariantes: reestimarlos no movió nada. "
+              "Es el invariante del `.pre`, comprobado sobre los ficheros que "
+              "acabas de cargar y no supuesto."]
+    return L
+
+
 def _diagonal_gate(specs):
     """Estimate the DIAGONAL model and check it reproduces the univariate fits.
 
@@ -273,6 +396,14 @@ def _diagonal_gate(specs):
     from drtran.cast import build_cast_spec
 
     lines = ["## 2. Escalón diagonal — la prueba de que el puente está bien", ""]
+
+    # LO QUE TRAJO CADA FICHERO, antes de tocarlo. `m.fit()` reestima y muta el
+    # modelo en su sitio, así que ésta es la única ventana para saber si lo que
+    # nos dieron era un ÓPTIMO o una ESPECIFICACIÓN -- y son cosas distintas
+    # que hasta ahora la puerta no sabía distinguir. Ver
+    # docs/LADDER_AS_OPTIMISATION.md §2.
+    antes = [_coefs(sp) for sp in specs]
+    ll_traido = _loglik_traida(specs)
 
     uni, failed = [], []
     for sp in specs:
@@ -313,6 +444,7 @@ def _diagonal_gate(specs):
     lines.append(f"  Ajuste diagonal conjunto (drtran): **{f.loglik:.6f}**")
     lines.append(f"  Diferencia con la suma: **{diff:+.2e}**")
     lines.append("")
+    lines += _certificado(specs, antes, ll_traido, float(f.loglik))
 
     # 1e-4 en la log-verosimilitud es el margen con que se fijo la identidad en
     # tests/test_baseline_univariate.py; por debajo es ruido de optimizacion.
@@ -359,14 +491,26 @@ def _diagonal_gate(specs):
 
 @mcp.tool()
 def load_pre(name: str, paths: str, check: bool = True) -> str:
-    """Load the `.pre` files of a case, CONFIRM the roles, and prove the bridge.
+    """Load a case's `.pre` **or `.inp`** files, CONFIRM the roles, prove the bridge.
 
-    `paths` is a comma-separated list; **the FIRST one is the OUTPUT**. These
-    are ART's output: each carries a series and the univariate model ART
-    estimated for it. mtram does not build univariate models — if one is
-    missing, send the analyst to ART.
+    `paths` is a comma-separated list; **the FIRST one is the OUTPUT**. mtram
+    does not build univariate models — if one is missing, send the analyst to
+    ART.
 
-    Two things happen here, and the second is the point.
+    **Both file kinds are accepted, and they are not the same claim.** A `.pre`
+    is an OPTIMUM in re-runnable form; an `.inp` is a SPECIFICATION whose
+    values are seeds. Either works here because this tool RE-ESTIMATES each
+    series with fue on the way in, so the stored values are only a starting
+    point: fed art's `.inp` with every parameter at zero it reaches the same
+    likelihoods as with fue's `.pre` (−1744.135582 both ways on the passthrough
+    case).
+
+    That matters more than it looks, because by the convention **a `.pre` that
+    an analyst edited has become an `.inp` again** — so a specification is the
+    normal input after any reformulation, not an exception. The tool's name is
+    historical; the contract is "a specification, optionally already optimal".
+
+    Three things happen here, and the last two are the point.
 
     **It states the roles and asks you to confirm them.** Which series is the
     output is not something the data can decide (decision node N0); it is the
@@ -381,6 +525,14 @@ def load_pre(name: str, paths: str, check: bool = True) -> str:
     the transform, the deterministics and the seeds all survived the crossing
     from fue intact. Until it holds, no transfer result from this case means
     anything, because the thing the transfer is added to is already wrong.
+
+    **And it says WHICH of the two you actually brought.** The gate re-estimates
+    anyway, so comparing the stored values against the re-estimated ones costs
+    nothing — and it answers a question nothing in the suite could answer
+    before: were these optima, or something that still needed estimating? The
+    likelihood gap it reports is the rigorous form (it is >= 0 always, and zero
+    exactly when the files were optima). Neither answer is a problem; being
+    unable to tell them apart was.
 
     It also reads out the estimation situation before any transfer complicates
     it: how the optimiser terminated on a problem whose answer is known.
