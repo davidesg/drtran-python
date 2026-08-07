@@ -25,7 +25,7 @@ python3 scripts/repro_alineacion_por_indice.py
 
 ---
 
-## BUG-1. The unit-circle guard is applied to every AR order (a C bug, inherited)
+## BUG-1. The unit-circle guard is applied to every AR order — FIXED in Python, OPEN in the C
 
 > **Verdict 2026-08-07: CONFIRMED, and it is `drtran`'s (plus the C).** The
 > decisive test is not that stationary AR(2)s are rejected — the report already
@@ -37,6 +37,45 @@ python3 scripts/repro_alineacion_por_indice.py
 > needs downstream; the 0.999 guard adds nothing for p=1 that is not already
 > there, and for p>=2 it removes a legitimate region of the parameter space.
 > Not a corner case: the excluded region is exactly the persistent cycles.
+>
+> **Fixed 2026-08-07 in the Python** (`cast.ar_is_stationary`, used by both
+> casts). The guard is KEPT — rejecting before calling `elf` is cheaper than a
+> likelihood evaluation and gives the line search a clean refusal — and only
+> the region it rejects changed. It now does for the AR what `chekma` does for
+> the MA three lines below it in the C.
+>
+> **It is wider than this report said: the guard was over-broad at p = 1 too,
+> its own stated case.** With it disabled, every stationary AR(1) evaluates
+> cleanly up to phi = 0.9999 (|root| = 1.0001, ifault 0); phi = 1 exactly
+> returns ifault 2 and phi > 1 returns ifault 3. `elf` already rejects
+> precisely the right set by itself, so 0.999 was discarding a live strip of
+> stationary space *below* the true boundary. The corrected guard sits at the
+> mathematical boundary, which is where `elf` sits.
+>
+> **Validated three ways, none of them numpy's word for it:**
+>
+> * the ANALYTIC modulus — for an AR(2) with complex roots the product of roots
+>   is −1/phi2, so |z| = 1/sqrt(|phi2|). Agreement to 4e−16.
+> * **Schur's stationarity triangle** (|phi2| < 1, phi2 + phi1 < 1,
+>   phi2 − phi1 < 1) over ~3000 grid points, boundary excluded: identical
+>   verdict at every one.
+> * the ORACLE's convention. TASTE — no shared ancestor with this code — has a
+>   roots library in `ROOT.PAS`: `zroots`/`laguer` (Laguerre) and `FACPOL`,
+>   which factorises an operator and reports each root's real part, imaginary
+>   part and MODULUS. It builds the polynomial as `a[1] = 1`, `a[i+1] = -c[i]`,
+>   i.e. `1 - c_1 z - ... - c_p z^p` — exactly the convention used here, and the
+>   same one `art._shrink_stationary` builds. Three independent
+>   implementations, one convention.
+>
+> The full battery passes unchanged (339): nothing homologated against the C
+> moved, because the canonical cases never sat near the barrier.
+>
+> **What remains is a decision, not a task.** The same one-line correction
+> belongs in `tran_shootx.c:629`, and the machinery is already in that block —
+> `chekma` builds the companion matrix and reads eigenvalue moduli, generic in
+> the operator, and the C already reuses it for the delta(B) stability guard.
+> Calling it on `phi` with `p` is the whole fix. It is Mauricio's source, so it
+> is not ours to change unilaterally.
 
 **Symptom.** `estimate` and `identify_network` return `ifault=1` ("the likelihood
 could not be evaluated") with no further diagnosis, for a model fue estimates
