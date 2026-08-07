@@ -6,7 +6,7 @@ observations, output = ARIMA(2,1,1) on log prices, input = a rainfall series in
 levels. That workload is not the one the port was homologated on — the canonical
 case is monthly, `refactor=100`, AR(1) — and it is what surfaced these.
 
-Each entry says what it is, how it was found, and what it costs. The two with a
+Each entry says what it is, how it was found, and what it costs. The ones with a
 number are defects; the rest are things to watch.
 
 **Reviewed 2026-08-07**, with each claim re-verified rather than taken on
@@ -159,6 +159,64 @@ it away was that 2/sqrt(n) did not match the overlap.
 **Fix.** Intersect by date when the case is built — or, at a minimum, refuse the
 load when `start`/`freq`/`nobs` are not compatible. And print the date range in
 `mcp_server.load_pre`'s summary, which today gives only a count.
+
+---
+
+## BUG-3. `mtram.write_pre` writes files that are not `.pre` files (mtram's)
+
+**Found 2026-08-07**, while checking a claim of mine that turned out to be
+backwards. I had recorded the `.inp -> .pre` step as a "gap in the ladder"
+because no MCP tool performs it. It is not a gap. The extensions carry the
+division of labour, and each is a different claim:
+
+| file | claim |
+|---|---|
+| `.inp` | a SPECIFICATION. art writes one, every parameter at `0.000000` |
+| `.out` | the full record of an estimation and its diagnosis |
+| `.pre` | the same `.inp` with the estimates as new initial values — **an optimum, in re-runnable form** |
+
+That last one is what makes the ladder climbable: each rung's output is the
+next rung's input *in the same format*, so a model can be edited and re-run
+toward a better one. An MCP must not write a `.pre`, because a `.pre` asserts
+that an estimation ran and converged here, and the file carries no mark of who
+wrote it — a fabricated one is indistinguishable downstream from a genuine one.
+
+**The invariant is testable.** Run fue on a `.pre` and the numbers must not
+move.
+
+**Symptom.** `write_pre` emits `<name>.1.pre`, and those files fail the
+invariant:
+
+| file | max abs change after re-running fue |
+|---|---|
+| `.pre` written by fue | **0.000000** |
+| `.pre` written by `mtram.write_pre` | **13.109261** |
+
+**Cause.** What it writes is the univariate block as re-estimated BESIDE a
+transfer. Those values are optimal for the joint model and, necessarily,
+not for the univariate one. The docstring says so plainly — *"NOT a better
+starting point — they are optimal WITH the transfer, so on the diagonal they
+evaluate worse"* — but that honesty lives in the tool's reply, not in the
+file. Once the file exists the warning is gone and the extension speaks for it.
+
+**Why nothing catches it.** The diagonal gate prints ✅ on these files, with
+the same likelihoods as the genuine ones (−1744.135582 in both). That is not a
+flaw in the gate: `load_pre` re-estimates each series with fue on the way in,
+so the non-optimal values are silently replaced by the univariate optimum
+before anything is compared. The gate tests the CROSSING, exactly as
+documented.
+
+Two consequences follow. Nothing in the suite distinguishes a real `.pre` from
+a file that merely has the extension. And the round trip loses the very thing
+`write_pre` exists to carry: reload its output into mtram and the jointly
+re-estimated values are discarded.
+
+**Fix.** mtram should write its own file for its own purpose instead of
+borrowing the univariate convention. What it holds is a STARTING POINT, not an
+optimum, and the format for a starting point is `.inp`. If mtram later needs to
+persist a multivariate case — the network, the links, the constraints — that
+too should be its own `.inp`-analogue. The `.pre` is the contract between
+univariate optima and should not carry multivariate content.
 
 ---
 

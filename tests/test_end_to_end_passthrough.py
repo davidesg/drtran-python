@@ -98,19 +98,60 @@ def test_art_builds_a_univariate_model_for_each_series(ladder):
     assert "IPC_ES" in ladder["batch"] and "WTI" in ladder["batch"]
 
 
-def test_the_inp_to_pre_hop_has_no_mcp_tool(ladder):
-    """Documenting a gap in the ladder, as a test, so it is noticed if it closes.
+def test_only_fue_produces_a_pre(ladder):
+    """The fue step is not a missing tool in the chain — it IS the estimation.
 
-    art's autonomous batch writes `<name>_auto.inp` and an HTML report — not the
-    `.pre` that mtram's entry contract requires. The chain only closes by
-    invoking the `fue` CLI in between, which no MCP surface exposes. An
-    assistant driving art and mtram through their tools alone cannot get from
-    one to the other.
+    The file conventions carry the division of labour, and each extension is a
+    different claim:
+
+        .inp   a SPECIFICATION. art writes one, with every parameter at
+               0.000000 — verified below. Identifying is deciding lambda, d and
+               the orders; it is not estimating, and art does not claim to.
+        .out   the full record of an estimation and its diagnosis.
+        .pre   the same .inp with the estimates as new initial values — i.e.
+               AN OPTIMUM, in re-runnable form. That is what makes the ladder
+               climbable: each rung's output is the next rung's input in the
+               same format, so you can edit and re-run toward a better model.
+
+    So an MCP must NOT write a `.pre`. A `.pre` asserts that an estimation ran
+    and converged here, and the file carries no mark of who wrote it: a
+    fabricated one is indistinguishable downstream from a genuine one. Only the
+    program that did the estimating can make that claim.
     """
-    assert not any(f.endswith(".pre") and not f.endswith("_auto.pre")
-                   for f in os.listdir(ladder["dir"]))
+    with open(os.path.join(ladder["dir"], "IPC_ES_auto.inp")) as fh:
+        spec = fh.read()
+    assert "0.000000" in spec, "art's .inp must be a specification, not estimates"
     for p in ladder["pres"].values():
-        assert os.path.exists(p), "the fue CLI hop is what produced the .pre"
+        assert os.path.exists(p), "fue is what turns the specification into a .pre"
+
+
+def test_a_genuine_pre_is_a_fixed_point(ladder):
+    """The invariant behind the whole convention, and it is measurable: run fue
+    on a `.pre` and the numbers do not move. That is what "an optimum, in
+    re-runnable form" means operationally.
+
+    Measured on this pipeline: 0.000000. It is the check that tells a real
+    `.pre` from a file that merely has the extension — see `docs/BUGS.md`,
+    BUG-3, where mtram's own `write_pre` moves by 13.11.
+    """
+    import shutil
+    import numpy as np
+    from drtran.pre import load_pre
+
+    d = ladder["dir"]
+    src = ladder["pres"]["IPC_ES"]
+    stem = os.path.join(d, "fixedpoint")
+    shutil.copy(src, stem + ".inp")
+    subprocess.run([sys.executable, "-m", "fue", "fixedpoint"],
+                   cwd=d, capture_output=True, timeout=600)
+
+    def vals(p):
+        m = load_pre(p).model
+        return np.array([o for it in m.interventions for o in it.omega]
+                        + [c for f in m.ma for c in f], float)
+
+    moved = float(np.max(np.abs(vals(src) - vals(stem + ".pre"))))
+    assert moved < 1e-6, f"un .pre genuino debe ser punto fijo; se movió {moved}"
 
 
 def test_the_crossing_is_exact(ladder):
