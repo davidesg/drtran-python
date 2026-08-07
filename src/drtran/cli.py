@@ -117,13 +117,17 @@ FIXED WINDOW AND OUT-OF-SAMPLE EVALUATION
            HTML. Needs jinja2 and matplotlib.)
 
 BEYOND THE C
-  -W       write back one `.pre` per series with the JOINTLY re-estimated
-           univariate block, as NAME.1.pre beside the input. The C has no
+  -W       write back one `.inp` per series with the JOINTLY re-estimated
+           univariate block, as NAME.1.inp beside the input. The C has no
            equivalent; every other letter here is its own, and a command line
            written for the C never carries a -W.
            The univariate blocks MOVE when the transfer is fitted beside them,
            and this is how those estimates leave the program: into a MODIFIED
-           specification, or back to fue and fuf, which can read the result.
+           specification, or back to fue and fuf, which can estimate it.
+           `.inp` and NOT `.pre` on purpose: a `.pre` asserts an optimum, and
+           these blocks are optimal WITH the transfer, hence not univariately.
+           Run fue on one and the numbers move — which is the definition of a
+           specification, not of a `.pre`.
            It is NOT a better starting point -- the written .pre evaluates WORSE
            on the diagonal (-772.84 against -767.42 on the canonical case),
            necessarily, since the diagonal's optimum is fue's separate estimates
@@ -473,7 +477,7 @@ def main(argv=None):
              model_name=None, outfile=None, cons=None, net=None, guide=None,
              prewhiten_only=False, net_ident=False, no_transfer=False,
              no_stderr=False, estwin=0, rolling_csv=None, html_report=False,
-             aggr=None, write_pre=False,
+             aggr=None, write_inp=False,
              embed=True, verbose=False,
              fix_out_arma=False, fix_inp_arma=False, fix_out_det=False,
              fix_inp_det=False, fix_mu=False)
@@ -532,7 +536,7 @@ def main(argv=None):
         elif flag == "-a":
             o["aggr"] = arg
         elif flag == "-W":
-            o["write_pre"] = True
+            o["write_inp"] = True
         elif flag == "-N":
             o["fix_out_arma"] = True
         elif flag == "-X":
@@ -728,16 +732,16 @@ def _run(o, files):
             forecast_aggregates(fcA, cs, aggs)))
 
     # ── write the re-estimated univariate blocks back out ────────────────────
-    if o["write_pre"]:
-        from .pre import next_pre_path
-        from .pre import write_pre as _wpre
+    if o["write_inp"]:
+        from .pre import next_inp_path
+        from .pre import write_inp as _wpre
         if se is None or se.ifault:
-            raise CliError("-W needs the standard errors, which a .pre carries; "
-                           "it cannot be combined with -Q")
+            raise CliError("-W needs the standard errors, which this format "
+                           "carries; it cannot be combined with -Q")
         written = []
         inputs = {os.path.abspath(p) for p in files}
         for i, src in enumerate(files):
-            target = next_pre_path(src)
+            target = next_inp_path(src)
             if os.path.abspath(target) in inputs:
                 raise CliError(f"-W would overwrite the input {target}")
             _wpre(f, series=i, path=target, std_errors=se)

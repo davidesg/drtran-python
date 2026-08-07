@@ -1,5 +1,11 @@
 # ATSW and its assistants — an architecture
 
+> **The file conventions** — what `.inp`, `.out` and `.pre` each assert, why
+> only the estimating program may write a `.pre`, and what the stage-to-stage
+> flow guarantees — are studied with measurements in
+> [`LADDER_AS_OPTIMISATION.md`](LADDER_AS_OPTIMISATION.md). Read it before
+> changing anything that writes a file.
+
 What each MCP server is for, how they relate, and which decisions this settles.
 Written 2026-08-02, when drtran reached its first beta and the question became
 unavoidable: **one multivariate assistant or two?**
@@ -202,7 +208,7 @@ Proposed protocol, mirroring ART's four stages:
    variance_decomposition ⚠ refuses if Q is not diagonal, and says why
 7. forecast               level + period + annual with bands; aggregates
    evaluate_out_of_sample -estwin/-C: MAE/RMSE/MAPE by horizon
-8. write_pre              -W: the re-estimated univariate blocks back out
+8. write_inp              -W: the re-estimated univariate blocks back out
 ```
 
 Two tools with no counterpart in ART or drvarma, and they are the reason this

@@ -16,6 +16,25 @@ mistake that gets expensive when the two copies drift apart.
 What this module adds is **validation**: checking that a `.pre` carries what the
 joint estimation needs, and failing with a clear message if it does not, instead
 of propagating an incomplete model until the likelihood fails to add up.
+
+The file conventions
+--------------------
+`.inp`, `.out` and `.pre` are one format and three different CLAIMS, and the
+distinction is what makes the build cycle a fixed-point iteration rather than
+a pile of files:
+
+* `.inp` — a SPECIFICATION. The parameter values are seeds.
+* `.out` — the full record of one estimation and its diagnosis.
+* `.pre` — that same `.inp` with the estimates as new initial values: an
+  OPTIMUM, in re-runnable form. Testable: run fue on a `.pre` and the numbers
+  do not move.
+
+A `.pre` that is edited becomes an `.inp` again. And only the program that
+performed the estimation may write a `.pre` — the file carries no mark of its
+author, so a fabricated one is indistinguishable downstream from a certified
+one. That is why `write_inp` below writes `.inp`.
+
+See `docs/LADDER_AS_OPTIMISATION.md` for the measurements behind all of this.
 """
 
 from __future__ import annotations
@@ -109,8 +128,24 @@ def check_scale(spec, minimum=10.0):
     return None
 
 
-def write_pre(fit, series=0, path=None, std_errors=None):
-    """Write back a `.pre` with the JOINTLY re-estimated univariate block.
+def write_inp(fit, series=0, path=None, std_errors=None):
+    """Write back an `.inp` with the JOINTLY re-estimated univariate block.
+
+    **It writes `.inp`, not `.pre`, and the extension is the whole point.** In
+    this suite the two are the same FORMAT and different CLAIMS:
+
+    * `.inp` is a SPECIFICATION — parameter values are seeds;
+    * `.pre` is that same file with the estimates as new initial values, i.e.
+      AN OPTIMUM in re-runnable form. The invariant is testable: run fue on a
+      `.pre` and the numbers do not move.
+
+    What is written here fails that invariant, and not marginally — measured on
+    the passthrough case, re-running fue moves the parameters by 13.11. It
+    cannot pass: these blocks are optimal *with the transfer in the model*, and
+    the univariate optimum is by definition fue's separate estimate. So the
+    file is a legitimate starting point and an illegitimate `.pre`, and it says
+    so in its name. Under the convention, a `.pre` that is touched becomes an
+    `.inp` again; this is that, arrived at from the other direction.
 
     fue leaves a `.pre`, drtran reads it as a seed and re-estimates everything
     together — and the univariate blocks **move** while it does: on the canonical
@@ -118,23 +153,23 @@ def write_pre(fit, series=0, path=None, std_errors=None):
     -0.094588 once the transfer is fitted beside them. This writes that back.
 
     **What it is not.** It is not a better starting point. Measured on the
-    canonical case, the written `.pre` evaluates at -772.840628 on the diagonal
-    where the original evaluates at -767.424341 — WORSE, and necessarily so: the
-    blocks written here are optimal *with the transfer in the model*, and the
-    diagonal's optimum is by definition fue's separate estimates. That is the
-    gate this whole port is built on. Both starting points reach the same joint
-    optimum (-718.287406) in the same number of iterations.
+    canonical case, the written file evaluates at -772.840628 on the diagonal
+    where the original `.pre` evaluates at -767.424341 — WORSE, and necessarily
+    so, for the reason above. That is the gate this whole port is built on. Both
+    starting points reach the same joint optimum (-718.287406) in the same
+    number of iterations.
 
     **What it is for**, then:
 
     * carrying the estimates into a MODIFIED specification — add a lag, free a
       covariance — so the next model starts from the best current description of
       each series rather than from the pre-transfer one;
-    * handing the joint estimates back to fue and fuf, since the result is a
-      valid `.pre` and those programs can read, plot and forecast from it;
-    * the record: a `.pre` is the human-readable statement of what was estimated.
+    * handing the joint estimates back to fue and fuf, which read this format
+      and can estimate, plot and forecast from it — and estimating it is
+      exactly the right thing to do with a specification;
+    * the record: it is the human-readable statement of what was estimated.
 
-    What is NOT written is the transfer. A `.pre` is a UNIVARIATE file: it has
+    What is NOT written is the transfer. This is a UNIVARIATE file: it has
     room for the series' ARMA, deterministics and mean, and nowhere to put
     omega(B)/delta(B). That is the design, not a gap — the network is declared
     separately in the `.dag` and the `.cns`, and `x0_from_pre` deliberately
@@ -160,31 +195,39 @@ def write_pre(fit, series=0, path=None, std_errors=None):
     cs = fit.cast_spec
     sc = cs.series[series]
     if path is None:
-        raise ValueError("write_pre needs a path")
+        raise ValueError("write_inp needs a path")
 
     if std_errors is None:
         std_errors = standard_errors(fit)
     if std_errors.ifault:
         raise RuntimeError(
             "the standard errors are not available (the Hessian at this point "
-            f"is not usable: ifault={std_errors.ifault}), and a .pre carries "
-            "them; re-estimate before writing one")
+            f"is not usable: ifault={std_errors.ifault}), and this format "
+            "carries them; re-estimate before writing one")
 
     params = np.asarray(unpack(fit)["series"][series], float)
     off = cs.npar_links + sum(s.npar for s in cs.series[:series])
     se = np.asarray(std_errors.se_of_slot[off:off + sc.npar], float)
-    # a slot the `.cns` fixed has no standard error; the `.pre` still needs a
+    # a slot the `.cns` fixed has no standard error; the file still needs a
     # number in the column, and zero is the honest one for a fixed parameter
     se = np.nan_to_num(se, nan=0.0)
 
     model = copy.deepcopy(sc.spec.model)
     model._result = SimpleNamespace(params=params, std_errors=se)
+    # fue's writer emits the format; the EXTENSION is ours to choose, and that
+    # is the entire difference between a claim that holds and one that does not
     model.write_pre(str(path))
     return str(path)
 
 
-def next_pre_path(source, suffix=1):
-    """`ES_CPI_m10.pre` -> `ES_CPI_m10.1.pre`, fue's iteration convention.
+def next_inp_path(source, suffix=1):
+    """`ES_CPI_m10.pre` -> `ES_CPI_m10.1.inp`, fue's iteration convention.
+
+    The suffix is fue's; the EXTENSION changes on purpose. What drtran writes
+    back is a specification, not an optimum — see `write_inp` — and the cycle
+    the convention describes is exactly this:
+
+        .inp --(fue estimates)--> .pre --(edited / re-estimated jointly)--> .inp
 
     Deliberately never the source path: overwriting the input of the run that
     produced it destroys the only record of where the estimates came from, and
@@ -193,6 +236,6 @@ def next_pre_path(source, suffix=1):
     import os
 
     base = os.path.basename(str(source))
-    stem = base[:-4] if base.lower().endswith(".pre") else base
+    stem = base[:-4] if base.lower().endswith((".pre", ".inp")) else base
     return os.path.join(os.path.dirname(str(source)) or ".",
-                        f"{stem}.{suffix}.pre")
+                        f"{stem}.{suffix}.inp")

@@ -20,7 +20,7 @@ drtran = pytest.importorskip("drtran")
 from drtran.cast import (Link, build_cast_spec, loglik_diagonal,  # noqa: E402
                          x0_from_pre)
 from drtran.estimate import fit, loglik, standard_errors  # noqa: E402
-from drtran.pre import next_pre_path, write_pre  # noqa: E402
+from drtran.pre import next_inp_path, write_inp  # noqa: E402
 
 CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
@@ -41,7 +41,7 @@ def written(tmp_path_factory):
     cs = build_cast_spec([drtran.load_pre(a), drtran.load_pre(b)], links=LINK)
     f = fit(cs, embed=True)
     se = standard_errors(f)
-    out = [write_pre(f, series=i, path=next_pre_path(p), std_errors=se)
+    out = [write_inp(f, series=i, path=next_inp_path(p), std_errors=se)
            for i, p in enumerate((a, b))]
     return (a, b), out, f
 
@@ -68,9 +68,9 @@ def test_it_never_overwrites_its_input(written):
     (a, b), out, _f = written
     assert os.path.abspath(out[0]) != os.path.abspath(a)
     assert os.path.abspath(out[1]) != os.path.abspath(b)
-    assert out[0].endswith("ES_CPI_m10.1.pre")
-    assert next_pre_path("x/ES_CPI_m10.pre") == "x/ES_CPI_m10.1.pre"
-    assert next_pre_path("ES_CPI_m10.pre", 3) == "./ES_CPI_m10.3.pre"
+    assert out[0].endswith("ES_CPI_m10.1.inp")
+    assert next_inp_path("x/ES_CPI_m10.pre") == "x/ES_CPI_m10.1.inp"
+    assert next_inp_path("ES_CPI_m10.pre", 3) == "./ES_CPI_m10.3.inp"
 
 
 def test_the_cycle_reaches_the_same_optimum(written):
@@ -108,7 +108,7 @@ def test_the_written_pre_is_a_WORSE_diagonal_start_and_must_be(written):
 
 
 def test_it_refuses_without_standard_errors(written):
-    """A `.pre` carries them, so there is nothing to write without them."""
+    """The format carries them, so there is nothing to write without them."""
     from drtran.estimate import StdErrors
     import numpy as np
 
@@ -117,6 +117,58 @@ def test_it_refuses_without_standard_errors(written):
                     se_of_slot=np.array([np.nan]), t=np.array([np.nan]),
                     p=np.array([np.nan]), ifault=2)
     with pytest.raises(RuntimeError, match="standard errors are not available"):
-        write_pre(f, series=0, path="/tmp/should_not_appear.pre",
+        write_inp(f, series=0, path="/tmp/should_not_appear.inp",
                   std_errors=bad)
-    assert not os.path.exists("/tmp/should_not_appear.pre")
+    assert not os.path.exists("/tmp/should_not_appear.inp")
+
+
+def test_what_is_written_is_a_specification_not_an_optimum(tmp_path):
+    """Why the extension changed, stated as the invariant it turns on.
+
+    A `.pre` claims to be the optimum of its own specification, and that claim
+    is testable: run fue on it and the numbers do not move. What drtran writes
+    back fails the test — necessarily, since these blocks are optimal WITH the
+    transfer beside them and the univariate optimum is by definition fue's
+    separate estimate.
+
+    So the file is a perfectly good STARTING POINT and a false `.pre`. It
+    carries no mark of who wrote it, so the wrong extension would make it
+    indistinguishable downstream from an optimum fue had certified — and the
+    ladder climbs by trusting exactly that.
+    """
+    import shutil
+    import subprocess
+    import sys
+
+    import numpy as np
+
+    import drtran
+    from drtran.cast import Link, build_cast_spec
+    from drtran.estimate import standard_errors
+    from drtran.pre import load_pre, write_inp
+    from drtran.slots import build_slots
+
+    specs = [load_pre(ES), load_pre(WTI)]
+    cs = build_cast_spec(specs, links=[Link(0, 1, 0, 0, 1)])
+    table = build_slots(cs)
+    f = drtran.fit(cs, x0=drtran.x0_full(cs, table), embed=True, slots=table)
+    tgt = str(tmp_path / "block.inp")
+    write_inp(f, series=0, path=tgt, std_errors=standard_errors(f))
+    assert tgt.endswith(".inp")
+
+    def vals(p):
+        m = load_pre(p).model
+        return np.array([o for it in m.interventions for o in it.omega]
+                        + [c for fa in m.ma for c in fa], float)
+
+    antes = vals(tgt)
+    r = subprocess.run([sys.executable, "-m", "fue", "block"],
+                       cwd=str(tmp_path), capture_output=True, timeout=600)
+    pre = tmp_path / "block.pre"
+    if not pre.exists():                       # fue no disponible en este entorno
+        import pytest as _pt
+        _pt.skip(f"fue no produjo el .pre: {r.stderr[-200:]!r}")
+    movido = float(np.max(np.abs(antes - vals(str(pre)))))
+    assert movido > 1e-6, (
+        "si esto NO se moviera, el fichero SÍ sería un .pre y el cambio de "
+        f"extensión estaría de más; se movió {movido:.6f}")

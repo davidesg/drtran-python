@@ -162,9 +162,18 @@ load when `start`/`freq`/`nobs` are not compatible. And print the date range in
 
 ---
 
-## BUG-3. `mtram.write_pre` writes files that are not `.pre` files (mtram's)
+## BUG-3. `write_pre` wrote files that are not `.pre` files (mtram's) — FIXED
 
-**Found 2026-08-07**, while checking a claim of mine that turned out to be
+**Found 2026-08-07; fixed the same day.** `write_pre` is now `write_inp`, at
+all three levels — `drtran.pre.write_inp`, the CLI's `-W`, and mtram's tool —
+and `next_pre_path` is `next_inp_path`, emitting `NAME.1.inp`. Nothing about
+the CONTENT changed: the file was always a legitimate starting point, and it is
+the extension that was making a claim the content could not support.
+`tests/test_write_inp.py` pins the invariant in the direction that matters —
+it asserts the written file DOES move when fue re-estimates it, so that if it
+ever stops moving someone has to come back and ask why.
+
+Found while checking a claim of mine that turned out to be
 backwards. I had recorded the `.inp -> .pre` step as a "gap in the ladder"
 because no MCP tool performs it. It is not a gap. The extensions carry the
 division of labour, and each is a different claim:
@@ -184,13 +193,13 @@ wrote it — a fabricated one is indistinguishable downstream from a genuine one
 **The invariant is testable.** Run fue on a `.pre` and the numbers must not
 move.
 
-**Symptom.** `write_pre` emits `<name>.1.pre`, and those files fail the
-invariant:
+**Symptom (before the fix).** `write_pre` emitted `<name>.1.pre`, and those
+files fail the invariant:
 
 | file | max abs change after re-running fue |
 |---|---|
 | `.pre` written by fue | **0.000000** |
-| `.pre` written by `mtram.write_pre` | **13.109261** |
+| the same block written by drtran | **13.109261** |
 
 **Cause.** What it writes is the univariate block as re-estimated BESIDE a
 transfer. Those values are optimal for the joint model and, necessarily,
@@ -208,15 +217,15 @@ documented.
 
 Two consequences follow. Nothing in the suite distinguishes a real `.pre` from
 a file that merely has the extension. And the round trip loses the very thing
-`write_pre` exists to carry: reload its output into mtram and the jointly
-re-estimated values are discarded.
+`write_pre` existed to carry: reload its output into mtram and the jointly
+re-estimated values are discarded. (Still true of `write_inp`, and now
+harmless — re-estimating a specification is the right thing to do with one.)
 
-**Fix.** mtram should write its own file for its own purpose instead of
-borrowing the univariate convention. What it holds is a STARTING POINT, not an
-optimum, and the format for a starting point is `.inp`. If mtram later needs to
-persist a multivariate case — the network, the links, the constraints — that
-too should be its own `.inp`-analogue. The `.pre` is the contract between
-univariate optima and should not carry multivariate content.
+**Fix, applied.** Write `.inp`. What is held is a STARTING POINT, not an
+optimum, and the format for a starting point is `.inp`. Still open as design:
+if mtram later needs to persist a MULTIVARIATE case — the network, the links,
+the constraints — that too should be its own `.inp`-analogue. The `.pre` is the
+contract between univariate optima and must not carry multivariate content.
 
 ### The rule this follows from, and what it settles
 

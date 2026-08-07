@@ -53,6 +53,20 @@ Spanish at an English-speaking user.
 ══════════════════════════════════════════════════════
 DE DÓNDE PARTES: LOS .pre, NO LAS SERIES CRUDAS
 ══════════════════════════════════════════════════════
+EL CONVENIO DE FICHEROS, que es lo que hace subible la escalera:
+  .inp  una ESPECIFICACIÓN. Los valores son SEMILLAS, un punto de partida.
+  .out  el registro completo de una estimación Y SU DIAGNOSIS.
+  .pre  ese mismo .inp con las estimaciones como nuevos valores iniciales:
+        un ÓPTIMO, en forma reejecutable. Invariante comprobable: corre fue
+        sobre un .pre y los números NO se mueven.
+  Un .pre que se TOCA vuelve a ser un .inp -- editar la especificación deshace
+  la afirmación de que esos valores son su óptimo.
+  Aceptas los dos: si el analista reformuló un .pre, lo que tiene es un .inp y
+  sirve igual (load_pre reestima al entrar). Lo que NO haces nunca es escribir
+  un .pre: sólo el programa que estimó puede afirmar un óptimo, y el fichero no
+  lleva marca de quién lo escribió. Por eso write_inp escribe .inp.
+  Detalle y mediciones en docs/LADDER_AS_OPTIMISATION.md.
+
 mtram NO identifica modelos univariantes: eso es ART. Parte de ficheros `.pre`,
 que son el CONTRATO de continuidad de la escalera — ART estima el mejor modelo
 univariante de cada serie y lo deja escrito ahí.
@@ -2260,35 +2274,53 @@ def build_model(name: str, horizon: int = 12) -> str:
 
 # ── 7. back out ────────────────────────────────────────────────────────────
 @mcp.tool()
-def write_pre(name: str, outdir: str = ".") -> str:
-    """Write the JOINTLY re-estimated univariate blocks back out as `.pre`.
+def write_inp(name: str, outdir: str = ".") -> str:
+    """Write the JOINTLY re-estimated univariate blocks back out as `.inp`.
 
     The blocks MOVE when the transfer is fitted beside them, and this is how
     those estimates leave mtram: into a modified specification, or back to ART
-    and fuf, which read a `.pre`.
+    and fuf, which read this format.
 
-    NOT a better starting point — they are optimal WITH the transfer, so on the
-    diagonal they evaluate worse, necessarily. The transfer is not written: a
-    `.pre` is univariate.
+    **`.inp` and NOT `.pre`, and the extension is the claim.** A `.pre` is an
+    `.inp` with the estimates as new initial values — an OPTIMUM, in re-runnable
+    form — and the invariant is testable: run fue on a `.pre` and the numbers do
+    not move. What is written here fails that test by 13.11 on the passthrough
+    case, and cannot pass it: these blocks are optimal WITH the transfer, so on
+    the diagonal they evaluate worse, necessarily.
+
+    That makes it a perfectly good starting point and a false `.pre`. The file
+    carries no mark of who wrote it, so a wrong extension here would be
+    indistinguishable downstream from an optimum fue had certified — and the
+    ladder climbs by trusting exactly that.
+
+    The transfer is not written: this is a univariate file.
     """
     from drtran.estimate import standard_errors
-    from drtran.pre import next_pre_path
-    from drtran.pre import write_pre as _wpre
+    from drtran.pre import next_inp_path
+    from drtran.pre import write_inp as _wpre
 
     f = _require_fit(name)
     specs = _require(name)
     se = standard_errors(f)
     if se.ifault:
         raise ValueError("no hay errores típicos utilizables (el hessiano en este "
-                         "punto no lo es); un .pre los lleva, así que reestima antes")
+                         "punto no lo es); el fichero los lleva, así que "
+                         "reestima antes")
     written = []
     for i, s in enumerate(specs):
-        tgt = os.path.join(outdir, os.path.basename(next_pre_path(s.path)))
+        tgt = os.path.join(outdir, os.path.basename(next_inp_path(s.path)))
         _wpre(f, series=i, path=tgt, std_errors=se)
         written.append(tgt)
     return ("Bloques univariantes reestimados escritos:\n  "
             + "\n  ".join(written)
-            + "\n\n  La transferencia NO va en ellos: un .pre es univariante."
+            + "\n\n  Son `.inp`, NO `.pre`, y la extensión es la afirmación: un"
+              "\n  `.pre` dice \"esto es el óptimo de esta especificación\", y"
+              "\n  estos bloques son óptimos CON la transferencia, no por su"
+              "\n  cuenta. Corre fue sobre uno y los números se mueven -- que es"
+              "\n  la definición de una especificación, no la de un `.pre`."
+              "\n\n  Para volver a subir el peldaño: estímalos con fue, que"
+              "\n  devolverá `.pre` de verdad."
+              "\n  La transferencia NO va en ellos: es un fichero univariante."
               "\n  Vuelve a declarar la red con set_network.")
 
 

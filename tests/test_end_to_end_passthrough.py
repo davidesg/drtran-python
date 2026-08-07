@@ -132,7 +132,8 @@ def test_a_genuine_pre_is_a_fixed_point(ladder):
 
     Measured on this pipeline: 0.000000. It is the check that tells a real
     `.pre` from a file that merely has the extension — see `docs/BUGS.md`,
-    BUG-3, where mtram's own `write_pre` moves by 13.11.
+    BUG-3, where the block drtran writes back moves by 13.11 — which is
+    why it is written as `.inp`.
     """
     import shutil
     import numpy as np
