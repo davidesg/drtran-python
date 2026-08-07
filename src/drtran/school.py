@@ -14,6 +14,8 @@ job, and lives in `mcp_server`.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 
@@ -344,3 +346,268 @@ def npar_for_series(fit, series_index=0):
         if lk.out == series_index:
             n += (lk.s + 1) + lk.r
     return n
+
+
+def ccf_pairs(fit, link_index=0, lag=None, top=5, embed=None):
+    """Which PAIRS of observations build a residual-CCF coefficient.
+
+    `calibrate` asks "which observation bends the instruments" and answers with
+    leave-one-out over one series. Muñoz's cases ask something one step
+    narrower, and the answer is a PAIR:
+
+      "se justifica por distorsión negativa entre el ruido preblanqueado y los
+       residuos del input en II/94 y II/92, y III/86 y III/84" (6.4.2, lag 8)
+
+    Two dates, one in each series, separated by the lag. That is not a
+    rephrasing of a single outlier: neither observation need be extreme on its
+    own. The CCF coefficient at lag k is
+
+        r_k = SUM_t  aX_t · aN_{t+k}  /  (n · sX · sN)
+
+    a sum of PRODUCTS, and a product is large when the two factors are
+    moderately large TOGETHER and of the same sign. A pair of ordinary
+    observations that happen to line up can carry a coefficient, and no
+    single-series scan will ever show it.
+
+    That distinction is what makes it worth computing. An analyst who finds a
+    spike supported by two dates has a different problem from one supported by
+    an outlier: an outlier is an intervention, while a coincidence of two
+    moderate values at a fixed distance is either a real dynamic the model
+    misses, or nothing at all.
+
+    `lag` defaults to the coefficient with the largest absolute value over
+    k >= 0. Returns (lag, r_k, pairs) with pairs = [(date_input, date_noise,
+    contribution as a fraction of r_k), ...], largest |contribution| first.
+    """
+    from .calibrate import _date_of
+    from .netid import residuals
+
+    cs = fit.cast_spec
+    link = cs.links[link_index]
+    emb = fit.embed if embed is None else embed
+    a, ifa = residuals(fit.x, cs, embed=emb, structural=True)
+    if ifa:
+        return 0, float("nan"), []
+    a = np.asarray(a, float)
+    n = a.shape[0]
+    aX = a[:, link.inp] - a[:, link.inp].mean()
+    aN = a[:, link.out] - a[:, link.out].mean()
+    sX = math.sqrt(float((aX * aX).sum()) / n)
+    sN = math.sqrt(float((aN * aN).sum()) / n)
+    if sX < 1e-12 or sN < 1e-12:
+        return 0, float("nan"), []
+
+    nlags = max(10, min(n // 4, 24))
+    if lag is None:
+        rs = [float((aX[:n - k] * aN[k:]).sum()) / (n * sX * sN)
+              for k in range(nlags + 1)]
+        lag = int(np.argmax(np.abs(rs)))
+    lag = int(lag)
+    prod = aX[:n - lag] * aN[lag:]
+    r_k = float(prod.sum()) / (n * sX * sN)
+    if abs(r_k) < 1e-14:
+        return lag, r_k, []
+
+    mX = cs.series[link.inp].spec.model
+    mN = cs.series[link.out].spec.model
+    lostX = int(getattr(mX.series, "nobs", n)) - n
+    lostN = int(getattr(mN.series, "nobs", n)) - n
+
+    contrib = prod / (n * sX * sN * r_k)
+    order = np.argsort(-np.abs(contrib))[:top]
+    pairs = [(_date_of(mX, lostX + int(t) + 1),
+              _date_of(mN, lostN + int(t) + lag + 1),
+              float(contrib[int(t)])) for t in order]
+    return lag, r_k, pairs
+
+
+def noise_ma_roots(fit, series_index=0, near=1.10):
+    """Near-unit FACTORS of the noise's MA polynomial, grouped by modulus.
+
+    The operational signature of OVER-DIFFERENCING. If a series was
+    differenced more than it needed, the extra factor (1 - B) has to be undone
+    by the moving average, and it can only do that with a root ON the unit
+    circle — so in a sample it comes out just outside, and the closer it sits
+    the more the data are saying the difference was not needed.
+
+    The convention is `theta(B) = 1 - theta_1 B - ... - theta_q B^q`, the one
+    `cast_us_py` returns, so a modulus of 1 is the boundary of invertibility.
+    Verified against a known airline model: the regular factor with
+    theta = -0.4212 gives |z| = 2.374 = 1/0.4212, and the seasonal one with
+    Theta = 0.8147 gives twelve roots at 1.0172 = (1/0.8147)^(1/12).
+
+    **Roots are grouped, and the grouping is the point.** A SEASONAL factor
+    (1 - Theta B^s) contributes s roots of equal modulus spread evenly round
+    the circle — INCLUDING a real positive one at frequency zero. Reading that
+    one root on its own says "regular differencing", which is wrong, and sends
+    the analyst to undo a difference that is not the one in question. What
+    identifies the factor is the multiplicity: one isolated root is the regular
+    difference, a ring of `freq` of them is the seasonal one.
+
+    Returns [(modulus, multiplicity, kind), ...] closest to the circle first,
+    with `kind` one of "regular", "estacional" or "" when it is neither.
+    """
+    from fue.cast_us import cast_us_py
+
+    cs = fit.cast_spec
+    x = np.asarray(fit.x, float)
+    idx = cs.npar_links
+    theta, freq = None, 1
+    for i, sc in enumerate(cs.series):
+        piece = x[idx:idx + sc.npar]
+        idx += sc.npar
+        if i != series_index:
+            continue
+        freq = int(getattr(sc.spec.model.series, "freq", 1) or 1)
+        try:
+            p, q, _phi, th, *_r, ifa = cast_us_py(piece, sc.est_spec)
+            if not ifa and q:
+                theta = np.asarray(th, float)[:q]
+        except Exception:                                  # noqa: BLE001
+            return []
+    if theta is None or not len(theta):
+        return []
+
+    co = np.r_[1.0, -theta]                    # 1 - th1 z - th2 z^2 - ...
+    try:
+        rts = np.roots(co[::-1])               # np.roots wants descending
+    except Exception:                          # noqa: BLE001
+        return []
+    mods = sorted(float(abs(z)) for z in rts
+                  if np.isfinite(abs(z)) and abs(z) < near)
+    out, k = [], 0
+    while k < len(mods):
+        j = k
+        while j + 1 < len(mods) and mods[j + 1] - mods[k] < 1e-3:
+            j += 1
+        m, mult = float(np.mean(mods[k:j + 1])), j - k + 1
+        kind = ("estacional" if freq > 1 and mult in (freq, freq - 1)
+                else "regular" if mult == 1 else "")
+        out.append((m, mult, kind))
+        k = j + 1
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def integration_order_moved(fit_transfer, fit_diagonal, series_index=0,
+                            near=1.10):
+    """Did the noise become OVER-differenced once the input was accounted for?
+
+    The most interesting conceptual result in Muñoz's thesis, and the one that
+    sounds impossible until you see the mechanism: lnE is I(2) on its own and
+    I(1) after the effects of DlnM1 are removed. She flags it as paradoxical
+    and possible only in finite samples.
+
+    It is not really paradoxical. Univariate identification has one instrument
+    and must explain everything with it, so influence arriving from an input —
+    a smooth, persistent, wandering influence — reads as a trend of the
+    series' own, and gets differenced away. Put the input in the model and that
+    part of the wandering has an owner, so the extra difference is now removing
+    something that is no longer there.
+
+    The comparison is FREE and it is the right one: the diagonal rung is
+    already estimated (it is `load_pre`'s gate) and it carries the same noise
+    model fitted WITHOUT the transfer. So we ask whether a root that was
+    comfortably inside moved out toward the unit circle once the transfer went
+    in. Nothing else changes between the two fits, which is what makes the
+    movement attributable.
+
+    **This does not compare likelihoods across differencing orders, and must
+    not.** Models with different d are models of different data. What is
+    compared is where the MA roots sit within ONE differencing order.
+
+    Returns (moved, root_joint, root_diagonal, kind) — `moved` True when the
+    factor sits CLOSER to the unit circle in the joint fit than in the
+    diagonal one. False whenever there is no diagonal fit to compare against:
+    a position is not a movement.
+    """
+    if fit_diagonal is None:
+        # Sin el escalón diagonal no hay MOVIMIENTO que medir, sólo una
+        # posición. Decir "se movió" comparando contra nada sería inventarse la
+        # mitad del hallazgo, y es justo la mitad interesante.
+        return False, float("nan"), float("nan"), ""
+    rj = noise_ma_roots(fit_transfer, series_index, near=near)
+    if not rj:
+        return False, float("nan"), float("nan"), ""
+    mj, mult, kind = rj[0]
+    # el MISMO factor, identificado por su multiplicidad: comparar la raíz
+    # regular de un ajuste con la estacional del otro no mide nada
+    md = float("nan")
+    for m, mu, _k in noise_ma_roots(fit_diagonal, series_index, near=near * 3):
+        if mu == mult:
+            md = m
+            break
+    moved = bool(np.isfinite(md) and mj < md - 1e-6 and mj < near)
+    return moved, mj, md, kind
+
+
+def seasonality_mismatch(specs, out=0, inp=1):
+    """Can the input's filter remove the output's seasonality? Often it cannot.
+
+    Muñoz 6.4.1 hits this and drtran would hit it identically. The output's
+    model has STOCHASTIC seasonality; the input's has none. Prewhitening
+    filters the output by the INPUT's ARMA, so the output's seasonality
+    survives the filter untouched and the filtered series is still
+    non-stationary at that frequency:
+
+      "genera una serie todavía no estacionaria en la frecuencia uno y una ccf
+       muy poco informativa."
+
+    An uninformative CCF is the dangerous outcome, not a loud one: it does not
+    announce itself. It looks like a CCF with structure everywhere, and the
+    contiguous-block heuristic will happily read an order off it.
+
+    The remedy in the thesis is a deliberate split between the model used to
+    IDENTIFY and the model used to ESTIMATE:
+
+      "Los parámetros estimados de estacionalidad determinista obtenidos en
+       M3.Q se emplean para calcular la desviación del output de sus
+       componentes deterministas, que posteriormente se filtra por el modelo
+       univariante del input. … No obstante, el modelo M2.Q, con estacionalidad
+       mixta, se emplea como modelo univariante del ruido en cada una de las
+       estimaciones eficientes."
+
+    An alternative output model, with the seasonality made deterministic,
+    exists only to make the CCF readable. The real model does the fitting.
+
+    **The class of the output's seasonality matters, not just its presence.**
+    A multiplicative SARIMA makes EVERY seasonal frequency stochastic at once,
+    which is the worst case for a filter that carries none. A hybrid (MEG,
+    "Modelos de Estacionalidad Generalizada", Abraham & Box 1978) leaves
+    stochastic only the frequencies that were found to be so, so the surviving
+    non-stationarity is narrower and the CCF degrades less. Reporting them as
+    the same thing would overstate the first.
+
+    The model class is long established; what is recent is the TESTING used to
+    resolve each frequency, whose critical values are under active research.
+    So `mcp_server` is careful to put the caution on the decision procedure
+    rather than on the specification — a distinction worth keeping, because
+    "experimental model" and "test whose critical values are being pinned
+    down" call for different amounts of hesitation.
+
+    Returns (mismatch, detail) where detail["out"] and detail["inp"] are one of
+    "sarima", "meg" or "determinista".
+    """
+    def _seasonal(sp):
+        m = sp.model
+        freq = int(getattr(m.series, "freq", 1) or 1)
+        if freq <= 1:
+            return "", freq
+        # SARIMA multiplicativo: (1-B^s) o factores estacionales completos.
+        # TODAS las frecuencias estacionales son estocásticas a la vez.
+        if (int(getattr(m, "D", 0) or 0) > 0 or getattr(m, "ar_s", None)
+                or getattr(m, "ma_s", None)):
+            return "sarima", freq
+        # MEG / híbrido: factores de frecuencia FIJA, una frecuencia cada uno.
+        if getattr(m, "ar_f", None) or getattr(m, "ma_f", None):
+            return "meg", freq
+        return "determinista", freq
+
+    ko, fo = _seasonal(specs[out])
+    ki, _fi = _seasonal(specs[inp])
+    mismatch = bool(ko in ("sarima", "meg") and ki not in ("sarima", "meg")
+                    and fo > 1)
+    n_f = len((getattr(specs[out].model, "ar_f", None) or [])) + \
+        len((getattr(specs[out].model, "ma_f", None) or []))
+    detail = {"out": ko, "inp": ki, "freq": fo, "out_n_fixed_freq": n_f}
+    return mismatch, detail

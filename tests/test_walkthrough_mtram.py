@@ -383,3 +383,88 @@ def test_the_asymmetry_is_stated_when_both_fail():
         sch.noise_adequacy = real
     assert "FALLAN LOS DOS" in txt
     assert "primero la RELACIÓN, después el RUIDO" in txt
+
+
+# ── nivel 3 ────────────────────────────────────────────────────────────────
+AIRLINE = os.path.join(CASES, "ES_CPI_airline.pre")
+
+
+def test_the_ccf_spike_is_traced_to_pairs_of_dates():
+    """Muñoz traces a residual-CCF lag to two dates, one in each series,
+    separated by the lag. Not an outlier: neither observation need be extreme
+    on its own, because the coefficient is a sum of PRODUCTS and two moderate
+    values that line up carry it. No single-series scan sees that."""
+    M.load_pre("PR", f"{ES},{WTI}")
+    M.set_network("PR", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("PR")
+    out = M.calibrate("PR")
+    assert "DE QUÉ PARES SALE EL PICO" in out
+    # el par dominante es el desplome del crudo y su llegada al IPC
+    assert "10/2008" in out and "05/2009" in out
+
+
+def test_the_seasonality_mismatch_is_announced_and_the_clean_case_is_not():
+    """A stochastic-seasonality output against a non-seasonal input gives "una
+    ccf muy poco informativa", and the dangerous part is that it does not
+    announce itself: it comes back full of structure and the contiguous-block
+    rule reads an order off it anyway."""
+    M.load_pre("SM", f"{AIRLINE},{WTI}", check=False)
+    bad = M.identify_link("SM")
+    assert "SARIMA MULTIPLICATIVO Y EL INPUT NO" in bad
+    assert "ident_pre" in bad
+
+    M.load_pre("SM2", f"{ES},{WTI}", check=False)
+    assert "EL INPUT NO" not in M.identify_link("SM2")
+
+
+def test_the_deterministic_preference_is_stated_and_meg_is_not_proposed():
+    """The advice is the ORDER OF PREFERENCE, not just the workaround.
+
+    And the caution about MEG has to land in the right place: the model class
+    is long established (Abraham & Box 1978), so calling it experimental would
+    be wrong. What is recent is the TESTING that resolves each frequency, whose
+    critical values are under active research — so the assistant does not
+    propose that route on its own, without disparaging the specification."""
+    M.load_pre("SM3", f"{AIRLINE},{WTI}", check=False)
+    out = M.identify_link("SM3")
+    assert "DETERMINISTA" in out
+    assert "La CLASE no es nueva ni experimental" in out
+    assert "NO propongas tú la ruta MEG" in out
+
+
+def test_identification_can_use_an_alternative_output_model():
+    """Muñoz §2.4's split: one model to make the CCF readable, another to fit.
+    What is tested is that the split HAPPENS — the identification uses the
+    alternative and says so — not that some particular order comes out."""
+    M.load_pre("SP", f"{AIRLINE},{WTI}", check=False)
+    out = M.identify_link("SP", 1, ident_pre=ES)
+    assert "IDENTIFICANDO CON UN MODELO ALTERNATIVO DEL OUTPUT" in out
+    # y la estimación sigue con el modelo REAL, no con el alternativo
+    assert M._SPECS["SP"][0].name == "ES_CPI"
+
+
+def test_a_seasonal_ma_factor_is_not_read_as_a_regular_difference():
+    """A seasonal factor (1 - Theta B^12) puts twelve roots round the circle,
+    INCLUDING a real positive one at frequency zero. Reading that root alone
+    says "regular differencing", which is wrong and sends the analyst to undo
+    the wrong difference. The multiplicity is what identifies the factor."""
+    from drtran.school import noise_ma_roots
+    M.load_pre("IR", f"{AIRLINE},{WTI}")
+    M.set_network("IR", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("IR")
+    roots = noise_ma_roots(M._FITS["IR"], 0)
+    assert roots, "el airline tiene un factor MA estacional cerca del círculo"
+    mod, mult, kind = roots[0]
+    assert mult == 12 and kind == "estacional"
+
+
+def test_no_movement_is_claimed_without_a_diagonal_to_compare_with():
+    """The finding is that a root MOVED toward the circle once the input was in
+    the model. Without the diagonal rung there is a position and no movement,
+    and claiming one would invent the interesting half of the result."""
+    from drtran.school import integration_order_moved
+    M.load_pre("IR2", f"{AIRLINE},{WTI}", check=False)   # sin puerta diagonal
+    M.set_network("IR2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("IR2")
+    moved, mj, md, kind = integration_order_moved(M._FITS["IR2"], None, 0)
+    assert moved is False

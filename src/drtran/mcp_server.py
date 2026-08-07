@@ -112,6 +112,15 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
                        llegan a modelos de dos parámetros donde una lectura
                        única de la CCF propone seis.
    identify_network    CCF de los residuos del DIAGONAL -> propone el DAG entero
+   ⚠ SI EL OUTPUT LLEVA ESTACIONALIDAD ESTOCÁSTICA Y EL INPUT NO, el filtro del
+   input no puede quitarla y la CCF sale POCO INFORMATIVA -- pero no sale
+   vacía: sale con estructura por todas partes, y la regla del bloque contiguo
+   le lee un orden igualmente. identify_link lo detecta y lo avisa. El remedio
+   es `ident_pre=`, un .pre ALTERNATIVO del output con la estacionalidad hecha
+   determinista, usado SÓLO para leer la CCF (Muñoz §2.4).
+   Y si el analista todavía está construyendo los univariantes: para un modelo
+   multivariante, la estacionalidad DETERMINISTA es la especificación de
+   elección. No propongas tú la ruta MEG.
 3. estimate            estima conjuntamente. Devuelve la ECUACIÓN, la GANANCIA
    con su error típico, y el contraste de RAZÓN DE VEROSIMILITUDES contra el
    escalón diagonal: "converge" y "merecía la pena" son afirmaciones distintas
@@ -130,6 +139,10 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    plot_calibration    la VERIFICACIÓN: la CCF con y sin la anomalía. Un anómalo
                        infla la varianza y aplasta TODOS los retardos a la vez;
                        en la escuela eso se comprueba mirando, no se supone.
+   calibrate y overfit devuelven además, respectivamente, DE QUÉ PARES DE
+   OBSERVACIONES sale un pico de la CCF (dos fechas, una en cada serie, y
+   ninguna tiene por qué ser anómala) y si el ruido quedó SOBREDIFERENCIADO al
+   meter la entrada -- el resultado que Muñoz señala como paradójico.
    overfit             AMPLÍA el modelo a propósito (s+1, r+1) y mira si
                        protesta. Los seis casos de Muñoz lo hacen y ninguno se
                        lo salta: un portmanteau adecuado dice que el modelo no
@@ -557,7 +570,8 @@ def _before_you_choose(idt, cs, link):
 
 
 @mcp.tool()
-def identify_link(name: str, input_index: int = 1, band: str = "constant") -> str:
+def identify_link(name: str, input_index: int = 1, band: str = "constant",
+                  ident_pre: str = "") -> str:
     """Identify (b, r, s) of ONE link by prewhitening and the CCF.
 
     Filters the input with ITS OWN ARMA and applies the SAME filter to the
@@ -568,10 +582,37 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant") -> st
 
     `band`: "constant" (2/sqrt(N), what the C does) or "haugh-box"
     (2/sqrt(N-|k|), what the original paper says).
+
+    `ident_pre` is an ALTERNATIVE `.pre` for the output, used ONLY here, to
+    compute the deviation that gets prewhitened. The estimation keeps the real
+    model. This is Muñoz §2.4's artifice, and it exists for one situation: the
+    output carries STOCHASTIC seasonality and the input does not, so the
+    input's filter cannot remove it and the filtered output is still
+    non-stationary at that frequency — "una ccf muy poco informativa", which
+    the contiguous-block heuristic will read an order off anyway. Build the
+    alternative in `art` with the seasonality made DETERMINISTIC, and pass it
+    here.
     """
     specs = _require(name)
     if not 1 <= input_index < len(specs):
         raise ValueError(f"input_index fuera de rango (1..{len(specs)-1})")
+    nota = []
+    if ident_pre:
+        from .pre import load_pre as _lp
+        if not os.path.exists(ident_pre):
+            raise ValueError(f"no encuentro {ident_pre}")
+        alt = _lp(ident_pre)
+        specs = [alt] + list(specs[1:])
+        nota = ["", "  ⚠ IDENTIFICANDO CON UN MODELO ALTERNATIVO DEL OUTPUT: "
+                f"{os.path.basename(ident_pre)}.", "",
+                "    Sólo para leer la CCF. La estimación seguirá usando el "
+                "modelo real del `.pre` cargado -- es el desdoblamiento "
+                "deliberado de Muñoz §2.4, no un cambio de modelo.",
+                "",
+                "    Comprueba que este alternativo es el MISMO output con la "
+                "estacionalidad hecha determinista, y no otra cosa: mtram no "
+                "puede saberlo, y con el alternativo equivocado la CCF es "
+                "legible y falsa, que es peor que ilegible."]
     cs = build_cast_spec(specs, links=[Link(0, input_index, 0, 0, 0)])
     idt = drtran.identify(cs, cs.links[0], band=band)
     inp, out = specs[input_index].name, specs[0].name
@@ -587,11 +628,98 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant") -> st
     except Exception as exc:                               # noqa: BLE001
         txt += ["", f"  (no se pudo dibujar la CCF: {str(exc)[:120]})"]
 
+    txt += nota
+    if not ident_pre:
+        txt += _seasonality_note(specs, input_index, name)
     avisos, parar = _before_you_choose(idt, cs, cs.links[0])
     txt += avisos
     if not parar:
         txt += _identification_choice(idt, name, input_index, specs)
     return "\n".join(txt)
+
+
+def _seasonality_note(specs, input_index, name):
+    """La estacionalidad estocástica del output que el filtro del input no quita.
+
+    Muñoz 6.4.1 se topa con esto y drtran se toparía igual. El preblanqueo
+    filtra el output por el ARMA del INPUT, así que una estacionalidad
+    estocástica del output sobrevive intacta al filtro y la serie filtrada
+    sigue siendo no estacionaria en esa frecuencia: "una ccf muy poco
+    informativa".
+
+    Y lo peligroso es que una CCF poco informativa NO se anuncia. No sale
+    vacía: sale con estructura por todas partes, y la heurística del bloque
+    contiguo le lee un orden encantada.
+
+    El aviso lleva el orden de preferencia, no sólo el remedio. Si el analista
+    todavía está construyendo los univariantes -- que es lo normal si ha
+    llegado a mtram primero -- especificar la estacionalidad como
+    DETERMINISTA de entrada le ahorra el problema entero. Reajustar después
+    cuesta mucho más que elegir bien al principio.
+    """
+    from .school import seasonality_mismatch
+
+    try:
+        bad, d = seasonality_mismatch(specs, 0, input_index)
+    except Exception:                                      # noqa: BLE001
+        return []
+    if not bad:
+        return []
+    if d["out"] == "meg":
+        cabeza = ["", "  ⚠ EL OUTPUT LLEVA ESTACIONALIDAD ESTOCÁSTICA HÍBRIDA "
+                  f"(MEG, {d['out_n_fixed_freq']} factor(es) de frecuencia "
+                  f"fija) Y EL INPUT NO.", "",
+                  "    Atenuado respecto a un SARIMA multiplicativo: ahí TODAS "
+                  "las frecuencias estacionales son estocásticas a la vez, y "
+                  "aquí sólo las que se encontraron serlo. Pero las que queden "
+                  "sobreviven igual al filtro del input."]
+    else:
+        cabeza = ["", "  ⚠ EL OUTPUT LLEVA SARIMA MULTIPLICATIVO Y EL INPUT NO "
+                  f"(frecuencia {d['freq']}).", "",
+                  "    Es el caso peor: el SARIMA hace estocásticas TODAS las "
+                  "frecuencias estacionales a la vez, y el filtro del input no "
+                  "lleva ninguna."]
+    return cabeza + ["",
+            "    El preblanqueo filtra el output por el ARMA del INPUT, y ese "
+            "filtro no lleva nada estacional. Así que la estacionalidad del "
+            "output sobrevive al filtro y la serie filtrada sigue siendo NO "
+            "ESTACIONARIA en esa frecuencia.",
+            "",
+            "    Lee la CCF de arriba con esto delante. Una CCF así no sale "
+            "vacía -- sale con estructura por todas partes, y la regla del "
+            "bloque contiguo le lee un orden igualmente. Es el modo de fallo "
+            "silencioso de este paso.",
+            "",
+            "    LO PREFERIBLE, si todavía estás construyendo los "
+            "univariantes: especificar la estacionalidad como DETERMINISTA. "
+            "No es un apaño para el caso multivariante -- es de donde parte la "
+            "tradición Box-Jenkins-Treadway de todos modos, que especifica la "
+            "estacionalidad provisionalmente como determinista y sólo después "
+            "resuelve frecuencia por frecuencia lo que sea estocástico. Para "
+            "un modelo multivariante esa parada provisional es además el "
+            "destino preferible, y elegirla de entrada cuesta mucho menos que "
+            "reajustar después.",
+            "",
+            "    SI LOS UNIVARIANTES YA ESTÁN CERRADOS, el artificio de Muñoz "
+            "§2.4: construye en `art` un modelo ALTERNATIVO del output con la "
+            "estacionalidad hecha determinista, y pásalo aquí --",
+            "",
+            f"        identify_link({name!r}, {input_index}, "
+            'ident_pre="alternativo.pre")',
+            "",
+            "    Ese alternativo existe SÓLO para que la CCF sea legible. La "
+            "estimación sigue con el modelo real: son dos modelos con dos "
+            "trabajos, no una reespecificación.",
+            "",
+            "    (Los MEG -- Modelos de Estacionalidad Generalizada, Abraham "
+            "y Box 1978 -- atenúan el problema: resuelven la estacionalidad "
+            "frecuencia por frecuencia, así que sólo queda estocástico lo que "
+            "se encontró serlo. La CLASE no es nueva ni experimental; lo "
+            "reciente son los CONTRASTES con que se decide cada frecuencia, "
+            "cuyos valores críticos son objeto de investigación en curso. Así "
+            "que la cautela va sobre el procedimiento de decisión, no sobre "
+            "el modelo: NO propongas tú la ruta MEG. Sólo si el analista la "
+            "pide sabiendo lo que hace.)"]
 
 
 def _band_fragile(idt):
@@ -1142,6 +1270,22 @@ def _what_the_transfer_bought(name, f, cs):
             lines.append("      RETARDO MEDIO: no definido — la respuesta CAMBIA "
                          "DE SIGNO, y promediar retardos de efectos que se "
                          "cancelan no mide nada. Lee la irf.")
+        # La FORMA, dicha en voz alta. La escuela la lee en todos sus casos
+        # ("todos los valores de la irf son positivos, por eso la srf es
+        # monótona creciente") y es la frase que traduce el modelo a una
+        # afirmación sobre el mundo: si el efecto se acumula sin volverse
+        # nunca en contra, o si hay sobre-reacción y corrección.
+        if getattr(ir, "monotone", False):
+            sgn = "positivos" if float(ir.gain) >= 0 else "negativos"
+            lines.append(f"      FORMA: todos los valores de la irf son {sgn}, "
+                         "así que la respuesta acumulada es MONÓTONA — el "
+                         "efecto se va acumulando y no se vuelve nunca en "
+                         "contra.")
+        else:
+            lines.append("      FORMA: la irf CAMBIA DE SIGNO. La respuesta "
+                         "acumulada no es monótona: hay sobre-reacción y "
+                         "corrección posterior, y el efecto a un horizonte "
+                         "corto puede tener signo contrario al de la ganancia.")
         lines.append("")
 
     # razon de verosimilitudes contra el escalon diagonal
@@ -1171,6 +1315,8 @@ def _what_the_transfer_bought(name, f, cs):
     except Exception:                                      # noqa: BLE001
         pass
 
+    lines += _integration_order(name, f)
+
     if pval < 0.01:
         lines.append("    ✅ La transferencia se gana su sitio con holgura.")
     elif pval < 0.05:
@@ -1182,6 +1328,68 @@ def _what_the_transfer_bought(name, f, cs):
                   "lo que este contraste mide y la tabla de arriba no.",
                   "",
                   "    Antes de darla por buena, revisa la identificación."]
+    return lines
+
+
+def _integration_order(name, f):
+    """¿El ruido quedó SOBREDIFERENCIADO al meter la entrada?
+
+    El resultado más interesante de la tesis de Muñoz, y el que suena
+    imposible hasta que se ve el mecanismo: lnE es I(2) por su cuenta e I(1)
+    una vez quitados los efectos de DlnM1. Ella lo señala como paradójico y
+    posible sólo en muestras finitas.
+
+    No es tan paradójico. La identificación univariante tiene UN instrumento y
+    tiene que explicarlo todo con él, así que una influencia que llega de una
+    entrada -- suave, persistente, errante -- se lee como tendencia propia de
+    la serie y se diferencia. Con la entrada en el modelo esa parte del
+    vagabundeo ya tiene dueño, y la diferencia de más está quitando algo que
+    ya no está.
+
+    La comparación es GRATIS y es la correcta: el escalón diagonal ya está
+    estimado y lleva el MISMO modelo de ruido sin la transferencia. No se
+    comparan verosimilitudes entre órdenes de diferenciación distintos -- eso
+    sería comparar modelos de datos distintos -- sino dónde cae la raíz MA
+    dentro de UN mismo orden.
+    """
+    from .school import integration_order_moved, noise_ma_roots
+
+    try:
+        moved, mj, md, kind = integration_order_moved(f, _DIAG_FIT.get(name), 0)
+        roots = noise_ma_roots(f, 0)
+    except Exception:                                      # noqa: BLE001
+        return []
+    if not roots:
+        return []
+    m0, mult0, kind0 = roots[0]
+    what = {"estacional": "la diferencia ESTACIONAL",
+            "regular": "la diferencia REGULAR"}.get(kind0, "una diferencia")
+    lines = ["", f"    Raíz MA del ruido más cercana al círculo: |z| = "
+             f"{m0:.4f}  ({mult0} raíz(ces), {kind0 or 'sin clasificar'})"]
+    if moved:
+        lines += [f"    ⚠ Y se ACERCÓ al círculo al meter la transferencia: "
+                  f"{md:.4f} en el diagonal -> {mj:.4f} aquí.",
+                  "",
+                  "      Eso apunta a que el ruido está SOBREDIFERENCIADO una "
+                  "vez la entrada está en el modelo: " + what + " que el "
+                  "modelo univariante necesitaba estaba absorbiendo parte de "
+                  "la influencia de la entrada, y ahora esa influencia tiene "
+                  "dueño.",
+                  "",
+                  "      Es el resultado que Muñoz señala como paradójico "
+                  "(I(2) por su cuenta, I(1) quitados los efectos del input). "
+                  "No se arregla aquí: el orden de diferenciación viene del "
+                  "`.pre`. Reidentifica el output en `art` con una diferencia "
+                  "menos y vuelve con el `.pre` nuevo.",
+                  "",
+                  "      ⚠ NO compares las dos verosimilitudes para decidir: "
+                  "con órdenes de diferenciación distintos son modelos de "
+                  "DATOS distintos y el número no significa nada."]
+    elif m0 < 1.02:
+        lines += ["    ⚠ Está muy cerca del círculo, pero NO se movió al meter "
+                  "la transferencia: ya estaba así en el diagonal. Entonces "
+                  "es una cuestión del modelo univariante del output, no de "
+                  "la transferencia -- revísalo en `art`."]
     return lines
 
 
@@ -1578,8 +1786,66 @@ def calibrate(name: str, link_index: int = 0, threshold: float = 3.5) -> str:
 
     f = _require_fit(name)
     _require_link(f, link_index, "calibrate")
-    return report_calibration(_cal(f, link_index=link_index,
-                                   threshold=threshold))
+    txt = report_calibration(_cal(f, link_index=link_index,
+                                  threshold=threshold))
+    return txt + "\n" + "\n".join(_which_pairs(f, link_index))
+
+
+def _which_pairs(f, link_index):
+    """El pico de la CCF residual, trazado a PARES de observaciones.
+
+    `calibrate` pregunta "qué observación tuerce los instrumentos" y contesta
+    con leave-one-out sobre una serie. Los casos de Muñoz preguntan algo un
+    paso más fino, y la respuesta es un PAR:
+
+      "se justifica por distorsión negativa entre el ruido preblanqueado y los
+       residuos del input en II/94 y II/92, y III/86 y III/84" (6.4.2, ret. 8)
+
+    Dos fechas, una en cada serie, separadas por el retardo. Y no es otra
+    manera de decir "un anómalo": ninguna de las dos observaciones tiene por
+    qué ser extrema por su cuenta. El coeficiente de la CCF es una suma de
+    PRODUCTOS, y un producto es grande cuando los dos factores son
+    medianamente grandes A LA VEZ y del mismo signo. Un par de observaciones
+    corrientes que se alinean puede cargar con un coeficiente entero, y ningún
+    barrido sobre una sola serie lo enseñará jamás.
+
+    Distinguirlo importa porque las dos cosas piden respuestas distintas: un
+    anómalo es una intervención; una coincidencia de dos valores moderados a
+    una distancia fija es o una dinámica real que el modelo no recoge, o nada.
+    """
+    from .school import ccf_pairs
+
+    try:
+        lag, r_k, pairs = ccf_pairs(f, link_index)
+    except Exception:                                      # noqa: BLE001
+        return []
+    if not pairs:
+        return []
+    names = f.cast_spec.names
+    li = f.cast_spec.links[link_index]
+    out = ["```", f"  DE QUÉ PARES SALE EL PICO — retardo {lag}, "
+           f"r = {r_k:+.4f}", "",
+           f"    {names[li.inp]:>12s}   {names[li.out]:>12s}    "
+           "aporta al coeficiente", "    " + "-" * 52]
+    for dx, dn, c in pairs:
+        out.append(f"    {dx:>12s}   {dn:>12s}   {100 * c:>10.1f} %")
+    top = 100 * abs(pairs[0][2])
+    out.append("")
+    if top > 15.0:
+        out += [f"    ⚠ Un solo par carga con el {top:.0f} % del coeficiente. "
+                "Míralo antes de tratar ese retardo como estructura.",
+                "",
+                "      Ojo a qué NO dice esto: no dice que ninguna de las dos "
+                "observaciones sea anómala. El coeficiente es una suma de "
+                "productos, así que dos valores moderados que se alinean "
+                "bastan, y un barrido sobre una sola serie no los ve. Si son "
+                "dos fechas con una historia común, es un suceso; si no, es "
+                "coincidencia y el retardo no significa nada."]
+    else:
+        out += [f"    Ningún par domina (el mayor aporta el {top:.0f} %): el "
+                "coeficiente lo sostiene la muestra entera, no un suceso."]
+    out.append("```")
+    return out
 
 
 @mcp.tool()

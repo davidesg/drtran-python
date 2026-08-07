@@ -293,15 +293,53 @@ than a p-value, and worth knowing as the school's own working criterion.
 
 ### Tier 3 — real design work
 
-9. **The identification/estimation model split** (§2.4). Needs an alternative
-   output model with deterministic seasonality, used only for prewhitening. The
-   payoff is that seasonal mismatch between input and output stops producing
-   "una ccf muy poco informativa" — which today we would simply misread.
-10. **Residual CCF spikes traced to observation pairs** (§2.3). `calibrate` does
-    leave-one-out on one series; this needs the pair.
-11. **Report the change in the integration order** of the noise versus the
-    univariate model. A conceptual finding, and one of the most interesting
-    results in the whole thesis.
+9. **The identification/estimation model split** (§2.4). ✅ implemented as
+   `identify_link(..., ident_pre=...)`: an alternative output `.pre` used ONLY
+   to compute the deviation that gets prewhitened, with estimation keeping the
+   real model. mtram does not synthesise that alternative — building univariate
+   models is `art`'s job and the ladder's contract — it DETECTS the situation
+   and says what to build.
+
+   **And the advice that came out of it is an order of preference, not a
+   workaround.** When the goal is a multivariate model, deterministic
+   seasonality is the specification of choice, and that is not a multivariate
+   hack: the Box-Jenkins-Treadway tradition specifies seasonality
+   provisionally as fully deterministic anyway and only then resolves it
+   frequency by frequency. For an analyst arriving at mtram first and still
+   building the univariate models, that provisional stop is also the preferable
+   destination — and choosing it up front costs far less than retrofitting.
+
+   The detection distinguishes two classes, because they are not equally bad: a
+   multiplicative SARIMA makes EVERY seasonal frequency stochastic at once,
+   the worst case for a filter carrying none, while a hybrid (MEG, *Modelos de
+   Estacionalidad Generalizada*, Abraham & Box 1978) leaves stochastic only the
+   frequencies found to be so. mtram does not propose the MEG route on its own
+   — but the caution belongs on the **testing** that resolves each frequency,
+   whose critical values are under active research, not on the specification,
+   which is long established.
+10. **Residual CCF spikes traced to observation pairs** (§2.3). ✅ implemented
+    in `calibrate`. And it is not a rephrasing of "find the outlier": the
+    coefficient is a sum of PRODUCTS, so two ordinary observations that line up
+    at the right distance can carry it between them while neither is extreme on
+    its own — which no single-series scan will ever show. On the canonical case
+    the lag-7 coefficient is 22 % one pair: WTI 10/2008 and ES_CPI 05/2009, the
+    oil crash and its arrival in Spanish inflation seven months later.
+11. **Report the change in the integration order** of the noise. ✅ implemented,
+    via the near-unit MA root, compared against the DIAGONAL rung — which is
+    already estimated and carries the same noise model without the transfer, so
+    the comparison is free and the movement is attributable.
+
+    Two things had to be got right. **Roots are grouped by modulus**, because a
+    seasonal factor puts `freq` roots round the circle INCLUDING a real
+    positive one at frequency zero; reading that root alone says "regular
+    difference", which is wrong and sends the analyst to undo the wrong one.
+    And **no movement is claimed without a diagonal to compare against** — a
+    position is not a movement, and claiming one would invent the interesting
+    half of the finding.
+
+    What is NOT done, deliberately: comparing likelihoods across differencing
+    orders. Models with different d are models of different data, and that
+    number means nothing.
 
 ### What NOT to build
 
@@ -324,6 +362,14 @@ intact.
 **Tier 1, item 3** did not survive as stated — see item 3 above: the `ω₀ ≈ −1` reflex turned out to be an artefact of
 a specific parametrisation rather than a general diagnostic, which is only
 visible if you test it against a case whose answer you already know.
+
+**Tier 3 needed a correction from the user, and it was the right one.** The
+first draft of the seasonality note called MEG models "experimental". They are
+not: the class dates from Abraham & Box (1978) and is standard in the Spanish
+literature. What is recent is the testing apparatus that resolves each
+frequency. "Experimental model" and "test whose critical values are being
+pinned down" call for different amounts of hesitation, and putting the caution
+in the wrong place would have discouraged a sound specification.
 
 **Tier 2 uncovered a live defect rather than confirming a doctrine.** Writing
 the reformulation order meant computing a noise Ljung-Box, and that exposed
