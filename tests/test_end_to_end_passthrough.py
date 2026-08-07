@@ -276,3 +276,62 @@ def test_regression_the_gain_is_unchanged(ladder):
     """
     assert _num(ladder["auto"], "ganancia nu(1) =") == pytest.approx(
         2.5190, abs=0.01)
+
+
+def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
+    """`.pre` and `.inp` are the same format, and mtram already takes either.
+
+    That is not an accident of the parser — it follows from what `load_pre`
+    does. It re-estimates each series with fue on the way in, so the stored
+    values are seeds and nothing more: fed art's `.inp` with every parameter at
+    zero, the gate lands on the same likelihoods as with fue's `.pre`
+    (-1744.135582 both ways) and closes the same way.
+
+    Which sharpens what the ladder's contract actually is. mtram needs a
+    SPECIFICATION, and estimates the univariate optima itself; the `.pre` is
+    welcome because it carries good seeds, not because it is required. So a
+    `.pre` an analyst has edited — which by the convention has become an `.inp`
+    again — can be handed straight back with nothing lost.
+    """
+    d = ladder["dir"]
+    out = M.load_pre("SPEC", f"{d}/IPC_ES_auto.inp,{d}/WTI_auto.inp")
+    assert "✅" in out, out
+    assert "-1744.135582" in out
+
+
+def test_a_diagonal_fit_reproduces_the_univariate_optima_exactly(ladder):
+    """Why drtran COULD write a univariate `.pre`, and why it should not bother.
+
+    With a diagonal structure the exact likelihood factorises, so the joint
+    fit's univariate blocks ARE the univariate optima — not approximately.
+    Measured here: max|difference| against fue's own file is 0.00000000.
+
+    So a `.pre` written off a DIAGONAL fit would be legitimate: a fixed point,
+    an optimum, everything the convention asks. It would also be a second copy
+    of a file that already exists and is identical — no new information, and a
+    second place for the two to drift apart.
+
+    And off a fit WITH a transfer it would not be legitimate at all: those
+    blocks are optimal for the joint model, hence not for the univariate one.
+    That is BUG-3. Between "redundant" and "false" there is no third case in
+    which drtran writing a univariate `.pre` would earn its keep.
+    """
+    import numpy as np
+    from drtran.cast import build_cast_spec
+    from drtran.pre import load_pre
+    import drtran as D
+    from drtran.slots import build_slots
+
+    specs = [load_pre(ladder["pres"]["IPC_ES"]), load_pre(ladder["pres"]["WTI"])]
+    cs = build_cast_spec(specs, links=[])          # DIAGONAL
+    table = build_slots(cs)
+    f = D.fit(cs, x0=D.x0_full(cs, table), embed=True, slots=table)
+    assert not f.ifault
+
+    # los deterministas de la salida, tal como los deja el ajuste diagonal
+    # frente a los que escribió fue
+    nombres = [n for n in table.names if n.startswith("omega_d1[")]
+    x = np.asarray(f.x, float)
+    conj = np.array([x[table.names.index(n)] for n in nombres])
+    univ = np.array([o for it in specs[0].model.interventions for o in it.omega])
+    assert np.max(np.abs(conj - univ[:len(conj)])) < 1e-6

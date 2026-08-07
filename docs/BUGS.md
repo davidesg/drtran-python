@@ -218,6 +218,37 @@ persist a multivariate case — the network, the links, the constraints — that
 too should be its own `.inp`-analogue. The `.pre` is the contract between
 univariate optima and should not carry multivariate content.
 
+### The rule this follows from, and what it settles
+
+**A `.pre` is immutable: touch it and it becomes an `.inp` again.** Editing a
+specification unmakes the claim that these values are its optimum, so the file
+drops back to being a proposal. The ladder is then a fixed-point iteration,
+and each extension marks which half of the cycle you are in:
+
+```
+.inp  ──(fue estimates)──▶  .pre  ──(analyst edits)──▶  .inp  ──▶ …
+```
+
+Two consequences, both measured on the passthrough pipeline:
+
+**drtran should accept `.inp`, and already does.** Same format, and
+`mcp_server.load_pre` re-estimates each series with fue on the way in, so the
+stored values are seeds and nothing more. Fed art's `.inp` with every parameter
+at zero, the gate reaches the same likelihoods as with fue's `.pre`
+(−1744.135582 both ways) and closes the same way. This also sharpens the
+ladder's contract: mtram needs a SPECIFICATION and estimates the univariate
+optima itself — the `.pre` is welcome for its seeds, not required. An edited
+`.pre`, which by the rule is an `.inp`, can be handed straight back.
+
+**drtran should NOT produce univariate `.pre` files.** Not because it cannot:
+off a DIAGONAL fit it legitimately could, since the likelihood factorises and
+the joint blocks are the univariate optima exactly — measured, max|difference|
+against fue's own file is 0.00000000. But that file already exists and is
+identical, so writing it adds no information and a second place for the two to
+drift. Off a fit WITH a transfer the blocks are optimal for the joint model and
+therefore not for the univariate one, which is BUG-3 itself. Between redundant
+and false there is no third case where it would earn its keep.
+
 ---
 
 ## To watch
