@@ -48,7 +48,8 @@ from .netid import (Candidate, IdentifiedNetwork, identify_network,
                     report_network, residuals, write_guided)
 from .network import check_acyclic, find_cycle, read_dag, write_dag
 from .plots import plot_ccf, plot_forecast, plot_irf, prewhitened_pair, save
-from .pre import PreSpec, check_scale, load_pre, next_inp_path, write_inp
+from .pre import (PreSpec, check_scale, fitted_model, load_pre, next_inp_path,
+                  write_inp)
 from .report import build_forecast_result, write_forecast_report
 from .slots import Slot, SlotTable, build_slots, read_cns
 
@@ -67,6 +68,7 @@ except ImportError:                         # pragma: no cover
 
 __all__ = [
     "PreSpec", "load_pre", "check_scale", "write_inp", "next_inp_path",
+    "fitted_model",
     "plot_ccf", "plot_irf", "plot_forecast", "prewhitened_pair", "save",
     "Aggregate", "read_aggregates", "forecast_aggregates", "report_aggregates",
     "write_forecast_report", "build_forecast_result",

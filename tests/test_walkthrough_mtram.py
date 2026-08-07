@@ -566,3 +566,100 @@ def test_an_inp_reaches_the_same_place_as_a_pre():
     seeds are seeds. Same gate, same conclusion."""
     a = M.load_pre("EQ1", f"{ES},{WTI}")
     assert "✅" in a
+
+
+# ── consistencia con art: la ecuación y la influencia de la FLT ────────────
+def test_the_model_is_shown_as_two_equations_like_art():
+    """The analyst arrives from art, and art presents every model this way:
+
+        (1)  yₜ = Dₜ + Nₜ
+        (2)  ∇ᵈ[φ(B)][Nₜ − μ] = [θ(B)] aₜ
+
+    with the standard error UNDER each coefficient. Changing format one rung up
+    the ladder makes them re-read an instrument they already knew — and it hid
+    something: mtram never wrote equation (2) at all, so the NOISE model, which
+    is estimated here and moves here, appeared nowhere.
+
+    The canonical form already had the slot, and that is not an analogy: fue's
+    deterministics ARE ω(B)/δ(B) on a deterministic input, so art has been
+    drawing transfer functions all along. The one here is the same object with
+    a stochastic input.
+    """
+    M.load_pre("EQ", f"{ES},{WTI}", check=False)
+    M.set_network("EQ", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("EQ")
+    assert "MODELO ESTIMADO" in out
+    assert "(1)" in out and "(2)" in out
+    # la transferencia, DENTRO de la ecuación (1)
+    assert "]·WTIₜ + Nₜ" in out
+    # y el ruido escrito, que es lo que faltaba
+    assert "aₜ" in out
+
+
+def test_the_printed_polynomial_sums_to_the_gain():
+    """The sign trap, pinned. Box-Jenkins writes ω(B) = ω₀ − ω₁B, so the
+    coefficient PRINTED at lag k ≥ 1 is −ω_k, not ω_k. On the canonical case
+    ω₁ is −0.9965 and what must appear is +0.9965·B; printing it unflipped
+    would show a gain of 0.526 instead of 2.519.
+
+    That inversion already slipped into this port once, with the likelihood
+    impeccable. So the renderer checks itself: the printed coefficients must
+    sum to ω(1), and says so loudly when they do not.
+    """
+    import drtran as D
+    from drtran.cast import Link, build_cast_spec
+    from drtran.estimate import standard_errors
+    from drtran.slots import build_slots
+    from drtran import mcp_server as MS
+
+    M.load_pre("EQ2", f"{ES},{WTI}", check=False)
+    specs = M._SPECS["EQ2"]
+    cs = build_cast_spec(specs, links=[Link(0, 1, 0, 0, 1)])
+    table = build_slots(cs)
+    f = D.fit(cs, x0=D.x0_full(cs, table), embed=True, slots=table)
+    se = standard_errors(f)
+    _terms, total = MS._omega_poly(f, table, se, 0, cs.links[0])
+    gain = float(D.impulse_response(f, link_index=0).gain)
+    assert total == pytest.approx(gain, abs=1e-9)
+
+    M.set_network("EQ2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    assert "revisa el signo" not in M.estimate("EQ2")
+
+
+def test_the_joint_statistics_are_reported_once_and_labelled_as_joint():
+    """ℓ, AIC and BIC belong to ONE fit covering every series. Repeating them
+    under each block would invite reading them as that series' own fit, which
+    is exactly what they are not — so `fitted_model` deliberately carries no
+    likelihood and the footer is written once."""
+    M.load_pre("EQ3", f"{ES},{WTI}", check=False)
+    M.set_network("EQ3", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("EQ3")
+    assert out.count("AJUSTE CONJUNTO") == 1
+    assert "no de ninguna por separado" in out
+
+
+def test_the_transfer_s_influence_on_the_noise_is_reported():
+    """The question that closes the circle with the diagonal rung: does the
+    transfer MOVE the rest of the model? The rung is already estimated and
+    carries the same model without the transfer, so nothing else differs and
+    the movement is attributable.
+
+    It is what the school reports when closing a case — Muñoz notes the
+    variance reduction is achieved "empleando un parámetro MENOS de
+    intervención", i.e. the transfer explains what the univariate model had to
+    absorb with a deterministic. Seeing that transfer requires looking at both
+    fits, and only one was ever looked at.
+    """
+    M.load_pre("FLT", f"{ES},{WTI}")          # con puerta: hay diagonal
+    M.set_network("FLT", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("FLT")
+    assert "¿ES INFLUYENTE LA TRANSFERENCIA?" in out
+    assert "ERRORES TÍPICOS" in out
+
+
+def test_no_influence_is_claimed_without_a_diagonal_to_compare_with():
+    """A movement needs two fits. Loaded with `check=False` there is no rung,
+    and the report must be absent rather than invented."""
+    M.load_pre("FLT2", f"{ES},{WTI}", check=False)
+    M.set_network("FLT2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    assert "¿ES INFLUYENTE LA TRANSFERENCIA?" not in M.estimate("FLT2")

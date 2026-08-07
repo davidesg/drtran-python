@@ -23,6 +23,7 @@ not a preference.
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 
@@ -162,7 +163,17 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    Y si el analista todavía está construyendo los univariantes: para un modelo
    multivariante, la estacionalidad DETERMINISTA es la especificación de
    elección. No propongas tú la ruta MEG.
-3. estimate            estima conjuntamente. Devuelve la ECUACIÓN, la GANANCIA
+3. estimate            estima conjuntamente. Devuelve el modelo en la forma de
+   DOS ECUACIONES de art -- (1) el nivel con la transferencia dentro, (2) el
+   ruido -- con el error típico DEBAJO de cada coeficiente. Es el MISMO
+   instrumento que el analista venía leyendo en art, y lo dibuja el mismo
+   código. Presenta ese bloque VERBATIM.
+   Y dice si la transferencia es INFLUYENTE sobre el resto del modelo:
+   comparando contra el escalón diagonal, qué parámetros del ruido y qué
+   deterministas (del output y de las entradas) mueve, en errores típicos.
+   Es el traspaso que la escuela anota al cerrar un caso -- la transferencia
+   explica lo que el univariante absorbía con un determinista.
+   Devuelve además la GANANCIA
    con su error típico, y el contraste de RAZÓN DE VEROSIMILITUDES contra el
    escalón diagonal: "converge" y "merecía la pena" son afirmaciones distintas
    y la tabla de parámetros sólo contesta la primera. Un modelo con todos sus
@@ -1524,6 +1535,294 @@ def _what_the_transfer_bought(name, f, cs):
     return lines
 
 
+def _omega_poly(f, table, se, li, lk):
+    """El polinomio omega(B) TAL COMO MULTIPLICA, no como se almacena.
+
+    La convencion Box-Jenkins es omega(B) = w0 - w1 B - w2 B^2 - ..., asi que
+    el coeficiente que se ESCRIBE en el retardo k >= 1 es -w_k, no w_k. En el
+    caso de pass-through omega1[1] vale -0.996496 y lo que se imprime es
+    +0.9965 B; sumarlos sin invertir daria una ganancia de 0.526 en lugar de
+    2.519. Esa inversion ya se colo una vez en este puerto con la
+    verosimilitud impecable, que es por lo que aqui se comprueba: la suma de
+    los coeficientes impresos DEBE ser omega(1), la ganancia.
+
+    Devuelve [(coeficiente, error tipico, k), ...] y la suma, para verificarla.
+    """
+    from .school import _slot
+
+    terms, total = [], 0.0
+    for k in range(lk.s + 1):
+        v, e = _slot(f, table, se, f"omega{li + 1}[{k}]")
+        if v is None:
+            continue
+        c = float(v) if k == 0 else -float(v)
+        terms.append((c, (e if e is not None else float("nan")), k))
+        total += c
+    return terms, total
+
+
+def _den_poly(f, table, se, li, lk):
+    """delta(B) = 1 - d1 B - ... ; misma inversion de signo, y el 1 implicito."""
+    from .school import _slot
+
+    terms = [(1.0, float("nan"), 0)]
+    for k in range(1, lk.r + 1):
+        v, e = _slot(f, table, se, f"delta{li + 1}[{k}]")
+        if v is not None:
+            terms.append((-float(v), (e if e is not None else float("nan")), k))
+    return terms
+
+
+def _poly_lines(terms, sangria="    "):
+    """Una linea de coeficientes y otra de errores tipicos DEBAJO, alineados.
+
+    Es el `\\est{}{}` de la escuela y el formato que usa art para D_t. Que el
+    error tipico vaya debajo y no en una columna aparte no es estetica: es lo
+    que deja leer un parametro y su precision de un vistazo, sin cruzar una
+    tabla.
+
+    La alineacion se hace por COLUMNA, anotando donde empieza cada termino en
+    la linea de valores y colocando su error tipico debajo. Calcularla sumando
+    anchos, que fue el primer intento, descuadra en cuanto un coeficiente
+    cambia de numero de digitos.
+    """
+    import math
+
+    linea, cols, errs = sangria, [], []
+    for c, e, k in terms:
+        pot = "" if k == 0 else ("\u00b7B" if k == 1 else f"\u00b7B{_sup(k)}")
+        txt = f"{'+ ' if c >= 0 else '\u2212 '}{abs(c):.4f}{pot}"
+        if cols:
+            linea += "   "
+        cols.append(len(linea))
+        linea += txt
+        errs.append(e)
+
+    linea_se = ""
+    for e, col in zip(errs, cols):
+        if e != e or not math.isfinite(e):
+            continue
+        destino = max(col + 1, len(linea_se) + 1)
+        linea_se += " " * (destino - len(linea_se)) + f"({e:.4f})"
+    return [linea] + ([linea_se] if linea_se.strip() else [])
+
+
+def _sup(n):
+    return "".join("⁰¹²³⁴⁵⁶⁷⁸⁹"[int(d)] for d in str(n))
+
+
+def _equations(name, f, cs, table, se):
+    """El modelo estimado en la forma de DOS ECUACIONES de art.
+
+    El analista llega a mtram desde art, y art presenta asi todos sus modelos:
+
+        (1)  y_t = D_t + N_t                 el nivel
+        (2)  grad^d [phi(B)][N_t - mu] = [theta(B)] a_t     el ruido
+
+    con el error tipico DEBAJO de cada coeficiente. Cambiar de formato al
+    subir un peldano de la escalera obliga a releer un instrumento que ya se
+    sabia leer, y ademas escondia algo: mtram nunca escribia la ecuacion (2),
+    de modo que el modelo del RUIDO -- que se estima aqui y se mueve aqui --
+    no aparecia por ninguna parte.
+
+    La forma canonica ya tenia el hueco. Un modelo de transferencia es (1) con
+    un termino mas, y no es una analogia: los DETERMINISTAS de fue ya son
+    omega(B)/delta(B) sobre un input determinista, asi que art lleva anos
+    dibujando funciones de transferencia. La de aqui es el mismo objeto con un
+    input estocastico.
+
+    El renderizado lo hace `art.describe.model_equation` sobre el modelo de
+    cada serie con las estimaciones CONJUNTAS dentro (`drtran.fitted_model`).
+    No una segunda copia del dibujante: la misma, que es la unica manera de
+    que los dos peldanos no se separen con el tiempo.
+    """
+    nm = [sp.name for sp in _require(name)]
+    L = []
+    try:
+        from art.describe import model_equation
+    except Exception:                                      # noqa: BLE001
+        return ["  (la ecuación necesita art-tseries; sin él queda la tabla)"]
+
+    for i, sp in enumerate(_require(name)):
+        try:
+            mdl = drtran.fitted_model(f, series=i, std_errors=se)
+            txt = model_equation(sp.ts, mdl)
+        except Exception as exc:                           # noqa: BLE001
+            L += [f"  (no se pudo dibujar la ecuación de {nm[i]}: "
+                  f"{str(exc)[:100]})"]
+            continue
+
+        entradas = [lk for li, lk in enumerate(cs.links or []) if lk.out == i]
+        if entradas:
+            txt = _splice_transfer(txt, name, f, cs, table, se, i, nm)
+        L += txt.split("\n")
+        L.append("")
+
+    # El pie con los estadisticos CONJUNTOS, una sola vez. art lo pone por
+    # modelo, pero aqui la verosimilitud, el AIC y el BIC son de UN ajuste que
+    # cubre todas las series: repetirlos bajo cada bloque invitaria a leerlos
+    # como el ajuste de esa serie, que es justo lo que no son. Por eso
+    # `fitted_model` deliberadamente no los lleva dentro.
+    try:
+        k = int(getattr(table, "n_free", 0) or 0)
+        n = int(f.cast_spec.series[0].spec.ts.nobs)
+        ll = float(f.loglik)
+        L += ["  " + "\u2500" * 62,
+              f"  AJUSTE CONJUNTO:  \u2113 = {ll:.2f}   |   par\u00e1metros = {k}"
+              f"   |   AIC = {2 * k - 2 * ll:.2f}   |   BIC = "
+              f"{k * math.log(n) - 2 * ll:.2f}",
+              "  (de las %d ecuaciones a la vez, no de ninguna por separado)"
+              % len(_require(name)),
+              "  " + "\u2500" * 62, ""]
+    except Exception:                                      # noqa: BLE001
+        pass
+    return L
+
+
+def _splice_transfer(txt, name, f, cs, table, se, out_i, nm):
+    """Mete el termino de transferencia en la ecuacion (1) que dibujo art.
+
+    art escribe `(1) y_t = D_t + N_t`. Un modelo de transferencia es eso con
+    la entrada en medio, que es exactamente donde la escuela la escribe.
+    """
+    lineas = txt.split("\n")
+    trozos, bloques = [], []
+    for li, lk in enumerate(cs.links or []):
+        if lk.out != out_i:
+            continue
+        num = "ω(B)" if lk.s else "ω₀"
+        den = f"/δ(B)" if lk.r else ""
+        pot = "" if lk.b == 0 else (f"·B{_sup(lk.b)}" if lk.b > 1 else "·B")
+        trozos.append(f"[{num}{den}]{pot}·{nm[lk.inp]}ₜ")
+
+        terms, total = _omega_poly(f, table, se, li, lk)
+        bloques.append("")
+        bloques.append(f"  {num}·{nm[lk.inp]}ₜ:")
+        bloques += _poly_lines(terms)
+        try:
+            g = float(drtran.impulse_response(f, link_index=li).gain)
+            if abs(total - g) > 1e-6 * max(1.0, abs(g)):
+                bloques.append(f"    ⚠ la suma de los coeficientes ({total:.6f}) "
+                               f"no es la ganancia ({g:.6f}): revisa el signo")
+        except Exception:                                  # noqa: BLE001
+            pass
+        if lk.r:
+            bloques.append(f"  δ(B):")
+            bloques += _poly_lines(_den_poly(f, table, se, li, lk))
+
+    if not trozos:
+        return txt
+    inserto = " + ".join(trozos)
+    for k, l in enumerate(lineas):
+        if l.startswith("  (1)") and l.rstrip().endswith("Nₜ"):
+            lineas[k] = l.replace("+ Nₜ", f"+ {inserto} + Nₜ") \
+                if "+ Nₜ" in l else l.replace("= Nₜ", f"= {inserto} + Nₜ")
+            break
+    # el bloque de coeficientes, justo antes de la ecuacion (2)
+    for k, l in enumerate(lineas):
+        if l.startswith("  (2)"):
+            return "\n".join(lineas[:k] + bloques + [""] + lineas[k:])
+    return "\n".join(lineas + bloques)
+
+
+def _flt_influence(name, f, table, se, umbral=1.0):
+    """¿Es la transferencia INFLUYENTE sobre el ruido y los deterministas?
+
+    La pregunta que cierra el circulo con el escalon diagonal. Ese ajuste ya
+    esta hecho -- es la puerta de `load_pre` -- y lleva EXACTAMENTE el mismo
+    modelo sin la transferencia, asi que comparar parametro a parametro no
+    cuesta nada y el movimiento es atribuible: nada mas cambia entre los dos.
+
+    Es lo que la escuela reporta al cerrar un caso. Munoz 6.4.1 y 6.4.4 anotan
+    que la reduccion de varianza se logra "empleando un parametro MENOS de
+    intervencion": la transferencia explica un anomalo que el modelo
+    univariante tenia que absorber con un determinista. Ver ese traspaso exige
+    mirar los dos ajustes a la vez, y hasta ahora solo se miraba uno.
+
+    El movimiento se mide en ERRORES TIPICOS del ajuste conjunto, no en
+    unidades del parametro: un armonico y un theta no son comparables en
+    bruto, y lo que importa es si el cambio es grande FRENTE A LA PRECISION
+    con que se conoce el parametro.
+    """
+    import numpy as np
+
+    from drtran.slots import build_slots
+
+    fd = _DIAG_FIT.get(name)
+    if fd is None or se is None or getattr(se, "ifault", 1):
+        return []
+    try:
+        td = build_slots(fd.cast_spec)
+        xj, xd = np.asarray(f.x, float), np.asarray(fd.x, float)
+        sej = {}
+        for k in range(table.n_free):
+            sej[table.names[table.slot_of_free[k]]] = \
+                float(np.asarray(se.se, float)[k])
+    except Exception:                                      # noqa: BLE001
+        return []
+
+    filas = []
+    for n in table.names:
+        if n not in td.names or n not in sej:
+            continue
+        e = sej[n]
+        if not np.isfinite(e) or e <= 0:
+            continue
+        a = float(xd[td.names.index(n)])
+        b = float(xj[table.names.index(n)])
+        t = (b - a) / e
+        if abs(t) >= umbral:
+            filas.append((n, a, b, t))
+    filas.sort(key=lambda r: -abs(r[3]))
+
+    L = ["", "  ── ¿ES INFLUYENTE LA TRANSFERENCIA? " + "─" * 22, ""]
+    if not filas:
+        L += ["    No sobre el resto del modelo: ningún parámetro del ruido ni "
+              "de los deterministas se mueve un error típico al meterla.",
+              "",
+              "    Eso NO le quita valor a la transferencia -- lo que compra "
+              "está arriba, en la ganancia y en el contraste de razón de "
+              "verosimilitudes. Dice otra cosa: que la parte univariante ya "
+              "estaba bien puesta y la transferencia se añade sin removerla."]
+        return L
+
+    nm = [sp.name for sp in _require(name)]
+    L += ["    Sí. Comparado con el escalón DIAGONAL, que lleva el mismo "
+          "modelo sin transferencia:", "",
+          "    | parámetro | diagonal | conjunto | cambio / e.t. |",
+          "    |---|---|---|---|"]
+    for n, a, b, t in filas[:12]:
+        L.append(f"    | `{n}` | {a:+.4f} | {b:+.4f} | **{t:+.2f}** |")
+    L += ["",
+          "    El cambio va en ERRORES TÍPICOS del ajuste conjunto: un "
+          "armónico y un theta no se comparan en bruto, y lo que importa es "
+          "si el movimiento es grande frente a la precisión del parámetro.",
+          ""]
+
+    ruido = [r for r in filas if r[0].startswith(("phi_", "theta_", "mu["))]
+    det   = [r for r in filas if r[0].startswith(("omega_d", "delta_d"))]
+    if ruido:
+        L += ["    ▸ Toca el modelo del RUIDO (%s). El ruido que estimas aquí "
+              "NO es el que traía el `.pre`: parte de lo que el univariante "
+              "atribuía a estructura propia era influencia de la entrada."
+              % ", ".join(f"`{r[0]}`" for r in ruido[:4])]
+    if det:
+        propios = [r for r in det if r[0].startswith("omega_d1")]
+        ajenos  = [r for r in det if not r[0].startswith("omega_d1")]
+        if propios:
+            L += ["    ▸ Toca los DETERMINISTAS de %s. Es el traspaso que la "
+                  "escuela anota al cerrar un caso: la transferencia explica "
+                  "algo que el univariante tenía que absorber con un "
+                  "determinista." % nm[0]]
+        if ajenos:
+            L += ["    ▸ Y toca los deterministas de alguna ENTRADA. Ojo con "
+                  "esto: el modelo univariante del input debería permanecer "
+                  "inalterado de principio a fin (Muñoz §2.6), y aquí se "
+                  "reestima junto a todo lo demás. Si se mueve mucho, mira si "
+                  "la exogeneidad se sostiene."]
+    return L
+
+
 def _by_series(body, cs, names, link_index_of=None):
     """Reagrupa la tabla del motor por SERIE, sin recalcular ni un número.
 
@@ -1724,12 +2023,24 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
         agrupado = _by_series(body, cs, nombres)
         if agrupado:
             body = agrupado
+    # La ECUACIÓN primero, en la forma de art: es el instrumento que el
+    # analista ya sabe leer, y la tabla de ranuras es el respaldo.
+    try:
+        eqs = _equations(name, f, cs, table, se)
+        if eqs:
+            body = "\n".join(eqs) + "\n" + body
+    except Exception as exc:                               # noqa: BLE001
+        body = f"  (no se pudo dibujar la ecuación: {str(exc)[:120]})\n" + body
     extra = ""
     if cs.links:
         try:
             extra = "\n" + "\n".join(_what_the_transfer_bought(name, f, cs))
         except Exception as exc:                           # noqa: BLE001
             extra = f"\n  (no se pudo contrastar la transferencia: {str(exc)[:120]})"
+        try:
+            extra += "\n" + "\n".join(_flt_influence(name, f, table, se))
+        except Exception as exc:                           # noqa: BLE001
+            extra += f"\n  (no se pudo medir la influencia: {str(exc)[:100]})"
     return head + body + extra + "\n```"
 
 

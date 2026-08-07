@@ -128,6 +128,45 @@ def check_scale(spec, minimum=10.0):
     return None
 
 
+def fitted_model(fit, series=0, std_errors=None):
+    """A `fue.Model` for one series, carrying the JOINT estimates.
+
+    The univariate blocks move when the transfer is fitted beside them, and
+    everything that wants to READ those estimates in fue's own terms — write
+    them out, render the equation — needs them wrapped back into the object
+    fue understands. `fue.report` and `art.describe` both walk a fitted
+    `fue.Model`, i.e. one carrying a `_result` with `.params` and
+    `.std_errors` in `count_npar_build_par` order.
+
+    The order needs no translation: `build_slots` is an exact mirror of
+    `fue.cast_us._build_initial_x`, the same enumeration. That is the whole
+    reason this is eight lines and not a converter.
+
+    Note what the returned model does NOT carry: a log-likelihood, an AIC or a
+    BIC. Those belong to the JOINT fit, not to this block, and a univariate
+    number in that slot would be read as this series' own fit. Callers that
+    want statistics supply the joint ones.
+    """
+    import copy
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from .estimate import standard_errors, unpack
+
+    cs = fit.cast_spec
+    sc = cs.series[series]
+    if std_errors is None:
+        std_errors = standard_errors(fit)
+    params = np.asarray(unpack(fit)["series"][series], float)
+    off = cs.npar_links + sum(s.npar for s in cs.series[:series])
+    se = np.nan_to_num(
+        np.asarray(std_errors.se_of_slot[off:off + sc.npar], float), nan=0.0)
+    model = copy.deepcopy(sc.spec.model)
+    model._result = SimpleNamespace(params=params, std_errors=se)
+    return model
+
+
 def write_inp(fit, series=0, path=None, std_errors=None):
     """Write back an `.inp` with the JOINTLY re-estimated univariate block.
 
@@ -212,8 +251,7 @@ def write_inp(fit, series=0, path=None, std_errors=None):
     # number in the column, and zero is the honest one for a fixed parameter
     se = np.nan_to_num(se, nan=0.0)
 
-    model = copy.deepcopy(sc.spec.model)
-    model._result = SimpleNamespace(params=params, std_errors=se)
+    model = fitted_model(fit, series, std_errors)
     # fue's writer emits the format; the EXTENSION is ours to choose, and that
     # is the entire difference between a claim that holds and one that does not
     model.write_pre(str(path))
