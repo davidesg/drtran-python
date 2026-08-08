@@ -437,19 +437,35 @@ def test_the_seasonality_mismatch_is_announced_and_the_clean_case_is_not():
     assert "EL INPUT NO" not in _txt(M.identify_link("SM2"))
 
 
-def test_the_deterministic_preference_is_stated_and_meg_is_not_proposed():
+def test_the_deterministic_preference_is_stated_and_hsm_is_placed_accurately():
     """The advice is the ORDER OF PREFERENCE, not just the workaround.
 
-    And the caution about MEG has to land in the right place: the model class
-    is long established (Abraham & Box 1978), so calling it experimental would
-    be wrong. What is recent is the TESTING that resolves each frequency, whose
-    critical values are under active research — so the assistant does not
-    propose that route on its own, without disparaging the specification."""
+    And the note about HSM has to land in the right place, which took two
+    corrections to get right. There are TWO lines of seasonality —
+    deterministic (harmonics) and stochastic (multiplicative SARIMA). HSM is
+    not a third: it is Abraham & Box's (1978) canonical form, which nests both
+    by resolving frequency by frequency.
+
+    Calling that route "experimental" without qualification would be wrong and
+    alarmist. The models are from 1978, the idea of going frequency by
+    frequency is in HEGY, and DCD and Shin-Fuller are PUBLISHED. What is new is
+    the Monte-Carlo critical values — which differ from the published
+    interpolated ones by a marginal amount — and, above all, art's
+    IMPLEMENTATION, which is where the three open defects are. So the label is
+    a safeguard, not a warning that the method is doubtful, and the text has to
+    say which is which.
+    """
     M.load_pre("SM3", f"{AIRLINE},{WTI}", check=False)
     out = _txt(M.identify_link("SM3"))
-    assert "DETERMINISTA" in out
-    assert "La CLASE no es nueva ni experimental" in out
-    assert "NO propongas tú la ruta MEG" in out
+    # sustancia, no frases contiguas: qué se afirma, no cómo está redactado
+    assert "LAS LÍNEAS DE ESTACIONALIDAD SON DOS" in out
+    assert "no es una tercera" in out          # HSM las anida, no se añade
+    assert "Abraham y Box (1978)" in out
+    assert "(experimental) como salvaguardia" in out
+    # lo publicado, nombrado como publicado
+    assert "HEGY" in out and "PUBLICADOS" in out
+    # y que NO se presente como método dudoso
+    assert "No es que el método sea dudoso" in out
 
 
 def test_identification_can_use_an_alternative_output_model():

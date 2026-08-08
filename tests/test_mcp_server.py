@@ -382,3 +382,54 @@ def test_the_calibrate_tool_is_wired(caso):
     txt = mtram.calibrate(caso)
     assert "ANOMALY CALIBRATION" in txt
     assert "0.1966" in txt
+
+
+# ── el contrato de la capa MCP, no el de la función ────────────────────────
+def test_every_tool_that_can_return_content_blocks_is_annotated_list():
+    """BUG-4, y la razón de que 349 tests pasaran con un tool inservible.
+
+    FastMCP construye el `outputSchema` a partir de la ANOTACIÓN de retorno. Un
+    tool que devuelve `[TextContent, ImageContent]` pero se declara `-> str`
+    obtiene un esquema que exige una cadena, y la respuesta se rechaza en
+    validación antes de llegar a nadie. `identify_link` quedó así al darle su
+    figura: funcionaba sólo cuando `plot_ccf` fallaba, porque ésa es la rama que
+    devuelve texto.
+
+    Los tests de esta suite llaman a las FUNCIONES, no al tool registrado, así
+    que no podían verlo: la función se comportaba bien. Esto mira el esquema.
+    """
+    import inspect
+
+    from drtran import mcp_server as MS
+
+    for nombre in ("identify_link", "plot_ccf", "plot_impulse_response",
+                   "plot_forecast", "plot_residuals", "plot_calibration"):
+        fn = getattr(MS, nombre)
+        ann = inspect.signature(fn).return_annotation
+        assert ann is not str and ann != "str", (
+            f"{nombre} puede devolver bloques de contenido y se declara {ann!r}: "
+            "FastMCP exigirá una cadena y rechazará la respuesta")
+
+
+def test_the_tools_survive_a_round_trip_through_the_mcp_layer(caso):
+    """La comprobación que ningún test hacía: invocar por donde invoca el
+    cliente. `mcp.call_tool` valida la respuesta contra el esquema declarado, y
+    es exactamente ahí donde BUG-4 se manifestaba mientras la función iba bien.
+
+    Se hace sobre los dos que llevan figura y sobre uno que no, para que el
+    contrato quede fijado en ambas formas.
+    """
+    import asyncio
+
+    from drtran.mcp_server import mcp
+
+    async def llamar(n, args):
+        return await mcp.call_tool(n, args)
+
+    for nombre, args in (("identify_link", {"name": caso, "input_index": 1}),
+                         ("plot_ccf", {"name": caso}),
+                         ("diagnose", {"name": caso})):
+        if nombre == "diagnose":
+            mtram.estimate(caso)
+        r = asyncio.run(llamar(nombre, args))
+        assert r is not None, f"{nombre} no devolvió nada por la capa MCP"

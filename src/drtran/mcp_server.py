@@ -840,7 +840,7 @@ def _before_you_choose(idt, cs, link):
 
 @mcp.tool()
 def identify_link(name: str, input_index: int = 1, band: str = "constant",
-                  ident_pre: str = "") -> str:
+                  ident_pre: str = "") -> list:
     """Identify (b, r, s) of ONE link by prewhitening and the CCF.
 
     Filters the input with ITS OWN ARMA and applies the SAME filter to the
@@ -991,15 +991,22 @@ def _seasonality_note(specs, input_index, name):
             "estimación sigue con el modelo real: son dos modelos con dos "
             "trabajos, no una reespecificación.",
             "",
-            "    (Los MEG -- Modelos de Estacionalidad Generalizada, Abraham "
-            "y Box 1978 -- atenúan el problema: resuelven la estacionalidad "
-            "frecuencia por frecuencia, así que sólo queda estocástico lo que "
-            "se encontró serlo. La CLASE no es nueva ni experimental; lo "
-            "reciente son los CONTRASTES con que se decide cada frecuencia, "
-            "cuyos valores críticos son objeto de investigación en curso. Así "
-            "que la cautela va sobre el procedimiento de decisión, no sobre "
-            "el modelo: NO propongas tú la ruta MEG. Sólo si el analista la "
-            "pide sabiendo lo que hace.)"]
+            "    LAS LÍNEAS DE ESTACIONALIDAD SON DOS: la DETERMINISTA "
+            "(armónicos) y la ESTOCÁSTICA (SARIMA multiplicativo). HSM "
+            "--Hybrid Seasonal Models; MEG, Modelos de Estacionalidad "
+            "Generalizada, en la literatura española (Gallego 1995)-- no es "
+            "una tercera: es la FORMA CANÓNICA de Abraham y Box (1978) que "
+            "anida las dos, resolviendo frecuencia por frecuencia. Por eso "
+            "atenúa este problema: sólo queda estocástico lo que se encontró "
+            "serlo.",
+            "",
+            "    Esa ruta va marcada (experimental) como salvaguardia, y "
+            "conviene saber de qué. Los modelos son de 1978, la idea de ir "
+            "frecuencia por frecuencia está en HEGY, y el DCD y el Shin-Fuller "
+            "están PUBLICADOS. Lo nuevo son los valores críticos por Monte "
+            "Carlo --que difieren por un margen marginal de los interpolados "
+            "publicados-- y sobre todo la IMPLEMENTACIÓN en art, que hoy tiene "
+            "tres defectos abiertos. No es que el método sea dudoso."]
 
 
 def _band_fragile(idt):

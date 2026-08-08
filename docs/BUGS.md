@@ -21,7 +21,13 @@ Reproductions are self-contained (they use the `.pre` files in the repo root):
 ```
 python3 scripts/repro_ar2_phi1_bound.py
 python3 scripts/repro_alineacion_por_indice.py
+python3 scripts/repro_identify_link_output_schema.py
 ```
+
+**BUG-4 was added 2026-08-08** from a different workload — monthly IPC_ES → WTI
+passthrough, the canonical shape — and is an `mtram` defect, not a numerical
+one: it blocked node N1 whenever the CCF was successfully drawn. Fixed the same
+day, with the guard the suite was missing.
 
 ---
 
@@ -327,6 +333,85 @@ identical, so writing it adds no information and a second place for the two to
 drift. Off a fit WITH a transfer the blocks are optimal for the joint model and
 therefore not for the univariate one, which is BUG-3 itself. Between redundant
 and false there is no third case where it would earn its keep.
+
+---
+
+## BUG-4. `identify_link` declared `-> str` while returning a list — FIXED
+
+Found 2026-08-08 on a different workload from the rest of this file: monthly
+IPC_ES (INE, 2002-01…2019-12, n=216) as output, WTI as input — the canonical
+passthrough shape, `refactor=100`, AR(1) both sides. It is not a numerical
+defect; it is `mtram`'s, and it blocks node N1 outright.
+
+```python
+def identify_link(name: str, input_index: int = 1, band: str = "constant",
+                  ident_pre: str = "") -> str:
+    ...
+    return _con_figura("\n".join(txt), grafico)
+```
+
+`_con_figura` returns the plain string only when there is **no** figure; with
+one it returns `[TextContent(...), ImageContent(...)]` — which is the whole
+point of the call, as the comment three lines above it says: *"EL GRÁFICO VA CON
+LOS NÚMEROS, no en otra llamada"*. FastMCP builds the structured-output schema
+from the return annotation, so the declared contract is
+
+```
+identify_link -> {'properties': {'result': {'type': 'string'}}, 'required': ['result'], ...}
+```
+
+and the list is rejected before it reaches the caller:
+
+```
+Error executing tool identify_link: 1 validation error for identify_linkOutput
+result
+  Input should be a valid string [type=string_type, input_value=[TextContent(...)]]
+```
+
+**The failure is conditional in the worst possible direction: the tool works
+only when `plot_ccf` raises**, because that is the branch that returns a string.
+When everything goes right, the call fails. And N1 — the (b, r, s) decision — is
+precisely the node the analyst is supposed to take by *looking* at the CCF, so
+in practice no transfer model can be identified through mtram at all.
+
+The two sibling tools already show the shape of the answer: `plot_ccf` and
+`plot_impulse_response` are annotated `-> list` and get `outputSchema: None`,
+i.e. no structured validation, which is why the same content passes through them
+untouched. `identify_link` is the only tool in the module that calls
+`_con_figura`, and the only one of the three that declares a schema.
+
+> **FIXED 2026-08-08, same day, and it was mine.** The annotation was missed
+> when `identify_link` was given its figure: the five `plot_*` tools were
+> retyped `-> list` and this one was not, because it was not in that list.
+>
+> **The lesson is the guard, not the one-word fix.** The full battery — 349
+> tests — passed while the tool was unusable, because every test calls the
+> FUNCTION and the function was correct. Nothing exercised the registered tool,
+> which is the only place the schema exists. Two tests now do:
+> `test_every_tool_that_can_return_content_blocks_is_annotated_list` reads the
+> annotations, and `test_the_tools_survive_a_round_trip_through_the_mcp_layer`
+> goes through `mcp.call_tool`. Both were checked by reverting the annotation
+> and confirming they FAIL — a guard that does not fail when the defect returns
+> is decoration.
+
+**Fix: annotate `-> list`.** One word, at `mcp_server.py:843`. Verified locally:
+with the annotation changed, `outputSchema` becomes `None` and the call returns
+normally, both with the figure and (PART 3) without it. The change was reverted
+after checking — it is not applied in this tree.
+
+Worth doing alongside: a guard so that a return-annotation of `str` on any tool
+that can reach `_con_figura` is caught by the test suite rather than by an
+analyst mid-identification. The defect is invisible to unit tests that call the
+function directly, since the function itself behaves correctly — only the
+registered tool's schema is wrong.
+
+```
+python3 scripts/repro_identify_link_output_schema.py
+```
+
+Self-contained: it uses the repo-root `ES_CPI_m10.1.pre` and `WTI_ar1.1.pre`,
+prints the declared schemas of the three tools, the actual return type, the
+failure through `mcp.call_tool`, and the inverted-branch check.
 
 ---
 
