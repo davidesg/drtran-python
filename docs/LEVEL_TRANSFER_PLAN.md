@@ -224,6 +224,75 @@ EMU, and those models are legitimate — but it does three things for the plan:
    the output wants `∇∇₁₂` and the input wants `∇`, and they genuinely differ.
    Harmonising there would be forcing the data, not encoding it better.
 
+## 2d. The controlled experiment, and the law it establishes
+
+The measured cases could not separate two explanations, because
+`∇∇₁₂ / ∇ = (1−B¹²)` carries an excess root at frequency zero AND eleven at the
+seasonal frequencies, both at once. A synthetic bank separates them
+(`tests/gen_mixed_operators.py`). Three arms, the same true `ω₀ = 1`, an input
+that is a random walk, and only the location of the excess roots changes:
+
+| arm | output | input | order at f=0 | Δ(B) = op_y/op_x | Δ(1) |
+|---|---|---|---|---|---|
+| M | `∇` | `∇` | 1 vs 1 | 1 | 1 |
+| S | `∇₁₂` | `∇` | **1 vs 1** | `S(B) = 1+B+⋯+B¹¹` | **12** |
+| Z | `∇∇₁₂` | `∇` | **2 vs 1** | `1−B¹²` | **0** |
+
+Arm Z is the observed case (FR/DE/EMU against WTI). Arm S is the one nobody had
+tried: a mismatch **purely at the seasonal frequencies**, with the regular
+differencing identical on both sides.
+
+### The law
+
+What the cast fits is not ν but **ν̃ = ν · Δ**, and every number confirms it:
+
+| arm | Δ(1) | ν̂(1), s=1 | ν̂(1), r=1 | ν̂(1), s=12 | ν̂₁₂ | ν̂₀ |
+|---|---|---|---|---|---|---|
+| M | 1 | 0.95 | 0.95 | **0.98** | −0.01 | 0.95 |
+| S | 12 | 1.93 | 14.11 | **12.04** | 0.00 | 0.94 |
+| Z | 0 | 1.06 | 1.03 | **0.07** | **−1.01** | 0.93 |
+
+Read the S row across: with `s=1` the fit reports 1.93 — the first **two** terms
+of `S(B)`, which is all a two-lag numerator can hold. Give it a rational tail
+and it reaches 14.1; give it twelve lags and it lands on **12.04 = S(1)**. Read
+the Z row: with a short numerator it reports ≈1, because its error sits at
+**lag 12** and neither `s=1` nor a positive geometric tail can reach there. Give
+it twelve lags and it finds `ν̂₁₂ = −1.008` — exactly the `−ω₀` that `(1−B¹²)`
+predicts — and the gain collapses to **0.07 ≈ Δ(1) = 0**.
+
+So:
+
+> **ν̂(1) = ν(1) · Δ(1)**, as soon as the fitted transfer has the reach to see
+> where Δ puts its weight. Until it does, the damage is partial and the reported
+> gain is somewhere between the truth and the truth times Δ(1).
+
+That also explains why the real cases contract by *varying* amounts (0.36, 0.56,
+0.50 of OLS) rather than all collapsing: each fitted `(b, r, s)` has a different
+reach.
+
+**And `ν̂₀ ≈ 0.94` in all three arms.** The contemporaneous impact survives
+whatever the operators do. It is the GAIN — the long-run multiplier, the one
+quantity a transfer model is usually built to report — that breaks.
+
+### What this settles about seasonal frequencies
+
+The natural hope is that only the regular differencing has to agree, and that
+differing seasonal integration is harmless. **It is not.** Arm S has identical
+order at frequency zero and its gain is wrong by a factor of **twelve**. In
+fairness it is wrong in a recoverable way — `Δ(1) = s` is a known constant, so
+`ν(1) = ν̂(1)/s` — whereas arm Z's `Δ(1) = 0` destroys the quantity outright.
+But "recoverable by a correction nobody applies" is not "valid".
+
+The requirement is therefore the whole operator, not its regular part:
+
+> **`∇^{d_y}∇ₛ^{D_y} = ∇^{d_x}∇ₛ^{D_x}`, frequency by frequency**, including
+> whatever `ifadf` carries — or the reported gain is wrong by `Δ(1)`.
+
+And it confirms the reading of the observed case exactly. `∇∇₁₂ = (1−B)²S(B)`
+has **order 2 at frequency zero** against WTI's 1; that excess `(1−B)` puts
+`Δ(1) = 0` in the law, and the gain is annihilated. Arm Z reproduces it from
+scratch.
+
 ## 3. What actually has to change
 
 The key simplification, and it is worth stating before anyone starts writing
