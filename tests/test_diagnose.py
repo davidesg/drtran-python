@@ -13,6 +13,7 @@ misspecification: p collapses to 0.0000 where the C reports 0.1966 — a correct
 model condemned by its own transfer.
 """
 
+import pytest
 import os
 import re
 import subprocess
@@ -47,7 +48,20 @@ def fitted():
 # ── the statistic ────────────────────────────────────────────────────────────
 def test_the_divisor_is_n_minus_i_plus_one():
     """`ChiTestC` divides by n−i+1, not n−i. It looks like a detail; it is the
-    difference between matching the C and not matching it."""
+    difference between matching the C and not matching it.
+
+    **Do not "fix" this to n−i.** It was reported as BUG-7 — the argument being
+    that `ChiTestC` is 1-based with `corr[1]` contemporaneous, so lag k should
+    divide by `n−k` — and the argument is wrong for the k<0 branch, which is
+    the one `first=1` serves. Measured against the binary on the canonical case
+    (embedded cast, the homologated configuration):
+
+        divisors 215..192  (this code)   Q = 15.2377   <- the C prints 15.2377
+        divisors 214..191  (the "fix")   Q = 15.3118
+
+    `test_adequacy_and_exogeneity_match_the_binary` runs the C live and catches
+    the change; this test says why before anyone gets there.
+    """
     r = np.array([0.0, 0.3, -0.2, 0.1])
     n = 100
     Q, df = chi_test(r, n, first=1)

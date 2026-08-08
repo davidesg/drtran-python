@@ -778,15 +778,49 @@ check should warn in a band around its own critical value.
 
 ---
 
-## BUG-7. `chi_test(first=1)` keys the Ljung-Box divisor to the POSITION in the sum, not to the lag, so the exogeneity portmanteau does not match the C — drtran's
+## BUG-7. `chi_test(first=1)`'s divisor — NOT A BUG. The code matches the C; the report's reading of `ChiTestC` does not carry to the k<0 branch
 
 Found 2026-08-08 while auditing `diagnose.py` after the eight-country
 passthrough batch. Small in magnitude, but it is a fidelity break in the one
 place the docstring makes a point of, and it errs in the direction that hides
 feedback.
 
-> **Verdict 2026-08-08: REAL BUG, `drtran`'s, LOW magnitude but a fidelity
-> break.** Confirmed by direct evaluation (n=200, 11 lags):
+> **Verdict 2026-08-08, CORRECTED: NOT A BUG. The code is right and I was
+> wrong — I applied the change before homologating, and the binary rejected
+> it.**
+>
+> Measured on the canonical case in the EMBEDDED cast, which is the homologated
+> configuration:
+>
+> | divisors for lags 1..24 | Q(k<0) |
+> |---|---|
+> | 215 … 192 (this code) | **15.2377** |
+> | 214 … 191 (the proposed fix) | 15.3118 |
+> | **what the C prints** | **15.2377** |
+>
+> Bit-for-bit on the current code, and the transfer branch matches too
+> (p = 0.196639 against the C's 0.1966). `tests/test_diagnose.py::
+> test_adequacy_and_exogeneity_match_the_binary` runs the binary live and fails
+> on the change.
+>
+> **Where the report's argument breaks.** Reading `ChiTestC` alone —
+> 1-based, `corr[1]` contemporaneous, so lag k divides by `n−k` — is correct
+> for that function in isolation. It does not carry to the k<0 branch, whose
+> `corr1` the C builds with a different displacement, and the empirical result
+> is what settles it.
+>
+> **And the identity I checked was my own invention, not a requirement.** The C
+> uses `Q(k>0) = Q(all) − contemporaneous` on `corr2` for its own printout; the
+> Python's transfer and exogeneity tests run on two DIFFERENT cross-correlation
+> vectors (`cpos` and `cneg`), so nothing obliges `chi_test(r, n, 1)` and
+> `chi_test(r, n, 0)` to relate on the same `r`. That the identity failed by
+> 0.288 proves nothing.
+>
+> Reverted. The test now carries the measurement so the same argument does not
+> get made twice.
+>
+> ~~Original verdict (wrong), kept for the record:~~ REAL BUG, LOW magnitude.
+> Confirmed by direct evaluation (n=200, 11 lags):
 >
 > | branch | lag 1 divisor | should be | lag 10 divisor | should be |
 > |---|---|---|---|---|
