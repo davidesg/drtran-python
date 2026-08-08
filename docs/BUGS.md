@@ -22,6 +22,8 @@ Reproductions are self-contained (they use the `.pre` files in the repo root):
 python3 scripts/repro_ar2_phi1_bound.py
 python3 scripts/repro_alineacion_por_indice.py
 python3 scripts/repro_identify_link_output_schema.py
+python3 scripts/repro_refactor1_relgrad.py
+python3 scripts/repro_ccf_stop_grey_zone.py       # BUG-6; synthetic, needs no .pre
 ```
 
 **BUG-4 was added 2026-08-08** from a different workload — monthly IPC_ES → WTI
@@ -471,6 +473,14 @@ norm would let the analyst judge instead of guess.
 > separate cleanly — 1.0-1.5 on pure noise against 7.6-7.8 on a real transfer,
 > no grey zone — where the portmanteau does not. On noise mtram now refuses to
 > propose an order at all. Verified in `tests/test_bank_mtram.py`.
+>
+> **Superseded 2026-08-08 — the cure overshot. See BUG-6.** The "no grey zone"
+> claim came from measuring only two points, a null and one large effect; the
+> middle was never simulated. It is populated, and the rule discards transfers
+> that exact ML finds at |t| > 4. The original complaint here was real and the
+> fix was the right shape — a gate before the order is read — but its threshold
+> is set in units of the 2-sigma band, so it demands 4 sigma. Both entries
+> should move together: report the portmanteau AND lower the cut.
 
 It takes "each significant weight as a free omega" from the contiguous block, so
 an isolated noise spike at k=7, k=14 or k=18 becomes a formal proposal. With
@@ -498,3 +508,329 @@ The figure was labelled `Q(20) = 102.8` while `identify_link` reported
 `Q(20) = 24.5` for k < 0 on the same link; from the plotted r(k) neither side
 comes near 102.8 (roughly 28 for k >= 0). Either it is a different statistic or
 the label is wrong. Not chased down — recorded as a suspicion, not a diagnosis.
+
+---
+
+## BUG-5. The gate compared DIFFERENT SAMPLES when the series differ in D — FIXED
+
+Found 2026-08-08 on the monthly IPC → WTI passthrough, extending the ES case to
+the other seven series of `IPC.xlsx` (2002-01…2019-12, n=216, freq=12,
+`refactor=100`, λ=0). Three of them identify as SARIMA with `D=1`; the other
+four stay at `D=0`. **`load_pre`'s diagonal gate passes for every D=0 series
+and fails for every D=1 series, by the same amount.**
+
+```
+                sum of univariates   drtran diagonal      gap
+IPC_FR             -723.131413        -681.788527     +41.342886
+IPC_DE             -766.909798        -725.566912     +41.342886
+EMU                -733.373133        -692.030246     +41.342887
+
+CPI_USA            -779.700096        -779.700096      -7.44e-08
+IPC_UK             -668.822105        -668.822106      -8.39e-07
+IPC_CA             -801.308205        -801.308205      -2.56e-07
+IPC_JP             -724.268981        -724.268981      -1.94e-07
+IPC_ES             -767.435263        -767.435263      -1.75e-07
+```
+
+With a diagonal structure the exact likelihood FACTORISES, so the joint fit must
+equal the sum of the separate ones. It does, to 1e-7, in all five D=0 cases —
+and misses by 41.34 in all three D=1 cases. `mtram` correctly refuses to
+continue ("no sigas"), so the defect **blocks** those three transfer models.
+
+> **FIXED 2026-08-08, and the engine was never wrong.** The missing term is not
+> a constant in the likelihood: **the two sides were scoring different data.**
+>
+> `cast.py:252` aligns the series at the END and trims to the shortest, which is
+> correct for a joint fit — you cannot use observations of an input that have no
+> counterpart in the output, and the oracle does the same (`TFEST.PAS:71` takes
+> a single `nob` from the output and applies each model's differencing to it).
+> But `fue` estimates each univariate on its own MAXIMAL sample. So with the
+> output at D=1 the joint fit scored 203 observations of BOTH series while the
+> sum scored 203 of the output and 215 of the input.
+>
+> **The gap is exactly the likelihood of the 12 input observations the joint fit
+> discards.** WTI scores −760.032614 on 215 observations and −718.689727 on 203:
+> a difference of **41.342887** against the observed **41.342886**. And the
+> identity closes to **0.000000000** when both sides use the common sample —
+> the output scores −26.234052, WTI −718.689727, and the joint fit
+> −744.923779 = their exact sum.
+>
+> That is also why the gap was CONSTANT across three series sharing nothing: it
+> never depended on the output. It depended on the INPUT, which was WTI in every
+> case, and on the same 12 observations. Everything the report ruled out —
+> sigma, the parameters, the data range, the Box-Cox Jacobian — was ruled out
+> correctly, and for the right reason.
+>
+> **Fix: in the gate, not the engine.** `_diagonal_gate` now estimates each
+> univariate on the COMMON stationary sample (`_muestra_comun`,
+> `_en_muestra_comun`) before summing. Measured: the D=1 case goes from +41.34
+> to −8.31e−08, and the D=0 control is unchanged at −1.74e−07. No closed form
+> was needed and none was guessed — which the report was right to warn against.
+
+### Reproduction
+
+Build any of the three `.pre` files with `art` and load it against the WTI
+input:
+
+```python
+confirm_and_estimate(inp_path=<series>.inp, output_path=<series>_b2.inp,
+                     lam=0, d=1, D=1, p=1, q=0, Q=1, estimate_mu=False)
+load_pre(name=..., paths="<series>_b2.pre,WTI_m10.pre")   # gap +41.342886
+```
+
+The D=0 controls are the same series with `D=0, n_harmonics=5, p=1, q=0,
+estimate_mu=True` — they cross at 0.
+
+### Impact
+
+Blocking for any output with stochastic seasonality, which on this evidence is
+the majority of European CPIs (3 of the 4 euro-area series tested). The gate
+itself is working exactly as designed — it caught this before a single transfer
+coefficient was reported, which is what it is for.
+
+### Regression to keep
+
+The identity to assert is not "the gap is small" but **"both sides score the same
+sample"**. On the common stationary sample the sum must reproduce the diagonal
+fit exactly: output −26.234052 + WTI −718.689727 = −744.923779, and the joint
+diagonal returns −744.923779. Measured after the fix: D=1 case −8.31e−08, D=0
+control unchanged at −1.74e−07.
+
+The trigger is **any difference in `(d, D)` between series**, not `D=1`
+specifically. It did not fire on the five D=0 pairs here only because both series
+carried `d=1, D=0` and their `w` lengths matched exactly — so a regression that
+only exercises equal-differencing pairs will not see it. Cover a mixed pair.
+
+---
+
+## BUG-6. `identify_link`'s "the CCF is indistinguishable from noise" stop is calibrated in units of the 2-sigma BAND, so it discards genuine transfers at 3-4 sigma — mtram's
+
+Found 2026-08-08 extending the IPC → WTI passthrough to eight countries. Two of
+the five estimable links were STOPPED by this rule and both turned out to carry
+a transfer that exact ML finds at better than 1e-4.
+
+```
+                peak/band   =>  sigma   identify_link      joint ML
+IPC_UK <- WTI     1.85         3.70     "no propongo orden"  omega_0 = 0.005223
+                                                             t = 4.02, LR p = 8.0e-05
+IPC_JP <- WTI     1.44         2.88     "no propongo orden"  gain   = 0.009722
+                                                             t = 4.36, LR p = 1.4e-04
+```
+
+Both models then PASSED `diagnose`'s adequacy test (UK p=0.092, JP p=0.745), so
+the transfers the rule refused to identify are well specified.
+
+### The defect
+
+`mcp_server.py:735-741`:
+
+```python
+_pico = float(np.abs(_ccf[_lags >= 0]).max()) / float(idt.threshold)
+...
+if _pico < 2.0:
+    parar = True
+```
+
+`idt.threshold` is the plotted band, **2/sqrt(N)** — already two standard
+errors. So `_pico` is measured in units of 2 sigma, and the cut at 2.0 demands
+the peak exceed **4 sigma** before an order may be read. The docstring's own
+reference range makes the mis-scaling explicit:
+
+| `_pico` | in sigma | two-sided p at a pre-specified lag | the comment calls it |
+|---|---|---|---|
+| 1.0 | 2.0 | 0.046 | noise |
+| 1.5 | 3.0 | 0.0027 | noise |
+| **1.85** | **3.70** | **0.00022** | noise (UK) |
+| 2.0 | 4.0 | 6.3e-05 | the cut |
+| 7.6 | 15.2 | ~0 | signal |
+
+A peak at 3 sigma is not noise. The band exists to protect a SEARCH over ~25
+lags, where a 2-sigma crossing is unremarkable — but the peak that fires this
+rule sits at **k=0** in both cases, which is not a searched lag: it is where the
+economics says to look, and where every other country in the batch put its
+largest weight.
+
+### Why the calibration missed it — MEASURED
+
+The comment records exactly two measured points — `omega ~ 0` giving 1.0-1.5,
+and a signal case giving 7.6-7.8 — and concludes "no hay zona gris". **The grey
+zone was never simulated.** With only a null and one large effect there is
+nothing between 1.5 and 7.6 to observe, so its emptiness is a property of the
+design, not of the statistic.
+
+`scripts/repro_ccf_stop_grey_zone.py` simulates the missing middle: one DGP
+(`y = rho*x + noise`, both AR(1), N=215, 400 reps) swept across effect sizes.
+
+```
+   rho    peak/band   in sigma    |t| of omega    % STOPPED by the rule
+   0.00       1.10       2.19           0.81              100.0
+   0.05       1.11       2.21           1.02              100.0
+   0.10       1.19       2.37           1.57               99.2
+   0.15       1.30       2.60           2.18               97.2
+   0.20       1.54       3.08           3.00               86.8   <-- real, stopped
+   0.25       1.83       3.66           3.76               64.8   <-- real, stopped
+   0.30       2.21       4.41           4.64               31.0   <-- real, stopped
+   0.40       2.90       5.80           6.33                1.5
+   0.60       4.37       8.74          10.93                0.0
+   0.80       5.85      11.70          19.50                0.0
+```
+
+Two things to note. **The null row reproduces the original calibration** (1.10
+against their 1.0-1.5), so the setups are comparable and the disagreement is
+about the middle, not the method. And **the real cases land exactly where the
+simulation puts them**: the UK's r(0)=0.2521 is the `rho=0.25` row — simulated
+|t| = 3.76 against the 4.02 that exact ML actually returned, with the rule
+stopping 65% of such draws.
+
+The grey zone is not narrow. Between `rho` 0.20 and 0.30 the effect is
+unambiguous to any test (|t| from 3.0 to 4.6, p < 1e-3) and the rule discards
+between a third and seven eighths of the samples. The batch's own gains span a
+factor of 6 (0.0052 to 0.0320), and the two smallest fell inside.
+
+### Impact
+
+False negatives on small-but-real transfers, delivered as a hard stop
+(`parar = True`, "No propongo orden") rather than a warning. The analyst is told
+the relationship cannot be seen; nothing suggests estimating anyway. In this
+batch that would have discarded the two most interesting cases — the UK and
+Japan are precisely where fuel taxation and the exchange rate predict a small
+elasticity, which is the finding.
+
+It also inverts the tool hierarchy. The CCF is an IDENTIFICATION device
+computed from a prewhitening filter; the joint exact-ML estimate with its
+Hessian standard error is the TEST. Letting the weaker instrument veto the
+stronger one is backwards, and it is the opposite of the policy applied
+elsewhere in this suite (`formal_tests` is explicitly told not to overrule
+Shin-Fuller or the acf/pacf).
+
+### Suggested fix
+
+- **Re-express the criterion in sigma, not in bands**, and set the cut where it
+  is meant to be. If the intent is "a 2-sigma peak among 25 lags is expected by
+  chance", then apply a multiplicity correction to a SEARCHED maximum, and treat
+  k=0 separately since it is pre-specified.
+- **Downgrade the stop to a warning.** Say the CCF cannot pin down `b`, propose
+  the contemporaneous form `b=0, r=0, s=0` as the falsifiable default, and let
+  the joint estimate decide. That is what was done by hand here and it produced
+  two adequate models.
+- **Extend the calibration** across effect sizes, not just null vs large, before
+  claiming there is no grey zone.
+
+### Reproduction
+
+`IPC.xlsx`, 2002-01…2019-12, n=216. Output `.pre` = harmonics + AR(1) + mu
+(UK) or + step 04/2014 (JP); input = `WTI_m10.pre` (AR(1), no mean).
+
+```python
+identify_link(name=..., input_index=1)     # -> 1.85 / 1.44, "No propongo orden"
+set_network(..., '[{"out":0,"inp":1,"b":0,"r":0,"s":0}]')   # UK
+estimate(...)                               # -> t = 4.02 / 4.36
+diagnose(...)                               # -> adequate, exogenous (UK)
+```
+
+Self-contained (no `.pre` files needed), and it is the one that settles the
+calibration question rather than the anecdote:
+
+```
+python3 scripts/repro_ccf_stop_grey_zone.py     # exits 1 when the grey zone is found
+```
+
+### Related, and possibly the same root
+
+For Japan `identify_link` printed "the input behaves as exogenous. OK" at
+p=0.0596 with 3 significant lags at k<0, and after estimation `diagnose`
+returned "*** FEEDBACK ... a one-input model is not valid" at p=0.0188 on the
+same pair. The two are different statistics (pre-fit prewhitened vs post-fit
+structural residuals), so they need not agree — but the user-facing VERDICT
+flipped from OK to blocking, and the borderline pre-fit value was reported
+without any hedge. Worth deciding whether the identification-stage exogeneity
+check should warn in a band around its own critical value.
+
+---
+
+## BUG-7. `chi_test(first=1)` keys the Ljung-Box divisor to the POSITION in the sum, not to the lag, so the exogeneity portmanteau does not match the C — drtran's
+
+Found 2026-08-08 while auditing `diagnose.py` after the eight-country
+passthrough batch. Small in magnitude, but it is a fidelity break in the one
+place the docstring makes a point of, and it errs in the direction that hides
+feedback.
+
+### The defect
+
+`diagnose.py:40-55`:
+
+```python
+idx = np.arange(first, len(r))
+div = np.array([n - i + 1 for i in range(1, len(idx) + 1)], float)
+return float(n * (n + 2) * np.sum(r[idx] ** 2 / div)), len(idx)
+```
+
+`i` restarts at 1 regardless of `first`, so the divisor tracks the position in
+the sum rather than the lag:
+
+| branch | used by | lag k gets divisor |
+|---|---|---|
+| `first=0` | the TRANSFER test | `n - k`     ← matches the C |
+| `first=1` | the EXOGENEITY test | `n - k + 1` ← one lag late |
+
+The C (`drvarma_v.04/src/diagnose.c:278-285`) is 1-based with `corr[1]` the
+CONTEMPORANEOUS lag, so `nobs - i + 1` is `nobs - k` for lag k, on **both**
+sides:
+
+```c
+for (i = 1; i <= lags; i++)
+    chisqr += corr[i] * corr[i] / (nobs - i + 1);
+```
+
+And the C never recomputes the k>0 sum — it SUBTRACTS the contemporaneous term
+(`diagnose.c:430-431`):
+
+```c
+Q(k>0) = ChiTestC(corr, lags+1, n) - corr[1]*corr[1]*(n+2)
+```
+
+That is an identity the Python must satisfy and does not. The docstring right
+above the code is emphatic — *"**The divisor is n−i+1, not n−i** — changing it
+moves Q just enough to stop matching the C"* — and the implementation then
+gets it right for `first=0` and wrong for `first=1`.
+
+### Impact
+
+`Q_exog` is understated by about `1/(n-k)` per lag: **−0.4988 %** at n=215,
+nlags=24. No verdict in the eight-country batch flips (Japan fails exogeneity at
+p=0.0188 either way), so nothing published here is affected.
+
+What makes it worth fixing anyway is the **direction**: a smaller Q means a
+larger p, so the error makes the input look MORE exogenous than it is. The
+exogeneity test is the one that decides whether a one-input transfer model is
+admissible at all — an error that hides feedback is the expensive sign. And
+`diagnose`'s verdict is a hard stop that redirects the analyst to `sima`, so it
+should not be biased towards not stopping.
+
+### Reproduction
+
+```
+python3 scripts/repro_chitest_divisor_offbyone.py     # exits 1 while the bug is live
+```
+
+Self-contained, no `.pre` needed. It checks the C's own identity and then
+isolates the divisor from the lag-0 term by zeroing `r[0]`, after which the two
+branches sum literally the same quantities and must agree exactly:
+
+```
+first=0 = 20.378027493
+first=1 = 20.276384689
+gap     = -0.101642804   (-0.4988 %)
+```
+
+### Fix
+
+Key the divisor to the lag rather than to the position:
+
+```python
+div = np.array([n - k for k in idx], float)
+```
+
+which reduces to the C for both values of `first`. The regression to keep is the
+identity, not a tolerance: with `r[0] = 0`, `chi_test(first=0)` and
+`chi_test(first=1)` must return the same number bit for bit.

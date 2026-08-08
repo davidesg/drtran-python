@@ -790,3 +790,53 @@ def test_the_panel_does_not_duplicate_calibrate():
     assert "Intervenciones sugeridas" not in out
     if "Residuos extremos (|z| > 3): 0" not in out:
         assert "No los conviertas en intervenciones desde aquí" in out
+
+
+# ── BUG-5: la puerta comparaba muestras distintas ──────────────────────────
+def test_the_gate_crosses_when_the_series_differ_in_seasonal_differencing():
+    """BUG-5. With the output at D=1 and the input at D=0 the gate reported a
+    gap of +41.342886 and refused to continue — blocking every transfer whose
+    output has stochastic seasonality, which on European CPIs is most of them.
+
+    The engine was right and the CHECK was wrong. `cast.py:252` aligns at the
+    end and trims to the shortest, which is correct for a joint fit — you
+    cannot use observations of an input that have no counterpart in the output,
+    and the oracle does the same (`TFEST.PAS:71` takes a single `nob`). But fue
+    estimates each univariate on its own MAXIMAL sample, so the two sides were
+    measuring different data and the factorisation identity could not hold.
+
+    The gap was exactly the likelihood of the 12 WTI observations the joint fit
+    discards: WTI scores −760.032614 on 215 observations and −718.689727 on
+    203, a difference of 41.342887 against an observed 41.342886. Which is also
+    why it was CONSTANT across series that share nothing — it never depended on
+    the output at all.
+    """
+    AIR = os.path.join(CASES, "ES_CPI_airline.pre")
+    out = M.load_pre("D1", f"{AIR},{WTI}")
+    assert "✅" in out, out
+    import re
+    m = re.search(r"Diferencia con la suma: \*\*([-+0-9.e]+)\*\*", out)
+    assert m and abs(float(m.group(1))) < 1e-5, f"hueco {m.group(1) if m else '?'}"
+
+
+def test_the_d0_control_is_untouched():
+    """A fix that moved the case that always worked would be trading one defect
+    for another. The canonical D=0 pair must cross exactly as before."""
+    out = M.load_pre("D0", f"{ES},{WTI}")
+    import re
+    m = re.search(r"Diferencia con la suma: \*\*([-+0-9.e]+)\*\*", out)
+    assert m and abs(float(m.group(1))) < 1e-5
+
+
+def test_the_common_sample_is_the_shortest_after_differencing():
+    """The quantity the fix turns on, pinned on its own. ES_CPI_airline loses
+    1 + 12 observations to ∇∇₁₂ and WTI_ar1 loses 1, so from 216 raw the common
+    stationary sample is 203 — and that is what BOTH sides must score."""
+    from drtran.pre import load_pre as _lp
+
+    AIR = os.path.join(CASES, "ES_CPI_airline.pre")
+    specs = [_lp(AIR), _lp(WTI)]
+    assert M._muestra_comun(specs) == 203
+    # y el recorte deja a WTI con esas 203 observaciones útiles
+    w = M._en_muestra_comun(specs[1], 203)
+    assert int(w.series.nobs) == 203 + 1

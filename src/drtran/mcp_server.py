@@ -480,6 +480,66 @@ def _certificado(specs, antes, ll_traido, ll_diag):
     return L
 
 
+def _muestra_comun(specs):
+    """Longitud de la serie estacionaria COMÚN a todas: el mínimo tras diferenciar.
+
+    El cast alinea al final y recorta a la más corta (`cast.py:252`), que es lo
+    correcto para un ajuste conjunto -- no se pueden usar observaciones de una
+    entrada que no tienen contraparte en la salida. El oráculo hace lo mismo:
+    `TFEST.PAS:71` toma un único `nob` y lo aplica a todas las series.
+    """
+    ns = []
+    for sp in specs:
+        m = sp.model
+        freq = int(getattr(m.series, "freq", 1) or 1)
+        perdidas = int(getattr(m, "d", 0) or 0) + \
+            int(getattr(m, "D", 0) or 0) * freq
+        ns.append(int(getattr(m.series, "nobs", 0) or 0) - perdidas)
+    return min(ns) if ns else 0
+
+
+def _en_muestra_comun(sp, n_comun):
+    """El modelo de una serie, sobre las últimas `n_comun` observaciones ÚTILES.
+
+    Sin esto la puerta comparaba peras con manzanas: fue estima cada
+    univariante sobre su muestra MÁXIMA, y el ajuste conjunto usa la
+    INTERSECCIÓN. La identidad de factorización sólo se sostiene si los dos
+    lados miran los mismos datos, así que con d/D distintos fallaba por
+    construcción -- y el motor no tenía nada que ver.
+
+    Medido sobre ES_CPI_airline (d=1, D=1) contra WTI_ar1 (d=1, D=0): la puerta
+    daba un hueco de +41.342886, que es EXACTAMENTE la verosimilitud de las 12
+    observaciones de WTI que el conjunto descarta y la suma conservaba
+    (WTI: -760.032614 en 215 obs, -718.689727 en 203). Con las dos sobre la
+    muestra común la identidad se cumple a 0.000000000.
+
+    Eso explicaba además por qué el hueco era CONSTANTE entre series que no
+    comparten nada: no dependía del output, dependía del INPUT y de las mismas
+    12 observaciones.
+    """
+    import copy
+
+    m = sp.model
+    freq = int(getattr(m.series, "freq", 1) or 1)
+    perdidas = int(getattr(m, "d", 0) or 0) + \
+        int(getattr(m, "D", 0) or 0) * freq
+    quiere = n_comun + perdidas
+    tiene = int(getattr(m.series, "nobs", 0) or 0)
+    if quiere >= tiene or quiere < 2:
+        return m                                   # ya es la muestra común
+
+    import fue
+    import numpy as np
+
+    d = np.asarray(m.series.data, float)[tiene - quiere:]
+    y0, p0 = m.series._obs_to_date(tiene - quiere + 1)
+    ts = fue.TimeSeries(d, start=(y0, p0), freq=freq, name=m.series.name)
+    m2 = copy.deepcopy(m)
+    m2.series = ts
+    m2._result = None
+    return m2
+
+
 def _diagonal_gate(specs):
     """Estimate the DIAGONAL model and check it reproduces the univariate fits.
 
@@ -508,10 +568,11 @@ def _diagonal_gate(specs):
     antes = [_coefs(sp) for sp in specs]
     ll_traido = _loglik_traida(specs)
 
+    n_comun = _muestra_comun(specs)
     uni, failed = [], []
     for sp in specs:
         try:
-            m = sp.model
+            m = _en_muestra_comun(sp, n_comun)
             m.fit()
             uni.append((sp.name, float(m.loglik)))
         except Exception as exc:                           # noqa: BLE001
