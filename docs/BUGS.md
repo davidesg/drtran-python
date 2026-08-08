@@ -620,6 +620,36 @@ IPC_JP <- WTI     1.44         2.88     "no propongo orden"  gain   = 0.009722
 Both models then PASSED `diagnose`'s adequacy test (UK p=0.092, JP p=0.745), so
 the transfers the rule refused to identify are well specified.
 
+> **Verdict 2026-08-08: REAL BUG, `mtram`'s, HIGH — and it is mine.** The
+> mechanism is confirmed at `mcp_server.py:797-800`: `idt.threshold` is
+> `2.0/sqrt(n)` (`identify.py:220`), so `_pico` is in units of 2 sigma and the
+> cut at 2.0 demands **4 sigma**.
+>
+> **How the calibration went wrong.** I set that cut in the Tier-2 work from
+> measurements — pure noise gave 1.0-1.5 bands, a real transfer 7.6-7.8 — and
+> called it "no grey zone". The gap was an artefact of sampling only the two
+> extremes: strong canonical signals and pure noise, with nothing in between.
+> I never checked what 2.0 meant in sigma.
+>
+> Measured properly (200k draws, peak = max of K standard normals under H0):
+>
+> | K lags | median | p90 | p95 | p99 |
+> |---|---|---|---|---|
+> | 13 | 1.94σ | 2.65σ | 2.88σ | 3.36σ |
+> | 25 | 2.21σ | 2.86σ | **3.08σ** | 3.54σ |
+> | 40 | 2.38σ | 3.01σ | 3.22σ | 3.67σ |
+>
+> So with 25 lags a 5 % false-stop rate sits at 3.08σ = **1.54 bands**. The cut
+> at 2.0 bands (4σ) is above even the p99 of the noise distribution — it was
+> guaranteed to discard weak-but-real transfers, and did.
+>
+> **The fix is not just a number.** UK was stopped at 3.70σ, which a 5 % rule
+> would pass; JP at 2.88σ, which it would still stop — and JP's transfer is
+> real (t = 4.36, LR p = 1.4e-04, adequacy p = 0.745). A threshold calibrated
+> to reject noise at 5 % still discards it. That argues for reporting the
+> peak's p-value and letting node N1 be a decision rather than a gate, which is
+> what the guided mode is for. Threshold choice pending.
+
 ### The defect
 
 `mcp_server.py:735-741`:
@@ -754,6 +784,27 @@ Found 2026-08-08 while auditing `diagnose.py` after the eight-country
 passthrough batch. Small in magnitude, but it is a fidelity break in the one
 place the docstring makes a point of, and it errs in the direction that hides
 feedback.
+
+> **Verdict 2026-08-08: REAL BUG, `drtran`'s, LOW magnitude but a fidelity
+> break.** Confirmed by direct evaluation (n=200, 11 lags):
+>
+> | branch | lag 1 divisor | should be | lag 10 divisor | should be |
+> |---|---|---|---|---|
+> | `first=0` (transfer) | — | — | 190 | 190 ✓ |
+> | `first=1` (exogeneity) | **200** | 199 | **191** | 190 ✗ |
+>
+> And the identity the C satisfies fails: `Q(all) − contemporaneous` gives
+> 57.004971 where `chi_test(first=1)` gives 56.716905, a discrepancy of
+> **−0.288**.
+>
+> The divisor is one too LARGE, so every term is slightly too small and Q is
+> understated — the error runs toward NOT rejecting, i.e. toward hiding
+> feedback. That is the direction that matters here: a missed rejection sends
+> the analyst on with a single-input transfer model when the system is
+> simultaneous.
+>
+> Small in magnitude and unambiguous in cause. The `first=0` branch, which the
+> transfer test uses, is correct.
 
 ### The defect
 
