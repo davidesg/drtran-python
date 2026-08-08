@@ -353,6 +353,50 @@ None is free. (A) is the cheapest and least ambitious; (B) preserves what the
 embedded cast is for; (C) is simplest to write and changes the most; (D) is
 simplest of all and gives up the joint fit.
 
+### (E) Dispatch on Δ — embedded when the operators match, subtracting when they do not
+
+**This is the route to take**, and it is better than any of (A)–(D) taken alone.
+Δ is known before estimation: compare the two operators frequency by frequency.
+Then
+
+* **Δ = 1 → embedded cast, exactly as today.** Every legacy case, m6, the
+  network and every canonical test are matched, so they are *untouched*. The 48
+  homologation runs do not move, and the regression risk is nil.
+* **Δ ≠ 1 → subtracting cast**, with the transfer fed an input differenced by
+  the OUTPUT's operator.
+
+It keeps the joint fit and the LR test — which (D) gave up — and needs no `m+1`
+system with constraints — which (B) does. Three things must be true, and the
+third is the one to watch.
+
+**1. Dispatching alone fixes nothing.** `cast.py:323` reads
+`xin = W[:, l.inp]`: today the subtracting cast takes the input's OWN column,
+the same defect. What the route buys is *room*: `tr` is built explicitly
+outside the VARMA, so `xin` can be a separately-differenced vector without
+touching `W`. In the embedded cast the transfer IS off-diagonal VARMA
+coefficients acting on `W`'s columns, and there is no physical place to put a
+second vector. That is the structural difference, and it is the whole reason
+this works.
+
+**2. The subtracting cast is not the oracle.** By its own documentation it
+builds the noise outside the engine and, needing input values before `t=1`,
+*sets them to zero* — "the likelihood it then computes is exact, for the WRONG
+series". TASTE performs the same subtraction but **backforecasts the input to
+levels first** (`BackLevel`, `TFEST.PAS:655-670`) so the convolution has
+support. So the dispatch buys the right *specification* with a truncated
+pre-sample. The measured cost of that truncation is small — ω's bias
++0.0017 → −0.0002 on 69 observations, RMSE under 1 % — and trading it against a
+gain that is wrong by a factor of twelve is not a close call. Adding
+backforecasting is the natural follow-on that reaches the oracle exactly.
+
+**3. It changes the estimator without saying so, and that must be announced.**
+Across different `(d, D)` this is harmless, because §6 already establishes those
+likelihoods are not comparable. The live risk is *within* one output model:
+choosing between candidate inputs, one matched and one not, would compare a
+number from the embedded cast against one from the subtracting cast. Those are
+comparable in principle and computed differently in fact. The dispatch must
+therefore be reported in the output, not performed quietly.
+
 ### What must NOT be the fix: requiring the operators to match
 
 Tempting, and wrong as a resolution. It would refuse FR ← WTI, which is a
