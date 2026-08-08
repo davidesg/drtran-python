@@ -184,7 +184,12 @@ def test_the_plot_tools_write_files(caso, tmp_path):
     for f, kw in ((mtram.plot_ccf, dict(input_index=1)),
                   (mtram.plot_impulse_response, {}),
                   (mtram.plot_forecast, dict(horizon=6))):
-        p = f(caso, path=str(tmp_path / f"{f.__name__}.png"), **kw)
+        r = f(caso, path=str(tmp_path / f"{f.__name__}.png"), **kw)
+        # art entrega la figura DENTRO de la respuesta; mtram devolvía la ruta.
+        # Ahora devuelve las dos: texto con la ruta, e ImageContent.
+        assert isinstance(r, list) and [c.type for c in r] == ["text", "image"]
+        assert len(r[1].data) > 5000
+        p = r[0].text.rsplit("PNG: ", 1)[1].strip()
         assert os.path.exists(p) and os.path.getsize(p) > 5000
 
 

@@ -144,6 +144,10 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    regla no alcanza, un anómalo que aplasta todos los retardos a la vez.
    Su (b, r, s) va directo a set_network y MANDA sobre el propuesto.
    plot_ccf            el mismo gráfico suelto, si lo quieres volver a ver
+   ⚠ LOS GRÁFICOS VIENEN DENTRO DE LA RESPUESTA, como en art: los tools de
+   dibujo devuelven [texto, imagen], e `identify_link` trae SU ccf consigo.
+   No hace falta abrir ninguna ruta -- la figura ya está ahí, y el PNG en
+   disco es sólo por si lo quieres para un informe. ENSÉÑALA.
    refine_link         LA SEGUNDA LECTURA, y la que decide el DENOMINADOR.
                        Estima una MA libre y generosa y enseña los pesos nu(k)
                        con sus errores típicos. Si decaen gradualmente, la
@@ -243,6 +247,56 @@ _FITS: dict[str, object] = {}      # name -> Fit
 _TABLES: dict[str, object] = {}    # name -> SlotTable
 _DIAG: dict[str, float] = {}       # name -> logL del escalón diagonal
 _DIAG_FIT: dict[str, object] = {}  # name -> Fit diagonal (para la varianza)
+
+
+def _con_figura(texto, grafico):
+    """Texto + la figura que lo acompaña, en una sola respuesta.
+
+    El nodo N1 se decide MIRANDO la ccf, asi que separar el informe de su
+    grafico en dos llamadas es partir el instrumento en dos. Si el grafico no
+    se pudo hacer, o no hay `mcp.types`, se devuelve el texto y ya.
+    """
+    if not isinstance(grafico, list):
+        return texto if grafico is None else f"{texto}\n\n  PNG: {grafico}"
+    try:
+        from mcp.types import TextContent
+        imgs = [c for c in grafico if getattr(c, "type", "") == "image"]
+        return [TextContent(type="text", text=texto)] + imgs
+    except Exception:                                      # noqa: BLE001
+        return texto
+
+
+def _fig_result(fig, path, nota=""):
+    """Devuelve la figura DENTRO de la respuesta, y además la deja en disco.
+
+    art entrega sus graficos como `ImageContent` en la lista de contenidos, de
+    modo que la figura aparece en la conversacion. mtram escribia el PNG y
+    devolvia la RUTA, asi que el analista pasaba de ver un grafico a recibir un
+    path que tenia que abrir por su cuenta -- el mismo instrumento, dos
+    experiencias distintas, en el paso de un peldano al siguiente.
+
+    El fichero se sigue escribiendo. No es redundante: el parametro `path` es
+    parte de la API, un informe puede querer el PNG, y una figura en disco
+    sobrevive al final de la conversacion. Lo que cambia es que ya no es la
+    UNICA forma de verla.
+
+    Si `mcp.types` no esta disponible se devuelve la ruta como antes, que es lo
+    que hacia falta para que esto no sea una dependencia dura.
+    """
+    from .plots import save
+
+    p = save(fig, path)
+    texto = (nota + "\n" if nota else "") + f"PNG: {p}"
+    try:
+        import base64
+
+        from mcp.types import ImageContent, TextContent
+        with open(p, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode()
+        return [TextContent(type="text", text=texto),
+                ImageContent(type="image", data=b64, mimeType="image/png")]
+    except Exception:                                      # noqa: BLE001
+        return p
 
 
 def _require(name: str):
@@ -825,10 +879,13 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant",
     # EL GRÁFICO VA CON LOS NÚMEROS, no en otra llamada. En modo guiado el
     # analista decide mirando la CCF; una tabla de r(k) no lleva la FORMA, que
     # es lo que distingue una cola que decae de un pico aislado.
+    grafico = None
     try:
-        png = plot_ccf(name, input_index=input_index)
-        txt += ["", f"  GRÁFICO DE LA CCF: {png}",
-                "  Enséñaselo al analista y léelo CON él antes de decidir nada."]
+        grafico = plot_ccf(name, input_index=input_index)
+        txt += ["", "  La CCF va ABAJO, con estos números. Léela CON el "
+                "analista antes de decidir nada: una tabla de r(k) no lleva la "
+                "FORMA, que es lo que distingue una cola que decae de un pico "
+                "aislado."]
     except Exception as exc:                               # noqa: BLE001
         txt += ["", f"  (no se pudo dibujar la CCF: {str(exc)[:120]})"]
 
@@ -839,7 +896,7 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant",
     txt += avisos
     if not parar:
         txt += _identification_choice(idt, name, input_index, specs)
-    return "\n".join(txt)
+    return _con_figura("\n".join(txt), grafico)
 
 
 def _seasonality_note(specs, input_index, name):
@@ -1252,7 +1309,7 @@ def set_network(name: str, links_json: str) -> str:
 
 @mcp.tool()
 def plot_ccf(name: str, input_index: int = 1, lags: int = 0,
-             path: str = "") -> str:
+             path: str = "") -> list:
     """PLOT the prewhitened CCF of one link — the identification instrument.
 
     Show this to the analyst and read it WITH them; the numbers alone do not
@@ -1275,11 +1332,13 @@ def plot_ccf(name: str, input_index: int = 1, lags: int = 0,
     freq = int(getattr(specs[0].model.series, "freq", 1) or 1)
     fig = _pc(a, b, freq=freq, lags=(lags or None),
               names=(specs[input_index].name, specs[0].name))
-    return save(fig, _png(name, f"ccf{input_index}", path))
+    return _fig_result(fig, _png(name, f"ccf{input_index}", path),
+                       f"CCF preblanqueada — {specs[0].name} ← "
+                       f"{specs[input_index].name}")
 
 
 @mcp.tool()
-def plot_impulse_response(name: str, link_index: int = 0, path: str = "") -> str:
+def plot_impulse_response(name: str, link_index: int = 0, path: str = "") -> list:
     """PLOT nu(k) and its cumulative sum, each with a 95 % band.
 
     Left panel: the response to a ONE-OFF unit shock. Right: to a PERMANENT
@@ -1293,12 +1352,13 @@ def plot_impulse_response(name: str, link_index: int = 0, path: str = "") -> str
     f = _require_fit(name)
     se = standard_errors(f)
     ir = _irf(f, link_index=link_index, cov=(None if se.ifault else se.cov))
-    return save(plot_irf(ir), _png(name, f"irf{link_index}", path))
+    return _fig_result(plot_irf(ir), _png(name, f"irf{link_index}", path),
+                       "Respuesta al impulso nu(k), acumulada y ganancia")
 
 
 @mcp.tool()
 def plot_forecast(name: str, horizon: int = 12, series_index: int = 0,
-                  path: str = "") -> str:
+                  path: str = "") -> list:
     """PLOT the level forecast with its band, over the recent history.
 
     The band is ASYMMETRIC under a log model — it is formed in the transformed
@@ -1316,12 +1376,13 @@ def plot_forecast(name: str, horizon: int = 12, series_index: int = 0,
     lvl, lo, hi = level_band(fc, cs, series=series_index)
     hist = cs.series[series_index].spec.ts.data
     fig = _pf(lvl, lo, hi, history=hist, name=cs.names[series_index])
-    return save(fig, _png(name, f"fcst{series_index}", path))
+    return _fig_result(fig, _png(name, f"fcst{series_index}", path),
+                       f"Previsión de {cs.names[series_index]} — nivel con bandas")
 
 
 @mcp.tool()
 def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
-                   path: str = "") -> str:
+                   path: str = "") -> list:
     """PLOT the residual series with its ACF and PACF — fue's own panel.
 
     The same drawing `art` shows after a univariate fit, so the analyst reads one
@@ -1347,7 +1408,8 @@ def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
     npar = npar_for_series(f, series_index)
     fig = _pr(a[:, series_index], npar=npar, freq=freq, lags=(lags or None),
               title=f"residuals — {cs.names[series_index]}")
-    return save(fig, _png(name, f"res{series_index}", path))
+    return _fig_result(fig, _png(name, f"res{series_index}", path),
+                       f"Residuos de {cs.names[series_index]} — serie + ACF/PACF")
 
 
 # ── 3. estimation ──────────────────────────────────────────────────────────
@@ -2560,7 +2622,7 @@ def _which_pairs(f, link_index):
 
 
 @mcp.tool()
-def plot_calibration(name: str, link_index: int = 0, path: str = "") -> str:
+def plot_calibration(name: str, link_index: int = 0, path: str = "") -> list:
     """PLOT the CCF **with and without** the dominant anomaly — the verification.
 
     In the school's teaching this is a fact to VERIFY, not to infer, and it is
@@ -2581,7 +2643,8 @@ def plot_calibration(name: str, link_index: int = 0, path: str = "") -> str:
     if not cal.anomalies:
         raise ValueError("no hay ninguna anomalía por encima del umbral: "
                          "nada que verificar")
-    return save(_pcal(cal), _png(name, f"cal{link_index}", path))
+    return _fig_result(_pcal(cal), _png(name, f"cal{link_index}", path),
+                       "CCF con y sin la observación sospechosa")
 
 
 # ── 5. structure ───────────────────────────────────────────────────────────

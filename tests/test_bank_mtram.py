@@ -39,6 +39,18 @@ pytestmark = pytest.mark.skipif(
     not os.path.exists(GEN),
     reason="the C repository's synthetic generator is missing")
 
+def _txt(r):
+    """El texto de una respuesta MCP, venga sola o con su figura.
+
+    `identify_link` devuelve `[TextContent, ImageContent]`, como art: el nodo
+    N1 se decide MIRANDO la ccf, así que separar el informe de su gráfico
+    sería partir el instrumento en dos.
+    """
+    if isinstance(r, list):
+        return "\n".join(c.text for c in r if getattr(c, "type", "") == "text")
+    return r
+
+
 
 def _gen():
     """Load the generator by path; it is a script, not an installed module."""
@@ -109,7 +121,7 @@ def test_identification_recovers_the_delay(bank, tag):
     significant bar. It is also the parameter an analyst is least able to guess,
     so getting it wrong is the failure that matters most."""
     _, c = _load(bank, tag, check=False)
-    out = M.identify_link(tag)
+    out = _txt(M.identify_link(tag))
     from drtran.cast import Link, build_cast_spec
     specs = M._SPECS[tag]
     cs = build_cast_spec(specs, links=[Link(0, 1, 0, 0, 0)])
@@ -117,7 +129,7 @@ def test_identification_recovers_the_delay(bank, tag):
     assert int(idt.b) == c["b"], (
         f"recovered b={idt.b}, truth b={c['b']}; significant lags "
         f"{idt.significant_non_negative}")
-    assert "GRÁFICO DE LA CCF" in out
+    assert "La CCF va ABAJO, con estos números" in out
 
 
 @pytest.mark.parametrize("tag", IDS)
@@ -225,7 +237,7 @@ def test_noise_is_reported_as_noise_not_as_feedback(seed):
     d = tempfile.mkdtemp(prefix="mtram_noise_")
     g.build_case(d, "NZ", 2, 0, 0, [0.0005], [], seed=seed)
     M.load_pre(f"NZ{seed}", f"{d}/NZ_Y.pre,{d}/NZ_X.pre", check=False)
-    out = M.identify_link(f"NZ{seed}")
+    out = _txt(M.identify_link(f"NZ{seed}"))
     assert "NO SE DISTINGUE DEL RUIDO" in out
     assert "No propongo orden" in out
     assert "set_network" not in out, "it proposed an order on noise"
@@ -236,7 +248,7 @@ def test_a_real_transfer_is_not_stopped(bank, tag):
     """The other half of the rule: a stopping rule that also fires on signal
     would just be an off switch."""
     _load(bank, tag, check=False)
-    out = M.identify_link(tag)
+    out = _txt(M.identify_link(tag))
     assert "PARA:" not in out
     assert "set_network" in out
 
@@ -246,7 +258,7 @@ def test_the_single_observation_warning_does_not_fire_on_clean_data(bank):
     there: the heaviest observation carries 2-5 % of the dominant lag's
     correlation, against a 15 % threshold."""
     _load(bank, "b2s1", check=False)
-    out = M.identify_link("b2s1")
+    out = _txt(M.identify_link("b2s1"))
     assert "UNA OBSERVACIÓN PESA DEMASIADO" not in out
 
 

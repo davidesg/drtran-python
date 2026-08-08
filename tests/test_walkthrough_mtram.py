@@ -22,6 +22,19 @@ CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 
+def _txt(r):
+    """El texto de una respuesta MCP, venga sola o con su figura.
+
+    `identify_link` devuelve ahora `[TextContent, ImageContent]`, como art:
+    el nodo N1 se decide MIRANDO la ccf, así que separar el informe de su
+    gráfico sería partir el instrumento en dos. Los tests leen la parte de
+    texto a través de aquí y así no dependen de esa forma.
+    """
+    if isinstance(r, list):
+        return "\n".join(c.text for c in r if getattr(c, "type", "") == "text")
+    return r
+
+
 pytestmark = pytest.mark.skipif(
     not os.path.exists(ES),
     reason="the canonical .pre files from the C repo are missing")
@@ -80,7 +93,9 @@ def walk():
             out[label] = "raised %s: %s" % (type(exc).__name__, str(exc)[:160])
             continue
         try:
-            out[label] = check(res)
+            # los tools que llevan figura devuelven [texto, imagen]; el paseo
+            # comprueba lo que DICEN, así que se lee la parte de texto
+            out[label] = check(_txt(res))
         except Exception as exc:                           # noqa: BLE001
             out[label] = "the check itself raised: %s" % str(exc)[:120]
     return out
@@ -152,8 +167,8 @@ def test_identify_link_emits_the_plot_with_the_numbers():
     r(k) does not carry the SHAPE, which is what separates a decaying tail from
     an isolated spike, so the plot has to arrive in the same call."""
     M.load_pre("ID", f"{ES},{WTI}", check=False)
-    out = M.identify_link("ID")
-    assert "GRÁFICO DE LA CCF" in out and ".png" in out
+    out = _txt(M.identify_link("ID"))
+    assert "La CCF va ABAJO, con estos números" in out
 
 
 def test_identify_link_says_what_it_discarded():
@@ -161,7 +176,7 @@ def test_identify_link_says_what_it_discarded():
     block drops. Dropping it may well be right — but it is a JUDGEMENT, and
     until now the analyst was never told one had been made."""
     M.load_pre("ID2", f"{ES},{WTI}", check=False)
-    out = M.identify_link("ID2")
+    out = _txt(M.identify_link("ID2"))
     assert "DEJA FUERA" in out
     assert "k = 24" in out
     assert "MÚLTIPLO DE LA FRECUENCIA" in out, "does not flag it as seasonal"
@@ -170,13 +185,13 @@ def test_identify_link_says_what_it_discarded():
 def test_identify_link_offers_the_exact_set_network_call():
     """Confirming must be one copy-paste, and dissenting just as easy."""
     M.load_pre("ID3", f"{ES},{WTI}", check=False)
-    out = M.identify_link("ID3")
+    out = _txt(M.identify_link("ID3"))
     assert "set_network" in out and '"b": 0' in out and '"s": 1' in out
 
 
 def test_identify_link_frames_it_as_a_proposal():
     M.load_pre("ID4", f"{ES},{WTI}", check=False)
-    out = M.identify_link("ID4")
+    out = _txt(M.identify_link("ID4"))
     assert "NO UN VEREDICTO" in out
     assert "ESPERA" in out
 
@@ -186,7 +201,7 @@ def test_it_distinguishes_no_tail_from_a_tail_that_does_not_decay():
     shorter block the rule never ran, and saying "the tail does not decay"
     would claim it was looked at and rejected."""
     M.load_pre("ID5", f"{ES},{WTI}", check=False)
-    out = M.identify_link("ID5")          # canonical block is {0,1} = 2 lags
+    out = _txt(M.identify_link("ID5"))          # canonical block is {0,1} = 2 lags
     assert "no hay cola que evaluar" in out
 
 
@@ -204,7 +219,7 @@ def test_a_band_dependent_weight_is_flagged_as_such():
     and lets the analyst see that the finding is fragile.
     """
     M.load_pre("BAND", f"{ES},{WTI}", check=False)
-    out = M.identify_link("BAND")
+    out = _txt(M.identify_link("BAND"))
     assert "DEPENDE DE LA BANDA" in out
     assert "0.1364" in out and "0.1447" in out
     assert "TASTE" in out
@@ -414,12 +429,12 @@ def test_the_seasonality_mismatch_is_announced_and_the_clean_case_is_not():
     announce itself: it comes back full of structure and the contiguous-block
     rule reads an order off it anyway."""
     M.load_pre("SM", f"{AIRLINE},{WTI}", check=False)
-    bad = M.identify_link("SM")
+    bad = _txt(M.identify_link("SM"))
     assert "SARIMA MULTIPLICATIVO Y EL INPUT NO" in bad
     assert "ident_pre" in bad
 
     M.load_pre("SM2", f"{ES},{WTI}", check=False)
-    assert "EL INPUT NO" not in M.identify_link("SM2")
+    assert "EL INPUT NO" not in _txt(M.identify_link("SM2"))
 
 
 def test_the_deterministic_preference_is_stated_and_meg_is_not_proposed():
@@ -431,7 +446,7 @@ def test_the_deterministic_preference_is_stated_and_meg_is_not_proposed():
     critical values are under active research — so the assistant does not
     propose that route on its own, without disparaging the specification."""
     M.load_pre("SM3", f"{AIRLINE},{WTI}", check=False)
-    out = M.identify_link("SM3")
+    out = _txt(M.identify_link("SM3"))
     assert "DETERMINISTA" in out
     assert "La CLASE no es nueva ni experimental" in out
     assert "NO propongas tú la ruta MEG" in out
@@ -442,7 +457,7 @@ def test_identification_can_use_an_alternative_output_model():
     What is tested is that the split HAPPENS — the identification uses the
     alternative and says so — not that some particular order comes out."""
     M.load_pre("SP", f"{AIRLINE},{WTI}", check=False)
-    out = M.identify_link("SP", 1, ident_pre=ES)
+    out = _txt(M.identify_link("SP", 1, ident_pre=ES))
     assert "IDENTIFICANDO CON UN MODELO ALTERNATIVO DEL OUTPUT" in out
     # y la estimación sigue con el modelo REAL, no con el alternativo
     assert M._SPECS["SP"][0].name == "ES_CPI"
