@@ -24,6 +24,7 @@ python3 scripts/repro_alineacion_por_indice.py
 python3 scripts/repro_identify_link_output_schema.py
 python3 scripts/repro_refactor1_relgrad.py
 python3 scripts/repro_ccf_stop_grey_zone.py       # BUG-6; synthetic, needs no .pre
+python3 scripts/repro_bug8_mixed_dD_vs_oracle.py # BUG-8; drives the TASTE oracle
 ```
 
 `repro_chitest_divisor_offbyone.py` was deleted with BUG-7: it asserted an
@@ -995,3 +996,150 @@ div = np.array([n - k for k in idx], float)
 which reduces to the C for both values of `first`. The regression to keep is the
 identity, not a tolerance: with `r[0] = 0`, `chi_test(first=0)` and
 `chi_test(first=1)` must return the same number bit for bit.
+
+---
+
+## BUG-8. The ORACLE disagrees by a factor of ~2 on every mixed-(d,D) transfer, and agrees to 1e-6 on every matched one — OPEN, cause not established
+
+Found 2026-08-08 extending the TASTE oracle to the eight-country IPC → WTI
+batch. TASTE shares no code with this family and estimates by unconditional
+sum-of-squares with backforecasting, not exact ML, so it is the only second
+opinion available for the transfer itself.
+
+Four new oracle cases were added (`Taste/oracle/cases/pt_{usa,ca,uk}_check.json`
+plus `pt_{fr,de,emu}_check.json`). The split is clean and it is not gradual:
+
+```
+ case            output spec        TASTE w0    drtran w0   abs dif   REL dif
+ cpi_wti_canon   ES  d=1 D=0 det    0.016400    0.016402    0.0e+00     0.01 %
+ pt_usa_check    USA d=1 D=0 det    0.017160    0.017161    1.0e-06     0.01 %
+ pt_uk_check     UK  d=1 D=0 det    0.005220    0.005223    3.0e-06     0.06 %
+ pt_ca_check     CA  d=1 D=0 det    0.013380    0.013504    1.2e-04     0.9  %
+ ---------------------------------------------------------------------------
+ pt_fr_check     FR  d=1 D=1        0.009070    0.004282    4.8e-03   112    %
+ pt_de_check     DE  d=1 D=1        0.011660    0.006906    4.8e-03    69    %
+ pt_emu_check    EMU d=1 D=1        0.011880    0.006194    5.7e-03    92    %  FAILS
+```
+
+Every case where the output and the input carry the SAME differencing agrees to
+between 1e-6 and 1.2e-4. Every case where the output carries an extra `∇_12`
+disagrees by roughly a factor of two, with TASTE always the larger. Three for
+three, in the same direction.
+
+### Why this is not dismissable as "different estimators"
+
+The estimator gap is already measured and documented: 1e-5 to 4e-3 depending on
+the parameter, and the four matched cases sit inside it. A 69-112 % relative
+disagreement is three orders of magnitude outside that band, and it appears
+exactly and only when `(d, D)` differ between output and input — the same
+configuration that produced BUG-5.
+
+### It also explains an arithmetic impossibility in the results
+
+Spain's gain is 0.0271 and the euro-area aggregate's is 0.0062, with France at
+0.0067 and Germany at 0.0069. Spain is INSIDE the euro area with a weight near
+10 %, so an aggregate four times smaller than one of its members, with the two
+largest members also below it, does not add up. Substituting TASTE's numbers
+(EMU 0.0119, FR 0.0091, DE 0.0117) does not close it completely but moves every
+one of them in the direction that would.
+
+### The harness hid two of the three
+
+`battery.py` compares with an ABSOLUTE tolerance (`tolerancia: 0.005`). For a
+coefficient of order 0.005 that tolerance is 100 % of the value, so FR and DE
+were reported **OK** at 112 % and 69 % relative error. Only EMU tripped, and
+only because it happened to exceed 5e-3 in absolute terms. **The tolerance
+should be relative (or mixed) for small coefficients**; as it stands the bank is
+blind precisely where the coefficients are smallest, which in this family is
+where the interesting countries are.
+
+### What was ruled out, and what was not
+
+- **Not** a differencing mismatch of the obvious kind: `TFEST.PAS:80-88` applies
+  `TransDiff(InputUs^, lambda, d, ds, sp, ...)` inside
+  `WITH Models[CatPm]^.INP[i].model DO`, i.e. each input is differenced by ITS
+  OWN `d`/`ds`, which is what `cast.py` does too. That was the first hypothesis
+  and it does not hold.
+- **Not** BUG-5: that was the gate comparing different samples and it is fixed;
+  these three now cross at −8.31e−08.
+- **ESTABLISHED 2026-08-09 — see `docs/LEVEL_TRANSFER_PLAN.md`.** The two
+  programs specify the CAST differently. TASTE (and `fue`) relate the LEVELS
+  with the differencing carried by the noise; drtran relates the series already
+  differenced, each by its OWN (d, D) — `drtran.c:365-372`, `cast.py`. Since ∇
+  commutes with ν(B) the two are identical when the differencing matches, which
+  is why the four matched cases agree to 1e-6 AND why both contract the raw OLS
+  by the same factor to two decimals (0.81/0.81, 0.66/0.66, 0.68/0.67,
+  0.86/0.86). When they differ, drtran relates ∇∇₁₂y to ∇x — the same operator
+  is not applied to both sides — and ν shrinks: the contraction factor drops to
+  0.36-0.56 while TASTE stays at 0.77-0.96.
+
+  Confirmed by giving the input the OUTPUT's differencing: France goes from
+  0.004282 to **0.009072** against the oracle's **0.009070**. And confirmed
+  independently by the precedent — `fue`'s `custom` intervention estimates a
+  transfer on LEVELS in both C and Python, and lands on the oracle for Germany
+  and the euro area to 0.5 %.
+
+  Inherited from the C, not introduced by the port. The fix is major surgery in
+  both, and the plan is in `docs/LEVEL_TRANSFER_PLAN.md`.
+
+- **Still not established:** why `fue` and TASTE agree on DE and EMU and differ
+  by 26 % on FR. The
+  honest state is that something in how the transfer is fitted when the output
+  carries a seasonal difference differs between the implementations, and reading
+  `TASTEOPT`'s sum-of-squares against `cast.py`'s `W = W - tr` is the next step.
+  No formula was guessed here on purpose.
+
+### Reproduction — and it CONFIRMS against the oracle, it does not merely assert
+
+```sh
+python3 scripts/repro_bug8_mixed_dD_vs_oracle.py      # exits 1 while the bug is live
+```
+
+It drives the real TASTE binary through `Taste/oracle/battery.py` on seven cases
+and prints the RELATIVE disagreement, which is the measurement `battery.py`
+itself does not make:
+
+```
+   case        output spec       param        TASTE     drtran     abs dif    REL dif
+   pt8_es      d=1 D=0 det   omega[0]     0.016410   0.016402    8.0e-06      0.0 %
+   pt8_es      d=1 D=0 det   omega[1]    -0.010790  -0.010748    4.2e-05      0.4 %
+   pt8_usa     d=1 D=0 det   omega[0]     0.017160   0.017161    1.0e-06      0.0 %
+   pt8_usa     d=1 D=0 det   omega[1]    -0.014910  -0.014855    5.5e-05      0.4 %
+   pt8_ca      d=1 D=0 det   omega[0]     0.013380   0.013504    1.2e-04      0.9 %
+   pt8_ca      d=1 D=0 det   omega[1]    -0.008080  -0.008223    1.4e-04      1.7 %
+   pt8_uk      d=1 D=0 det   omega[0]     0.005220   0.005223    3.0e-06      0.1 %
+
+   pt8_fr      d=1 D=1       omega[0]     0.009070   0.004282    4.8e-03    111.8 %  <--
+   pt8_fr      d=1 D=1       omega[1]    -0.006200  -0.002379    3.8e-03    160.6 %  <--
+   pt8_de      d=1 D=1       omega[0]     0.011660   0.006906    4.8e-03     68.8 %  <--
+   pt8_emu     d=1 D=1       omega[0]     0.011880   0.006194    5.7e-03     91.8 %  <--
+
+  worst relative disagreement, SAME differencing :   1.74 %
+  worst relative disagreement, MIXED differencing: 160.61 %
+```
+
+**Durable, not staged in a temp dir.** The seven cases live in
+`Taste/oracle/cases/pt8_*.json` and the `.pre` files in
+`Taste/oracle/data/passthrough8/`, renamed `PT8_*.pre` because `busca()` matches
+by basename and `WTI_m10.pre` occurs twice in the source tree. The script needs
+`tbatch` built (`make -C Taste/port tools`) and exits 77 if the oracle is not
+mounted, so it degrades rather than lying when run elsewhere.
+
+The script also distinguishes the two ways this can stop failing. If the MIXED
+cases converge it reports the bug fixed (exit 0); if the MATCHED cases start
+disagreeing it reports a DIFFERENT regression (exit 2) rather than silently
+crediting a fix — the matched agreement is the control, and losing it would
+invalidate the comparison rather than resolve it.
+
+### Impact
+
+The three `∇_12` gains (FR, DE, EMU) should not be reported until this is
+settled. The five matched-differencing ones (ES, USA, CA, UK, and the canonical)
+are externally corroborated and stand.
+
+### Note: Japan cannot be put through the oracle at all
+
+`mktsm.py:236` asserts `len(rec) == TF_LEN`; the TSM record accommodates 12
+inputs. IPC_JP needs 13 — 11 harmonics + the Nyquist alter + the 04/2014
+consumption-tax step, plus WTI. A structural limit of TASTE's format, not a
+defect, but it means the one case whose exogeneity fails has no second opinion.
