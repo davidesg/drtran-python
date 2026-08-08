@@ -446,11 +446,28 @@ failure through `mcp.call_tool`, and the inverted-branch check.
 
 ## To watch
 
-### `check_scale`'s advice is right for lambda=0 and wrong for lambda=1
+### `check_scale`'s advice is right for lambda=0 and wrong for lambda=1 — FIXED
 
 > **Verdict 2026-08-07: real, minor, `drtran`'s** (`pre.py:91`). Confirmed:
 > the rule is `refactor < 10` and the message is unconditional, with no
 > reference to `boxlam` anywhere in the function.
+>
+> **FIXED 2026-08-08 — and not by adding a `boxlam` branch.** The mechanism is
+> the finite-difference step (~6e-6 absolute), so what matters is the size of
+> the STATIONARY series the optimiser actually sees, after lambda, refactor and
+> the differencing. `refactor` is only the lever. So that is what is measured,
+> and the advice follows the data:
+>
+> | case | typical \|w\| | advice |
+> |---|---|---|
+> | canonical (λ=0, refactor=100) | 0.37 | none |
+> | same, unscaled (refactor=1) | 0.0037 | refactor=100, **MULTIPLYING** |
+> | levels, rainfall-like (λ=1, refactor=1) | 330 | refactor=0.001, **DIVIDING** |
+>
+> The old advice on that last row was "regenerate with refactor=100", which
+> would have taken \|w\| from 330 to 33000 — a poor signal-to-step ratio
+> traded for a different one. The band 0.01…100 comes from the measurement the
+> docstring already carried: Δlog ~0.002 hangs, ~0.2 converges.
 
 The rule is `refactor < 10` and the message always says *regenerate the .pre with
 refactor=100*. For a log model with d=1 that is correct and it does solve the
@@ -516,7 +533,7 @@ tool already computes the k>=0 portmanteau in `diagnose`; reporting it in
 `identify_link` too would let the analyst see *there is no joint evidence of a
 transfer* **before** being handed a `b=7` that looks like a finding.
 
-### Unconfirmed: `plot_ccf`'s Q does not match `identify_link`'s
+### `plot_ccf`'s Q vs `identify_link`'s — NOT a defect, now LABELLED
 
 > **Verdict 2026-08-07: NOT a computation defect. The suspicion pointed at
 > something real and diagnosed it wrongly.** They are two different statistics
@@ -530,6 +547,14 @@ transfer* **before** being handed a `b=7` that looks like a finding.
 > What IS a defect, and a small `mtram` one: both are printed as `Q(20) = ...`
 > with nothing saying which is which. Same class of problem as the residual
 > panel's degrees-of-freedom correction — one label, two meanings.
+>
+> **FIXED 2026-08-08.** `plot_ccf`'s reply now says, next to the figure, that
+> the footer's Q is Hosking's bivariate portmanteau over the stacked series —
+> all four entries of the cross-correlation matrix, the two autocorrelations
+> included, at every lag — while the report gives `chi_test` over ONE side of
+> ONE cross-correlation, and that 102.8 against 24.5 is the expected ratio
+> rather than a discrepancy. The suspicion sat in this file for a year because
+> nothing said which statistic was which.
 
 The figure was labelled `Q(20) = 102.8` while `identify_link` reported
 `Q(20) = 24.5` for k < 0 on the same link; from the plotted r(k) neither side

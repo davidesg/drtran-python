@@ -889,3 +889,55 @@ def test_a_frequency_mismatch_is_refused_too(tmp_path):
     b.ts.freq = 4
     with pytest.raises(ValueError, match="cannot be modelled jointly"):
         build_cast_spec([a, b], links=[])
+
+
+# ── los dos menores de la sección de sospechas ─────────────────────────────
+def test_the_scale_advice_follows_the_data_not_just_refactor():
+    """`check_scale` said "regenerate with refactor=100" unconditionally. For a
+    log model that is right — it puts the series in percent. For an
+    UNTRANSFORMED one it is backwards: rainfall at ~900 mm becomes ~90000, and
+    a poor signal-to-step ratio becomes a different poor one.
+
+    What matters is the size of the STATIONARY series the optimiser sees, so
+    that is what is measured. `refactor` is only the lever.
+    """
+    import copy
+
+    import numpy as np
+
+    from drtran.pre import check_scale, load_pre
+    from drtran.school import stationary_series
+
+    sp = load_pre(ES)
+    assert check_scale(sp) is None                  # el canónico está bien
+
+    # el mismo modelo sin reescalar: hay que MULTIPLICAR
+    chico = copy.deepcopy(sp)
+    chico.model.refactor = 1.0
+    aviso = check_scale(chico)
+    assert aviso and "MULTIPLYING" in aviso and "refactor=100" in aviso
+
+    # una serie en NIVELES con diferencias grandes: hay que DIVIDIR
+    rng = np.random.default_rng(0)
+    grande = copy.deepcopy(sp)
+    grande.model.refactor = 1.0
+    grande.model.boxlam = 1.0
+    grande.ts.data = list(900 + rng.normal(0, 400, int(sp.ts.nobs)))
+    grande.model.series = grande.ts
+    assert np.median(np.abs(stationary_series(grande))) > 100
+    aviso = check_scale(grande)
+    assert aviso and "DIVIDING" in aviso, aviso
+    assert "refactor=100" not in aviso, "seguiría dando el consejo al revés"
+
+
+def test_the_figures_Q_is_named_as_a_different_statistic():
+    """Both were printed as `Q(20) = …` with nothing saying which. They are not
+    the same test: the figure carries drvarma's Hosking bivariate portmanteau
+    over the stacked series, the report `chi_test` over ONE side of ONE
+    cross-correlation. 102.8 against 24.5 is the expected ratio, not a
+    discrepancy — and the suspicion that they disagreed was filed for a year."""
+    M.load_pre("QQ", f"{ES},{WTI}", check=False)
+    r = M.plot_ccf("QQ")
+    texto = r[0].text if isinstance(r, list) else r
+    assert "HOSKING" in texto
+    assert "no es la del informe" in texto

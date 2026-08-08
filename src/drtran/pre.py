@@ -117,15 +117,56 @@ def check_scale(spec, minimum=10.0):
     iterations and one second. The cause is `cdgrad`'s finite-difference step,
     ~6e-6 absolute: at raw scale the signal-to-step ratio is terrible.
 
+    **The advice must follow the DATA, not `refactor` alone.** The rule used to
+    be `refactor < 10` with an unconditional "regenerate with refactor=100",
+    and that is right for a log model — it puts the series in percent — and
+    backwards for an UNTRANSFORMED one: rainfall at ~900 mm becomes ~90000, and
+    the poor ratio becomes a different poor ratio. What matters is the size of
+    the STATIONARY series the optimiser actually sees, after lambda, refactor
+    and the differencing, so that is what is measured here. `refactor` is only
+    the lever.
+
+    The target band comes from the measurement above: Delta-log ~0.002 hangs
+    and ~0.2 converges, so a typical |w| between 0.01 and 100 is comfortable
+    and the recommendation aims at ~1.
+
     Returns None if there is no problem, or the text of the warning.
     """
+    import math as _math
+
     r = float(getattr(spec.model, "refactor", 1.0) or 1.0)
-    if r < minimum:
-        return (f"{spec.name}: refactor={r:g}. At this scale the "
-                f"finite-difference gradient (step ~6e-6) has a poor "
-                f"signal-to-step ratio and the optimizer may not converge. "
-                f"Regenerate the .pre with refactor=100.")
-    return None
+    try:
+        from .school import stationary_series
+        import numpy as _np
+        w = _np.abs(_np.asarray(stationary_series(spec), float))
+        w = w[_np.isfinite(w) & (w > 0)]
+        escala = float(_np.median(w)) if len(w) else float("nan")
+    except Exception:                                      # noqa: BLE001
+        escala = float("nan")
+
+    if not (escala == escala):                             # no medible
+        if r < minimum:
+            return (f"{spec.name}: refactor={r:g}, and the stationary series "
+                    f"could not be measured. At small scales the "
+                    f"finite-difference gradient (step ~6e-6) has a poor "
+                    f"signal-to-step ratio; check the scale by hand.")
+        return None
+
+    if 0.01 <= escala <= 100.0:
+        return None
+
+    # el refactor que llevaría |w| tipico a ~1, redondeado a potencia de 10
+    sugerido = 10.0 ** round(_math.log10(max(r, 1e-12) / escala))
+    if escala < 0.01:
+        return (f"{spec.name}: the stationary series is tiny (typical |w| = "
+                f"{escala:.2e} with refactor={r:g}). The finite-difference "
+                f"gradient (step ~6e-6) has a poor signal-to-step ratio and "
+                f"the optimizer may not converge. Regenerate the .pre with "
+                f"refactor={sugerido:g} — MULTIPLYING.")
+    return (f"{spec.name}: the stationary series is huge (typical |w| = "
+            f"{escala:.3g} with refactor={r:g}). Rescaling UP would make it "
+            f"worse, which the old advice did unconditionally. Regenerate the "
+            f".pre with refactor={sugerido:g} — DIVIDING.")
 
 
 def fitted_model(fit, series=0, std_errors=None):

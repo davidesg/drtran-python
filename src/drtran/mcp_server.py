@@ -1479,9 +1479,16 @@ def plot_ccf(name: str, input_index: int = 1, lags: int = 0,
     freq = int(getattr(specs[0].model.series, "freq", 1) or 1)
     fig = _pc(a, b, freq=freq, lags=(lags or None),
               names=(specs[input_index].name, specs[0].name))
-    return _fig_result(fig, _png(name, f"ccf{input_index}", path),
-                       f"CCF preblanqueada — {specs[0].name} ← "
-                       f"{specs[input_index].name}")
+    return _fig_result(
+        fig, _png(name, f"ccf{input_index}", path),
+        f"CCF preblanqueada — {specs[0].name} ← {specs[input_index].name}\n"
+        "⚠ La Q del PIE DE LA FIGURA no es la del informe. La figura lleva la "
+        "Q de HOSKING bivariante sobre la serie apilada, que agrega las cuatro "
+        "entradas de la matriz de correlaciones cruzadas --las dos "
+        "autocorrelaciones incluidas-- en todos los retardos. El informe da "
+        "`chi_test` sobre UN lado de UNA correlación cruzada. Dos estadísticos "
+        "distintos con la misma letra: en el caso canónico 102.8 frente a "
+        "24.5, y esa razón es la esperable, no una discrepancia.")
 
 
 @mcp.tool()
