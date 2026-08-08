@@ -482,11 +482,26 @@ Step 3 is the one piece of study still owed, and it is not a blocker for 5: it
 decides how strictly "agrees with the oracle" can be used as an acceptance
 criterion, not what to implement.
 
-### One decision left open, deliberately
+### How the bank stays green without forgetting — `taste-port 270868c`
 
-The three failing cases make `battery.py` exit 1 until the fix lands. That is
-honest — they DO disagree with the oracle — but it means a red bank cannot
-signal a NEW regression while this one is live. Marking them as known failures
-would restore that signal at the risk of their being forgotten, which is
-approximately how this survived four years. Left as it is, and flagged here
-rather than decided quietly.
+The three failing cases would make `battery.py` exit 1 permanently, and a bank
+that is always red cannot signal a NEW regression. Marking them expected-to-fail
+has the opposite problem: the marker fossilises and the defect is forgotten,
+which is approximately how this survived four years.
+
+Both properties are kept by making the marker two-sided. A case carrying
+`falla_conocido`:
+
+* **fails →** reported as `CONOCIDO`, does not count towards the exit code, and
+  is printed in full — note and offending values — on every run. A known defect
+  is not a hidden one.
+* **passes →** reported as `YA NO FALLA` and **counted as a failure**, asking
+  for the marker to be removed. Either the fix landed or something moved the
+  reference; neither is worth staying quiet about. That branch is what stops the
+  marker from rotting.
+
+Verified by making both branches fire rather than by reading the code: the three
+marked cases exit 0 as `CONOCIDO`, and marking `pt8_es` — which passes — gives
+exit 1 with *"YA NO FALLA … quita falla_conocido"*. So **when step 5 lands, the
+bank turns red on success**, and the way to make it green is to come back to
+this document.
