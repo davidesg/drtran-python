@@ -456,14 +456,37 @@ FR and DE reported OK at 112 % and 69 % relative error.
 
 ## 5. The order of work
 
-1. Relative tolerance in `battery.py` — otherwise nothing below is measurable.
-2. Mixed-(d, D) cases with known truth in `gen_synthetic.py`.
+1. ~~Relative tolerance in `battery.py`~~ — **DONE**, `taste-port 16161c5`.
+   `tol = min(absolute, max(1e-4, 0.05·|expected|))`: only ever tightens, so
+   nothing that failed can start passing. Verified on all fourteen cases —
+   eleven pass, including the four matched passthrough cases and all five
+   synthetic and forecast ones; the three that fail are FR, DE and EMU, which
+   is the point. **The bank can now see BUG-8**; before, FR missed the
+   threshold by twenty microns and reported OK at 112 % relative error.
+2. ~~Mixed-operator cases with known truth~~ — **DONE**,
+   `tests/gen_mixed_operators.py`, and §2d is what they established.
 3. Understand France: `fue` and TASTE agree on DE and EMU and differ by 26 % on
    FR. Until that is explained, "landing on the oracle" is not a criterion that
    can be applied uniformly.
-4. Choose among (A), (B), (C) — a decision, not a derivation.
-5. Implement in Python, verify against the three banks.
-6. Port to the C and re-homologate.
+4. ~~Choose the route~~ — **DECIDED: (E)**, dispatch on Δ.
+5. Implement in Python: the Δ computation and the dispatch, then feed the
+   subtracting cast's transfer term an input differenced by the OUTPUT's
+   operator (`cast.py:323`, `xin = W[:, l.inp]` today). Verify against the three
+   banks.
+6. Port to the C and re-homologate. The matched cases must not move.
+7. Then, separately: backforecast the input instead of zeroing the pre-sample,
+   which is what takes the subtracting cast from "the right specification,
+   truncated" to the oracle exactly.
 
-Steps 1-3 are study and cost little. Step 4 is where the design decision lives
-and should not be taken until 3 is answered.
+Step 3 is the one piece of study still owed, and it is not a blocker for 5: it
+decides how strictly "agrees with the oracle" can be used as an acceptance
+criterion, not what to implement.
+
+### One decision left open, deliberately
+
+The three failing cases make `battery.py` exit 1 until the fix lands. That is
+honest — they DO disagree with the oracle — but it means a red bank cannot
+signal a NEW regression while this one is live. Marking them as known failures
+would restore that signal at the risk of their being forgotten, which is
+approximately how this survived four years. Left as it is, and flagged here
+rather than decided quietly.
