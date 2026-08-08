@@ -94,6 +94,71 @@ the same specification.
 
 ---
 
+## 2b. The oracle's specification, read from its source
+
+Five lines of `MRQEST.PAS:108-116` are the whole thing:
+
+```pascal
+wobs := M - TFM.NOISE.d - TFM.NOISE.ds * TFM.NOISE.sp;
+CalcNoise(nts, DATA, M, TFM, PointMoSe);                    { n = y - nu(B)x, LEVELS }
+TransDiff(nts, 1.0, TFM.NOISE.d, TFM.NOISE.ds, sp, 1, M);   { the NOISE is differenced }
+BackForeCast(nts, TFM.NOISE.parms, wobs, Back, ...);
+CalcRes1st(nts, Resi^, TFM.NOISE.parms, wobs, Back, ...);
+```
+
+Read it in order:
+
+1. **`CalcNoise` forms `n_t = y_t − Σ_j Σ_k ν_j[k]·x_j[t−k]` on the transformed
+   LEVELS.** No differencing appears anywhere in that loop
+   (`BACKTF.PAS`). `DATAR[...]^.Data` holds what `TFEST.PAS:592,609` left there
+   — `TransDiff(…, lambda, 0, 0, 1, 1, nn)`, i.e. Box-Cox and nothing else.
+2. **Then `TransDiff` differences the NOISE**, and the orders it uses are
+   `TFM.NOISE.d` and `TFM.NOISE.ds`. That is the decisive detail and it is in
+   the names: **the differencing belongs to the NOISE MODEL**, not to the output
+   series and not to the inputs.
+3. `wobs = M − d − ds·sp` is the effective sample, lost once, on the noise.
+4. Backforecasting and the residual recursion then run on the differenced noise
+   with the noise's own ARMA.
+
+Two more details worth carrying into any implementation:
+
+* **The inputs are extended BACKWARDS, not truncated.** `CalcNoise` indexes
+  `Data[t−k]` from `t=1`, so the convolution reaches before the sample. That is
+  why `TFEST.PAS:655-670` backforecasts each input's differenced series and then
+  calls `BackLevel` to rebuild the extended LEVEL. The input's own univariate
+  model is used for exactly two things — prewhitening at identification, and
+  extending the level backwards — and **never to difference it for the fit**.
+* **`MaxLag = 20` when `r > 0`** (`CalcNoise`): the infinite tail of `1/δ(B)` is
+  truncated at twenty lags. A documented approximation of the oracle, and
+  something to match or improve on deliberately rather than by accident.
+
+### What this settles
+
+There is no such thing as "the input's differencing" in a transfer model. The
+input enters in levels. And the output's differencing is not the output's
+either — it is the **noise's**. drtran's framing, in which each series is
+differenced by its own univariate `(d, D)` and the differenced series are then
+related, is a DIFFERENT MODEL, not a different implementation of the same one.
+
+### And where drtran is genuinely more complex
+
+TASTE does not estimate the input's model at all: it takes the input's
+univariate model as GIVEN and frozen, which is also the school's doctrine
+(Muñoz §2.6 — "el modelo U del input permanece inalterado desde el inicio hasta
+el fin del proceso"). drtran estimates the whole system JOINTLY, so the input
+does have an equation, and that equation needs the input differenced by its own
+orders.
+
+So the two requirements are:
+
+* the OUTPUT's equation is on `∇^d ∇ₛ^D (y − ν(B)x)` — the noise, differenced
+  once, with the input entering in levels;
+* the INPUT's equation is on `∇^{d_x} ∇ₛ^{D_x} x` — its own.
+
+They are both satisfiable, and they are not both satisfiable **by a single
+VARMA on one `W` matrix with one column per series**. That is the whole
+difficulty, stated exactly.
+
 ## 3. What actually has to change
 
 The key simplification, and it is worth stating before anyone starts writing
