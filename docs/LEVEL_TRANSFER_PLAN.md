@@ -338,8 +338,40 @@ every series by the output's operator. Simplest and it is what the confirmation
 above did — but the input's univariate block then no longer means what its
 `.pre` says, and its ARMA would need re-specification.
 
+**(D) Frozen input, the oracle's own way out.** (A)–(C) all fight the same
+thing: the input needs two vectors at once. TASTE does not have that problem
+**because it does not estimate the input's model at all** — it takes it as given
+and frozen (`TFEST.PAS`; and Muñoz §2.6 as doctrine). Offer that as a mode and
+the conflict evaporates: the input appears only through the transfer,
+differenced by the OUTPUT's operator, and there is no second equation asking for
+a different vector. It is the simplest of the four and the only one with
+doctrinal backing. The price is real and specific — no joint estimation of the
+input, and therefore **no LR test against the diagonal rung**, which is what
+drtran adds over TASTE.
+
 None is free. (A) is the cheapest and least ambitious; (B) preserves what the
-embedded cast is for; (C) is simplest to write and changes the most.
+embedded cast is for; (C) is simplest to write and changes the most; (D) is
+simplest of all and gives up the joint fit.
+
+### What must NOT be the fix: requiring the operators to match
+
+Tempting, and wrong as a resolution. It would refuse FR ← WTI, which is a
+legitimate model: the French CPI has stochastic seasonality and WTI does not,
+and that is the data rather than an analyst's mistake. **The oracle does not
+require it** — not by being laxer, but because in its formulation the question
+does not arise: the input enters in levels, has no operator, and there is no Δ
+to mismatch.
+
+It is, however, the right **interim guard**, and it should ship before the
+surgery does: today drtran returns a wrong gain silently, and §3's last
+paragraph shows the diagonal gate cannot see it.
+
+**And post-hoc correction must not be attempted.** `ν̂(1) = ν(1)·Δ(1)` invites
+dividing by `Δ(1)` and moving on. It is not safe: the law holds only once the
+fit has full reach. Arm S with `s=1` reported **1.93**, not 12 — dividing by 12
+would give 0.16, worse than leaving it alone. The reported gain sits somewhere
+between `ν(1)` and `ν(1)Δ(1)` depending on each `(b, r, s)`'s reach, and that
+point is not knowable from the output.
 
 ### What the diagonal gate will NOT tell you
 
