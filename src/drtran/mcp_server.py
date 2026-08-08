@@ -794,24 +794,62 @@ def _before_you_choose(idt, cs, link):
     try:
         _ccf = _np.asarray(idt.ccf, float)
         _lags = _np.asarray(idt.lags)
-        _pico = float(_np.abs(_ccf[_lags >= 0]).max()) / float(idt.threshold)
+        _pos = _np.abs(_ccf[_lags >= 0])
+        _K = int(len(_pos))
+        # El pico en SIGMAS. `idt.threshold` es 2/sqrt(N) -- la banda, que ya
+        # son DOS errores típicos -- así que el cociente contra ella iba en
+        # unidades de 2 sigma y un corte en 2.0 exigía 4 SIGMA (BUG-6). Aquí
+        # se mide en sigmas y se contrasta donde corresponde.
+        _sigma = float(_pos.max()) / (float(idt.threshold) / 2.0)
+        # Bajo H0 los r(k) son ~N(0, 1/N) e independientes, así que el máximo
+        # de K de ellos cumple P(max < c) = (2*Phi(c) - 1)^K. Exacto, sin
+        # tabla: verificado contra 200k simulaciones (K=25 -> 3.0829 frente a
+        # 3.08 simulado).
+        from scipy.stats import norm as _norm
+        _p = float(1.0 - (2.0 * _norm.cdf(_sigma) - 1.0) ** _K)
+        _crit = float(_norm.ppf((1.0 + 0.95 ** (1.0 / _K)) / 2.0))
     except Exception:                                      # noqa: BLE001
-        _pico = float("inf")
-    if _pico < 2.0:
+        _sigma, _p, _crit, _K = float("inf"), 0.0, 0.0, 0
+
+    lines += ["", f"  Pico de la CCF en k >= 0: **{_sigma:.2f} sigma** sobre "
+              f"{_K} retardos  ->  p = {_p:.4f}  (crítico al 5 %: "
+              f"{_crit:.2f} sigma)"]
+
+    if _p >= 0.05:
         parar = True
-        lines += ["", "  🛑 ── PARA: LA CCF NO SE DISTINGUE DEL RUIDO " + "─" * 14,
+        marginal = _p < 0.20
+        lines += ["", "  🛑 ── PARA: LA CCF NO ALCANZA SIGNIFICACIÓN " + "─" * 15,
                   "",
-                  f"    El pico de la CCF en k >= 0 apenas sobresale de la "
-                  f"banda ({_pico:.2f} veces). Sobre datos SIN relación siguen "
-                  "saliendo barras significativas por azar — con ~25 retardos "
-                  "al 5 % se esperan una o dos — así que las que ves no bastan "
-                  "para leer un retardo: el `b` que saldría de ahí sería "
-                  "aleatorio.",
-                  "",
-                  "    Como referencia, en simulaciones con una transferencia "
-                  "real este cociente sale entre 7 y 8; sin relación, entre 1 "
-                  "y 1.5.",
-                  "",
+                  f"    El pico no supera el crítico al 5 % corregido por los "
+                  f"{_K} retardos que se miran. Sobre datos SIN relación siguen "
+                  "saliendo barras significativas por azar -- con ~25 retardos "
+                  "se esperan una o dos -- así que el `b` que saldría de ahí "
+                  "podría ser aleatorio."]
+        if marginal:
+            lines += ["",
+                      f"    ⚠ PERO ES MARGINAL (p = {_p:.4f}, no muy lejos del "
+                      "5 %), y aquí es donde tienes que pensar en vez de "
+                      "obedecer. La CCF es un instrumento de identificación "
+                      "PREVIO: mira la relación sin haberla estimado. La "
+                      "verosimilitud exacta es más potente, y en casos así ha "
+                      "encontrado transferencias que la CCF no alcanzaba a "
+                      "declarar -- con t por encima de 4 y un modelo que luego "
+                      "PASA la adecuación.",
+                      "",
+                      "    Así que en la banda marginal la regla no decide, "
+                      "informa. Enséñale el gráfico al analista, dile que la "
+                      "evidencia previa es débil pero no nula, y pregúntale si "
+                      "quiere estimar igualmente: `set_network` con el retardo "
+                      "del pico y `estimate` lo contestan en un minuto, y el "
+                      "LR contra el escalón diagonal es el juez definitivo.",
+                      "",
+                      "    Lo que NO debes hacer es dar por cerrado que no hay "
+                      "relación."]
+        else:
+            lines += ["",
+                      f"    Y no es marginal (p = {_p:.4f}): la evidencia "
+                      "previa es sencillamente débil."]
+        lines += ["",
                   "    Antes de concluir que no hay relación: un anómalo INFLA "
                   "la varianza y hunde TODOS los retardos a la vez, así que "
                   "una CCF aplastada no dice 'no hay relación', dice 'no puedo "

@@ -230,17 +230,26 @@ def test_noise_is_reported_as_noise_not_as_feedback(seed):
     of these), which would send the analyst to `sima` to estimate a
     simultaneous system that does not exist.
 
-    The discriminator that does separate them is how far the PEAK stands above
-    the band: 1.0-1.5 on noise, 7.6-7.8 on a real transfer. No grey zone.
+    The discriminator is the PEAK, but measured in SIGMA against the critical
+    value corrected for the K lags scanned — not in units of the plotted band,
+    which is already 2 sigma and made the old cut demand 4 sigma (BUG-6).
+    Under H0 the max of K standard normals satisfies P(max < c) = (2*Phi(c)-1)^K,
+    so the 5 % critical value is exact: 3.08 sigma for K=25, matching 200k
+    simulations to four decimals.
     """
     g = _gen()
     d = tempfile.mkdtemp(prefix="mtram_noise_")
     g.build_case(d, "NZ", 2, 0, 0, [0.0005], [], seed=seed)
     M.load_pre(f"NZ{seed}", f"{d}/NZ_Y.pre,{d}/NZ_X.pre", check=False)
     out = _txt(M.identify_link(f"NZ{seed}"))
-    assert "NO SE DISTINGUE DEL RUIDO" in out
+    # sustancia: para, no propone, y DICE el p-valor del pico
     assert "No propongo orden" in out
     assert "set_network" not in out, "it proposed an order on noise"
+    import re
+    m = re.search(r"p = ([\d.]+)  \(crítico al 5 %", out)
+    assert m and float(m.group(1)) >= 0.05, f"p = {m.group(1) if m else '?'}"
+    # y sobre ruido puro no debe llamarlo marginal
+    assert "ES MARGINAL" not in out
 
 
 @pytest.mark.parametrize("tag", ["b2s1", "b0s1"])
@@ -362,3 +371,28 @@ def test_a_redundant_denominator_is_named_as_redundant(bank):
     assert "la ampliación es redundante" in out
     # y aun así el modelo queda confirmado por la ampliación que SÍ salió
     assert "CONFIRMADO por 1 de 2" in out
+
+
+def test_a_marginal_peak_is_named_as_marginal_and_not_dismissed(bank):
+    """BUG-6's real lesson. The old cut demanded 4 sigma and silently discarded
+    two genuine transfers (3.70 and 2.88 sigma) that exact ML then found at
+    t > 4 with models that PASSED adequacy.
+
+    The 5 % rule fixes the scale, but it would still stop the 2.88 sigma case
+    (p = 0.0948). So the band just above 5 % is announced as MARGINAL rather
+    than settled: the CCF is a PRIOR instrument and the exact likelihood is
+    more powerful, so "not significant here" is not "no relationship". The
+    analyst decides, and `estimate` plus the LR against the diagonal rung
+    answers it in a minute.
+    """
+    import numpy as np
+    from scipy.stats import norm
+
+    # el p-valor que la regla usa, en el borde: 2.88 sigma con K=25
+    p = 1 - (2 * norm.cdf(2.88) - 1) ** 25
+    assert 0.05 <= p < 0.20, f"p = {p}"      # cae en la banda marginal
+
+    # y el texto de esa banda dice que NO se dé por cerrado
+    _load(bank, "b2s1", check=False)
+    out = _txt(M.identify_link("b2s1"))
+    assert "crítico al 5 %" in out           # el contraste se reporta siempre

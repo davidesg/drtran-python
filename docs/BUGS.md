@@ -603,7 +603,7 @@ only exercises equal-differencing pairs will not see it. Cover a mixed pair.
 
 ---
 
-## BUG-6. `identify_link`'s "the CCF is indistinguishable from noise" stop is calibrated in units of the 2-sigma BAND, so it discards genuine transfers at 3-4 sigma — mtram's
+## BUG-6. The noise stop was calibrated in BAND units, so it demanded 4 sigma — FIXED
 
 Found 2026-08-08 extending the IPC → WTI passthrough to eight countries. Two of
 the five estimable links were STOPPED by this rule and both turned out to carry
@@ -646,9 +646,33 @@ the transfers the rule refused to identify are well specified.
 > **The fix is not just a number.** UK was stopped at 3.70σ, which a 5 % rule
 > would pass; JP at 2.88σ, which it would still stop — and JP's transfer is
 > real (t = 4.36, LR p = 1.4e-04, adequacy p = 0.745). A threshold calibrated
-> to reject noise at 5 % still discards it. That argues for reporting the
-> peak's p-value and letting node N1 be a decision rather than a gate, which is
-> what the guided mode is for. Threshold choice pending.
+> to reject noise at 5 % still discards it.
+>
+> **FIXED 2026-08-08.** The peak is now measured in SIGMA and contrasted where
+> it belongs. Under H0 the r(k) are ~N(0, 1/N) and independent, so the max of K
+> of them satisfies `P(max < c) = (2*Phi(c) - 1)^K` — the critical value is
+> exact, no table: **3.0829 sigma for K=25**, against 3.08 from 200k
+> simulations. The p-value is reported on every call, always.
+>
+> **And the marginal band is named rather than settled**, which is the part
+> that matters and the reason the threshold alone was not the answer:
+>
+> | case | peak | p | outcome |
+> |---|---|---|---|
+> | IPC_UK | 3.70σ | **0.0054** | now identified — was discarded |
+> | IPC_JP | 2.88σ | **0.0948** | stopped, but announced as MARGINAL |
+> | pure noise (seeds 3, 12) | 2.36σ, 2.28σ | 0.37, 0.43 | stopped, not marginal |
+> | real transfer | 15.59σ | 0.0000 | identified |
+>
+> Above 5 % but below 20 %, the text says the CCF is a PRIOR instrument, that
+> the exact likelihood is more powerful and has found transfers the CCF could
+> not declare, and that the analyst should decide — `estimate` and the LR
+> against the diagonal rung answer it in a minute. It ends with "what you must
+> NOT do is conclude there is no relationship". Below 20 % it says plainly that
+> the evidence is weak.
+>
+> That is the division David asked for: 5 % is the standard, and judging
+> marginality is what an assistant is for.
 
 ### The defect
 
