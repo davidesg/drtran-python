@@ -972,6 +972,14 @@ def _seasonality_note(specs, input_index, name):
             "destino preferible, y elegirla de entrada cuesta mucho menos que "
             "reajustar después.",
             "",
+            "    Pero NO es preferible para todo, y conviene saber qué se deja: "
+            "para PREVISIÓN la estacionalidad ESTOCÁSTICA a veces gana, porque "
+            "deja que el patrón evolucione y unos armónicos fijos no. Si el "
+            "mismo `.pre` va a servir para prever y para esto, el conflicto es "
+            "real y lo decide el analista, no tú. El artificio §2.4 de abajo "
+            "existe justamente para no tener que elegir: un modelo para "
+            "IDENTIFICAR y otro para ESTIMAR.",
+            "",
             "    SI LOS UNIVARIANTES YA ESTÁN CERRADOS, el artificio de Muñoz "
             "§2.4: construye en `art` un modelo ALTERNATIVO del output con la "
             "estacionalidad hecha determinista, y pásalo aquí --",
