@@ -182,8 +182,29 @@ words — *"d=2, D=0, ifadf=[0,1,1] (¡NO d=1!)"*.
 
 So the school's own encoding of a seasonal series inside a multivariate system
 **avoids mixed `(d, D)` by construction**, and with matched operators the
-embedded cast is right. That is why m6 homologates, why the network works, and
-why the defect survived: **the original design was never shown a mixed case.**
+embedded cast is right.
+
+### And the network, which is where the transfers actually are
+
+The diagonal has no transfers, so it cannot exercise the defect at all. The
+network can, and it is the repository's only `.dag`:
+
+```
+EP <- EI   b=1 r=0 s=1
+EP <- EC   b=1 r=0 s=2
+EI <- EU   b=1 r=0 s=3
+EU <- EC   b=2 r=0 s=1
+```
+
+Four transfers over EP, EI, EC, EU — **all four at `(d, D) = (2, 0)`, and every
+one of them identical on both sides of the arrow**. EA, the one seasonal series,
+is a node of the diagonal but **appears in no transfer at all**. So the network
+does not merely avoid the mixed case by a happy encoding; the seasonal series is
+not related to anything.
+
+That is why m6 homologates, why the network works, and why the defect survived:
+**no transfer in the legacy ever relates two series with different
+differencing.**
 
 This does not make BUG-8 less of a defect — `art` writes `D=1` for FR, DE and
 EMU, and those models are legitimate — but it does three things for the plan:
