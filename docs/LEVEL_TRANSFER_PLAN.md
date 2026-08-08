@@ -159,6 +159,50 @@ They are both satisfiable, and they are not both satisfiable **by a single
 VARMA on one `W` matrix with one column per series**. That is the whole
 difficulty, stated exactly.
 
+## 2c. Why the legacy never hit this — and it is not luck
+
+The m6 models and the network are the embedded specification's home ground, and
+they work. Checked, all six series of `tests/data/m6/`:
+
+```
+M6_EA.pre  d=2 D=0 freq=4 ifadf=[0, 1, 1]
+M6_EC.pre  d=2 D=0 freq=4 ifadf=[0, 0, 0]
+M6_EI.pre  d=2 D=0 freq=4 ifadf=[0, 0, 0]
+M6_EP.pre  d=2 D=0 freq=4 ifadf=[0, 0, 0]
+M6_EU.pre  d=2 D=0 freq=4 ifadf=[0, 0, 0]
+M6_P.pre   d=2 D=0 freq=4 ifadf=[0, 0, 0]
+```
+
+**All six carry the same `(d, D) = (2, 0)`.** EA is the seasonal one — Relloso's
+Table 4 gives it `∇∇₄` — and it still carries `D=0`, because
+`∇∇₄ = (1−B)²(1+B)(1+B²)`: the `(1−B)` inside `∇₄` ADDS to the regular
+difference, so the encoding is `d=2` plus fixed-frequency factors
+(`ifadf=[0,1,1]` at π/2 and π), not `D=1`. `build_m6.py` says so in as many
+words — *"d=2, D=0, ifadf=[0,1,1] (¡NO d=1!)"*.
+
+So the school's own encoding of a seasonal series inside a multivariate system
+**avoids mixed `(d, D)` by construction**, and with matched operators the
+embedded cast is right. That is why m6 homologates, why the network works, and
+why the defect survived: **the original design was never shown a mixed case.**
+
+This does not make BUG-8 less of a defect — `art` writes `D=1` for FR, DE and
+EMU, and those models are legitimate — but it does three things for the plan:
+
+1. **It scopes the surgery.** The embedded specification is correct wherever
+   the system shares its differencing, which is every legacy case and every
+   canonical test. What is broken is a region the design never entered.
+2. **It warns that the legacy banks cannot validate the fix.** m6, the network
+   and the canonical cases will pass before and after, because they never
+   exercise the path. The mixed-(d, D) cases of §4 are not a nicety; without
+   them there is no test.
+3. **It suggests a fourth route, and its limit.** One could re-encode `∇∇₁₂` the
+   school's way — `d=2` plus fixed-frequency factors — instead of `D=1`. That
+   removes the D-mismatch. It does NOT remove the mismatch: FR would then be
+   `d=2` against WTI's `d=1`, and the same algebra bites. In m6 the `d`s
+   coincide because the six series genuinely all want `d=2`; in the passthrough
+   the output wants `∇∇₁₂` and the input wants `∇`, and they genuinely differ.
+   Harmonising there would be forcing the data, not encoding it better.
+
 ## 3. What actually has to change
 
 The key simplification, and it is worth stating before anyone starts writing
