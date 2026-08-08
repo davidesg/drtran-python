@@ -1,5 +1,18 @@
 # ATSW and its assistants — an architecture
 
+> **Language (decided 2026-08-08): leave it mixed, the assistant unifies.**
+> The ENGINE blocks — `report_fit`, `report_adequacy`, `report_identification`
+> — are English because they mirror the C program's own output
+> (`DRTRAN 1.0: … / Method : exact maximum likelihood / Log-likelihood : …`),
+> and reproducing the C's format is a stated property of the port. The
+> narrative and the equations are Spanish, matching `art`.
+>
+> Translating the engine blocks would end that parity and force a matching
+> decision in the C. The analyst never sees the raw mixture: mtram's
+> instructions require translating tool output into the user's language, and
+> the one block presented verbatim — the equation — is already in art's format.
+> So the inconsistency is confined to text a program reads, not a person.
+
 > **The file conventions** — what `.inp`, `.out` and `.pre` each assert, why
 > only the estimating program may write a `.pre`, and what the stage-to-stage
 > flow guarantees — are studied with measurements in
