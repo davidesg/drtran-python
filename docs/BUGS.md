@@ -26,6 +26,13 @@ python3 scripts/repro_refactor1_relgrad.py
 python3 scripts/repro_ccf_stop_grey_zone.py       # BUG-6; synthetic, needs no .pre
 ```
 
+`repro_chitest_divisor_offbyone.py` was deleted with BUG-7: it asserted an
+identity that is not a requirement, so it would have kept the wrong argument
+alive. The measurement that settles that question lives in
+`tests/test_diagnose.py::test_adequacy_and_exogeneity_match_the_binary`, which
+runs the C.
+
+
 **BUG-4 was added 2026-08-08** from a different workload — monthly IPC_ES → WTI
 passthrough, the canonical shape — and is an `mtram` defect, not a numerical
 one: it blocked node N1 whenever the CCF was successfully drawn. Fixed the same
@@ -180,7 +187,7 @@ fixed in the C as well.
 
 ---
 
-## BUG-2. The series are paired by INDEX, not by date, silently
+## BUG-2. The series were paired by INDEX, not by date, silently — FIXED
 
 > **Verdict 2026-08-07: CONFIRMED, and it belongs to BOTH.** The dates are
 > available — `spec.ts.start`, `.freq`, `.nobs` are all read from the `.pre`
@@ -193,6 +200,26 @@ fixed in the C as well.
 >
 > `tests/test_end_to_end_passthrough.py` now checks the premise holds on the
 > pair that the real art -> fue -> mtram pipeline produces.
+>
+> **FIXED 2026-08-08.** Re-verified first: the reproduction still gave results
+> identical to the last decimal with the input declared 50 years later, so the
+> date really took no part in the computation.
+>
+> * **`drtran`**: `cast.check_alignment`, called from `build_cast_spec`, now
+>   verifies the premise where it is stated — same frequency, same END date —
+>   and refuses with a message that says which series ends when. All nine
+>   canonical cases share 01/2002-12/2019 at freq 12, so nothing homologated
+>   moves.
+> * **`mtram`**: the gate's summary prints the WINDOW, not just a count —
+>   `216 obs, 01/2002 - 12/2019, freq 12`. Before, an analyst could not see the
+>   mismatch even in principle.
+>
+> **It refuses rather than trims, and that is deliberate.** Intersecting the
+> calendars is probably what an analyst wants, but it changes which
+> observations the model is fitted on, and that decision belongs upstream —
+> rebuild the `.pre` in `art` over the window you mean. Guessing it here would
+> replace a silent wrong answer with a quiet different one. If the trim is
+> wanted as a feature, it should be asked for explicitly.
 
 **Symptom.** None. That is the problem: two series that do not share a single
 period can be crossed and the fit goes through without a word.

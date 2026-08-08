@@ -137,6 +137,59 @@ def _npar_univariate(model):
     return len(np.asarray(_build_initial_x(model), float))
 
 
+def _end_date(ts):
+    """(year, period) of the LAST observation, from `start`, `nobs` and `freq`."""
+    y, p = ts.start
+    f = int(ts.freq or 1)
+    tot = y * f + (p - 1) + int(ts.nobs) - 1
+    return tot // f, tot % f + 1
+
+
+def check_alignment(specs):
+    """The premise the alignment states and never checked (BUG-2).
+
+    Below, the series are aligned AT THE END and trimmed to the shortest, on
+    the assumption that the last observation is the same date. That is right
+    for the case it was written for -- different d/D over the SAME window --
+    and it is silent when the windows are different stretches of calendar. Two
+    series that do not share a single period can be crossed and the fit goes
+    through without a word.
+
+    It was not theoretical. Loading a price series for 1700-1896 against
+    rainfall for 1766-2024, the identification paired the 1700 price with the
+    1766 rainfall -- 66 years apart -- and proposed b=18 in earnest. The only
+    tell was that the printed band, 2/sqrt(n), did not match the real overlap.
+    And the reproduction is starker: declare the input 50 years later and the
+    output is IDENTICAL to the last decimal, because the date never enters the
+    computation.
+
+    This is a refusal, not a trim. Trimming to the common calendar window is
+    probably what an analyst wants, but it changes which observations the model
+    is fitted on, and that decision belongs upstream -- rebuild the `.pre` in
+    `art` over the window you mean. Guessing it here would replace a silent
+    wrong answer with a quiet different one.
+    """
+    ref = specs[0].ts
+    fin = _end_date(ref)
+    for sp in specs[1:]:
+        ts = sp.ts
+        if int(ts.freq or 1) != int(ref.freq or 1):
+            raise ValueError(
+                f"{sp.name!r} is {ts.freq}-per-year and {specs[0].name!r} is "
+                f"{ref.freq}: they cannot be modelled jointly. Rebuild them at "
+                f"the same frequency in `art`.")
+        f2 = _end_date(ts)
+        if f2 != fin:
+            raise ValueError(
+                f"the series do NOT end on the same date: {specs[0].name} ends "
+                f"{fin[1]:02d}/{fin[0]} and {sp.name} ends {f2[1]:02d}/{f2[0]}. "
+                f"The joint cast aligns at the END and trims to the shortest, "
+                f"which assumes a common last observation; with different "
+                f"windows it would pair observations that are years apart and "
+                f"say nothing. Rebuild both `.pre` in `art` over the window you "
+                f"mean to model.")
+
+
 def build_cast_spec(specs, links=None):
     """Precompute the cast from the `.pre` files read (one per series).
 
@@ -148,6 +201,8 @@ def build_cast_spec(specs, links=None):
 
     if len(specs) < 2:
         raise ValueError("the joint fit needs at least 2 series")
+
+    check_alignment(specs)
 
     cs = CastSpec(links=list(links or []))
     for s in specs:

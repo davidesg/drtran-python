@@ -480,6 +480,28 @@ def _certificado(specs, antes, ll_traido, ll_diag):
     return L
 
 
+def _ventana(sp):
+    """`n obs, MM/AAAA - MM/AAAA, freq F`. La FECHA, que no salía por ningún lado.
+
+    El resumen decía sólo cuántas observaciones había, y ése era medio BUG-2:
+    dos series de calendarios distintos se cruzaban sin una queja, y el único
+    indicio era que la banda 2/sqrt(n) no cuadraba con el solapamiento real.
+    La otra mitad --que nadie comprobaba la premisa-- está en
+    `cast.check_alignment`. Aquí se trata de que el analista lo VEA.
+    """
+    from .cast import _end_date
+
+    ts = sp.ts
+    y0, p0 = ts.start
+    y1, p1 = _end_date(ts)
+    f = int(ts.freq or 1)
+    if f > 1:
+        rango = f"{p0:02d}/{y0} - {p1:02d}/{y1}"
+    else:
+        rango = f"{y0} - {y1}"
+    return f"{ts.nobs} obs, {rango}, freq {f}"
+
+
 def _muestra_comun(specs):
     """Longitud de la serie estacionaria COMÚN a todas: el mínimo tras diferenciar.
 
@@ -725,10 +747,10 @@ def load_pre(name: str, paths: str, check: bool = True) -> str:
            "## 1. Confirma los papeles",
            "",
            f"  **SALIDA**  (la que quieres explicar):  {specs[0].name}"
-           f"   — {specs[0].nobs} obs, freq {specs[0].freq}"]
+           f"   — {_ventana(specs[0])}"]
     for s in specs[1:]:
         out.append(f"  entrada                             :  {s.name}"
-                   f"   — {s.nobs} obs, freq {s.freq}")
+                   f"   — {_ventana(s)}")
     out += ["",
             "  El primer `.pre` es la SALIDA. Cuál es la salida no lo decide el "
             "dato: es la pregunta con la que llega el analista. Si el orden no "

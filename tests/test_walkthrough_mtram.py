@@ -840,3 +840,52 @@ def test_the_common_sample_is_the_shortest_after_differencing():
     # y el recorte deja a WTI con esas 203 observaciones útiles
     w = M._en_muestra_comun(specs[1], 203)
     assert int(w.series.nobs) == 203 + 1
+
+
+# ── BUG-2: la fecha, que no intervenía en nada ─────────────────────────────
+def test_series_that_share_no_calendar_are_refused(tmp_path):
+    """BUG-2. Two series declared 50 years apart used to produce results
+    IDENTICAL to the last decimal, because the date never entered the
+    computation. `cast.py` aligns at the END and states in a comment that the
+    last observation is the same date — a premise nothing verified.
+
+    Not theoretical: a price series for 1700-1896 crossed with rainfall for
+    1766-2024 paired the 1700 price with the 1766 rainfall, 66 years apart, and
+    proposed b=18 in earnest. The only tell was that the printed band did not
+    match the real overlap.
+    """
+    import shutil
+
+    from drtran.cast import build_cast_spec
+    from drtran.pre import load_pre as _lp
+
+    src = shutil.copy(WTI, tmp_path / "WTI_desplazado.pre")
+    txt = open(src, encoding="latin-1").read()
+    # la MISMA serie, declarada 50 años más tarde
+    assert "2002" in txt
+    open(src, "w", encoding="latin-1").write(txt.replace("2002", "2052", 1))
+
+    with pytest.raises(ValueError, match="do NOT end on the same date"):
+        build_cast_spec([_lp(ES), _lp(src)], links=[])
+
+
+def test_the_gate_shows_the_date_window():
+    """The other half: the summary said only how many observations there were,
+    so an analyst could not see the mismatch even in principle."""
+    out = M.load_pre("VEN", f"{ES},{WTI}", check=False)
+    assert "01/2002 - 12/2019" in out
+
+
+def test_a_frequency_mismatch_is_refused_too(tmp_path):
+    """Monthly against quarterly is the same category of error and would sail
+    through the end-date check if the last observation happened to coincide."""
+    import shutil
+
+    from drtran.cast import build_cast_spec
+    from drtran.pre import load_pre as _lp
+
+    a = _lp(ES)
+    b = _lp(WTI)
+    b.ts.freq = 4
+    with pytest.raises(ValueError, match="cannot be modelled jointly"):
+        build_cast_spec([a, b], links=[])
