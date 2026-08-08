@@ -611,3 +611,94 @@ def seasonality_mismatch(specs, out=0, inp=1):
         len((getattr(specs[out].model, "ma_f", None) or []))
     detail = {"out": ko, "inp": ki, "freq": fo, "out_n_fixed_freq": n_f}
     return mismatch, detail
+
+
+def r2_brajin(fit, series_index=0, embed=None):
+    """Brajín's coefficient of determination (2004, A.28), and sigma_a.
+
+    Defined on the STATIONARY series, which is what makes it meaningful here:
+
+        R² = 1 - SUM (a_t - abar)² / SUM (w_t - wbar)²
+
+    with `w_t = grad_s^D grad^d z_t`, `a_t` the model's residuals, and both
+    means sample means. An R² computed on the LEVEL of an I(1) series is near
+    1 by construction and says nothing; the school never does that, and the
+    difference is the whole reason this number is usable.
+
+    It is the third of the three figures Brajín closes every transfer case
+    with, and the suite reported only one of them:
+
+      "La desviación típica residual estimada pasa de 0.53 % en el modelo
+       univariante a 0.42 % en el Modelo rpu6.3. El R² en el modelo
+       univariante de ru es 0.54, mientras que, en el Modelo rpu6.3, es 0.71."
+      (6.4; also 0.41 -> 0.56 and 0.84 -> 0.91 in the other cases)
+
+    And she reads the transition out loud where it is large: "Esto sugiere que
+    una parte importante de la variabilidad de rs' puede ser explicada con los
+    efectos de ps'."
+
+    Comparing the two R² is legitimate for the same reason comparing the two
+    likelihoods is: both models describe the SAME w_t, so the denominator is
+    shared and only the residual moves. It stops being legitimate across
+    different d — there w_t is a different variable — which is why this is
+    reported as a transition between two fits of one specification and never
+    as a score to rank models by.
+
+    Returns (R², sigma_a) with sigma_a the residual standard deviation in the
+    transformed scale, or (nan, nan) if it cannot be computed.
+    """
+    from .netid import residuals
+
+    cs = fit.cast_spec
+    emb = fit.embed if embed is None else embed
+    a, ifa = residuals(fit.x, cs, embed=emb, structural=True)
+    if ifa:
+        return float("nan"), float("nan")
+    a = np.asarray(a, float)
+    if a.ndim == 1:
+        a = a.reshape(-1, 1)
+    if series_index >= a.shape[1]:
+        return float("nan"), float("nan")
+    at = a[:, series_index]
+
+    wt = stationary_series(cs.series[series_index].spec)
+    if wt is None or len(wt) < 2:
+        return float("nan"), float("nan")
+    n = min(len(wt), len(at))
+    wt, at = wt[len(wt) - n:], at[len(at) - n:]
+
+    sa = float(np.sum((at - at.mean()) ** 2))
+    sw = float(np.sum((wt - wt.mean()) ** 2))
+    if sw <= 0:
+        return float("nan"), float("nan")
+    return 1.0 - sa / sw, float(np.std(at))
+
+
+def stationary_series(spec):
+    """`w_t = grad_s^D grad^d z_t`: the differenced series, and NOTHING else.
+
+    Brajín's R² (A.28) divides by the variance of this, and getting it from
+    the cast's `W` is wrong in a way that hides itself. The cast subtracts the
+    DETERMINISTIC part, so its `W` depends on the estimated parameters — and
+    on the passthrough case its variance came out 606.75 under the diagonal
+    fit and 356.47 under the joint one. With a denominator that moves, the R²
+    FELL when the transfer was added (0.138 -> 0.040) while the residual
+    standard deviation correctly fell too (22.87 % -> 18.49 %). Two numbers
+    from the same fit pointing opposite ways is the tell: if a shared
+    denominator were shared, that cannot happen.
+
+    Here `w_t` is a property of the DATA once lambda, d and D are fixed. It
+    carries no parameters, so it is identical across the two fits and the two
+    R² are comparable — which is the whole point of reporting the transition.
+    """
+    m = spec.model
+    z = np.asarray(spec.ts.data, float)
+    lam = float(getattr(m, "boxlam", 0.0) or 0.0)
+    z = np.log(z) if lam == 0.0 else (z ** lam)
+    z = z * float(getattr(m, "refactor", 1.0) or 1.0)
+    freq = int(getattr(spec.ts, "freq", 1) or 1)
+    for _ in range(int(getattr(m, "d", 0) or 0)):
+        z = np.diff(z)
+    for _ in range(int(getattr(m, "D", 0) or 0)):
+        z = z[freq:] - z[:-freq]
+    return z

@@ -1511,11 +1511,33 @@ def _what_the_transfer_bought(name, f, cs):
     # ("una reducción del 44 % en relación a su modelo univariante"), y dice lo
     # mismo que el LR en las unidades en que el analista piensa.
     try:
-        from .school import variance_reduction
+        from .school import r2_brajin, variance_reduction
         red = variance_reduction(f, _DIAG_FIT.get(name), series_index=0)
         if red == red:
             lines += [f"    Varianza residual de {nm[0]}: **{100 * red:.1f} % "
                       "menos** que con su modelo univariante.", ""]
+        # Y las DOS cifras con que Brajín cierra cada caso, en su forma: la
+        # desviación típica residual y el R² (A.28), los dos "pasando de" el
+        # univariante al de transferencia. El R² va sobre la serie ESTACIONARIA
+        # -- sobre el nivel de una I(1) saldría cerca de 1 y no diría nada --
+        # y su denominador no lleva parámetros, que es lo que hace comparables
+        # los dos ajustes: describen el MISMO w_t y sólo se mueve el residuo.
+        fd = _DIAG_FIT.get(name)
+        if fd is not None:
+            r2u, sau = r2_brajin(fd, 0)
+            r2t, sat = r2_brajin(f, 0)
+            if r2u == r2u and r2t == r2t:
+                lines += [
+                    f"    Desviación típica residual: pasa de **{sau:.4f}** en "
+                    f"el modelo univariante a **{sat:.4f}** con la "
+                    "transferencia.",
+                    f"    R² (Brajín A.28, sobre la serie estacionaria): pasa "
+                    f"de **{r2u:.4f}** a **{r2t:.4f}**.", ""]
+                if r2t - r2u > 0.05:
+                    lines += ["    Esa subida sugiere que una parte importante "
+                              f"de la variabilidad de {nm[0]} se explica con "
+                              f"los efectos de {nm[1] if len(nm) > 1 else 'la entrada'}.",
+                              ""]
     except Exception:                                      # noqa: BLE001
         pass
 
@@ -2120,6 +2142,76 @@ def _what_now(ad, name, link_index):
     return lines
 
 
+_jb_falla = [False]      # lo pone `_residual_panel`, lo lee el veredicto
+
+
+def _residual_panel(name, f, Q, p, k, df):
+    """El residuo del output leído como lo lee art, con los mismos contrastes.
+
+    art cierra cada modelo univariante con cuatro líneas -- veredicto, ruido
+    blanco (Q), normalidad (JB), asimetría y curtosis -- y una lista de
+    residuos extremos con la forma de intervención que sugieren. mtram daba
+    sólo la Q. Un analista que venía leyendo ese panel encuentra aquí medio
+    panel y tiene que preguntarse si lo demás no se calculó o no hacía falta.
+
+    Los estadísticos salen de `fue.diagnostics`, que es de donde salen los de
+    art: dos implementaciones del mismo contraste acaban dando dos números,
+    y ya pagamos esa factura una vez con la corrección de grados de libertad.
+
+    Lo que NO se duplica es el barrido de anómalos. art lo resuelve con |z| y
+    mtram tiene `calibrate`, que hace leave-one-out sobre los INSTRUMENTOS --
+    la CCF y el portmanteau de adecuación-- y contesta la pregunta que
+    importa aquí ("¿cambiaría mi conclusión?") en vez de una aproximación. Se
+    cuentan los extremos y se remite allí.
+    """
+    import numpy as np
+
+    from .netid import residuals
+
+    _jb_falla[0] = False
+    L = [f"    Ruido blanco (Q): {'✓' if p >= 0.05 else '✗'}  "
+         f"Q({k}) = {Q:.2f}, g.l. = {df}, p = {p:.4f}"]
+    try:
+        a, ifa = residuals(f.x, f.cast_spec, embed=f.embed, structural=True)
+        if ifa:
+            return L
+        a = np.asarray(a, float)
+        r = a[:, 0] if a.ndim > 1 else a
+        from fue.diagnostics import jarque_bera
+        jb, pjb = jarque_bera(r)
+        x = r - r.mean()
+        sd = float(np.sqrt((x ** 2).mean())) or 1.0
+        skew = float((x ** 3).mean() / sd ** 3)
+        kurt = float((x ** 4).mean() / sd ** 4 - 3.0)
+        _jb_falla[0] = bool(float(pjb) < 0.05)
+        L += [f"    Normalidad (JB): {'✓' if pjb >= 0.05 else '✗'}  "
+              f"JB = {float(jb):.3f}, p = {float(pjb):.4f}",
+              f"    Asimetría = {skew:+.3f}, curtosis exceso = {kurt:+.3f}"]
+
+        z = x / sd
+        ext = [(i, float(z[i])) for i in range(len(z)) if abs(z[i]) > 3.0]
+        if ext:
+            mdl = f.cast_spec.series[0].spec.model
+            lost = int(getattr(mdl.series, "nobs", len(z))) - len(z)
+            from .calibrate import _date_of
+            etq = ", ".join(f"{_date_of(mdl, lost + i + 1)} (z={v:+.2f})"
+                            for i, v in sorted(ext, key=lambda t: -abs(t[1]))[:5])
+            L += [f"    Residuos extremos (|z| > 3): {len(ext)} — {etq}",
+                  "",
+                  "      No los conviertas en intervenciones desde aquí. En "
+                  "art un |z| alto ES el instrumento; aquí `calibrate` "
+                  "contesta la pregunta que importa -- si el veredicto "
+                  "cambiaría sin esa observación -- haciendo leave-one-out "
+                  "sobre la CCF y el portmanteau, y además dice de qué PARES "
+                  "sale un pico. Y una anomalía del univariante puede estar "
+                  "ya explicada por la entrada."]
+        else:
+            L += ["    Residuos extremos (|z| > 3): ninguno"]
+    except Exception:                                      # noqa: BLE001
+        pass
+    return L
+
+
 def _reformulation_order(ad, name, link_index):
     """En qué ORDEN se arregla lo que está mal. Muñoz §2.6 p.42.
 
@@ -2156,9 +2248,9 @@ def _reformulation_order(ad, name, link_index):
         return []
 
     noise_bad, rel_bad = p < 0.05, not ad.adequate
-    out = ["", "  ── EL RUIDO, Y EN QUÉ ORDEN " + "─" * 30, "",
-           f"    Ljung-Box sobre la ACF del residuo del output: "
-           f"Q({k}) = {Q:.2f},  g.l. = {df},  p = {p:.4f}"]
+    out = ["", "  ── EL RUIDO, Y EN QUÉ ORDEN " + "─" * 30, ""]
+    out += _residual_panel(name, f, Q, p, k, df)
+    out += [""]
 
     if rel_bad and noise_bad:
         out += ["",
@@ -2191,8 +2283,20 @@ def _reformulation_order(ad, name, link_index):
                 "    La ACF del ruido está limpia, así que lo que falla es la "
                 "RELACIÓN y sólo la relación. No hay ambigüedad de orden aquí."]
     else:
-        out += ["", "    Los dos instrumentos limpios: la relación y el ruido "
-                "se sostienen por separado."]
+        out += ["", "    RELACIÓN y RUIDO limpios los dos: se sostienen por "
+                "separado, y no hay ningún orden de reparación que decidir."]
+    # La NORMALIDAD no entra en ese veredicto, y conviene decirlo: la
+    # adecuación y el orden de reformulación se deciden con la CCF y la ACF.
+    # Un JB que falla no invalida el modelo -- la ML exacta no supone
+    # normalidad para ser consistente -- pero sí avisa de colas, y con
+    # residuos extremos delante suele ser eso y no asimetría.
+    if _jb_falla[0]:
+        out += ["",
+                "    ⚠ La NORMALIDAD falla, y eso NO entra en el veredicto de "
+                "arriba: la adecuación y el orden de reparación se deciden "
+                "con la CCF y la ACF. Lo que señala son COLAS, y con residuos "
+                "extremos en la lista suele ser eso. Míralos con `calibrate` "
+                "antes de tocar la forma del modelo."]
     return out
 
 

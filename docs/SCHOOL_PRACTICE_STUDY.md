@@ -178,7 +178,13 @@ output today:
 3. the **irf/srf shape** read out loud — "todos los valores de la irf son
    positivos, por eso la srf es monótona creciente"  ~
 4. the **% reduction in residual variance versus the univariate model** — 44 %,
-   53 %, 23 %, 37 %  ✅ *(desde el nivel 1)*
+   53 %, 23 %, 37 %  ✅ *(desde el nivel 1)*. **Y son TRES cifras, no una**:
+   Brajín cierra cada caso con la reducción, la desviación típica residual
+   *pasando de* la univariante a la de transferencia, y el **R² (A.28) pasando
+   de** una a otra — 0.54→0.71, 0.41→0.56, 0.84→0.91 en sus casos. Las tres
+   se reportan desde 2026-08-08. El R² va sobre la serie ESTACIONARIA, que es
+   lo que lo hace utilizable: sobre el nivel de una I(1) saldría cerca de 1
+   por construcción.
 5. **how many intervention parameters it needed** versus the univariate — often
    one FEWER  ❌ **— lo único de esta lista que sigue abierto**
 6. any **change in the order of integration** — lnE is I(2) univariately and

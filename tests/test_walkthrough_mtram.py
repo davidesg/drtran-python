@@ -345,7 +345,10 @@ def test_diagnose_looks_at_the_noise_too():
     M.set_network("RO", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
     M.estimate("RO")
     out = M.diagnose("RO")
-    assert "Ljung-Box sobre la ACF" in out
+    # sustancia, no redacción: que la Q del ruido esté con sus g.l. y su p, y
+    # que el bloque del orden exista. Fijar la frase exacta rompió este test
+    # cuando el panel pasó al formato de art, que es la lección de siempre.
+    assert "Ruido blanco (Q):" in out and "g.l." in out
     assert "EL RUIDO, Y EN QUÉ ORDEN" in out
 
 
@@ -357,7 +360,9 @@ def test_the_canonical_case_has_both_instruments_clean():
     M.set_network("RO2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
     M.estimate("RO2")
     out = M.diagnose("RO2")
-    assert "Los dos instrumentos limpios" in out
+    # los DOS que deciden el orden de reparación: la CCF y la ACF del ruido
+    assert "Ruido blanco (Q): ✓" in out
+    assert "RELACIÓN y RUIDO limpios" in out
 
 
 def test_the_asymmetry_is_stated_when_both_fail():
@@ -663,3 +668,94 @@ def test_no_influence_is_claimed_without_a_diagonal_to_compare_with():
     M.load_pre("FLT2", f"{ES},{WTI}", check=False)
     M.set_network("FLT2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
     assert "¿ES INFLUYENTE LA TRANSFERENCIA?" not in M.estimate("FLT2")
+
+
+def test_brajin_s_two_closing_figures_are_reported():
+    """Brajín closes every transfer case with THREE numbers and the suite gave
+    one. Verbatim (6.4):
+
+      "La desviación típica residual estimada pasa de 0.53 % en el modelo
+       univariante a 0.42 % en el Modelo rpu6.3. El R² en el modelo
+       univariante de ru es 0.54, mientras que, en el Modelo rpu6.3, es 0.71."
+
+    The R² is A.28, computed on the STATIONARY series — on the level of an
+    I(1) it would sit near 1 by construction and say nothing.
+    """
+    M.load_pre("R2", f"{ES},{WTI}")
+    M.set_network("R2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    out = M.estimate("R2")
+    assert "Desviación típica residual: pasa de" in out
+    assert "R² (Brajín A.28" in out
+
+
+def test_the_r2_denominator_carries_no_parameters():
+    """What makes the two R² comparable, and what the first implementation got
+    wrong. Taking w_t from the cast's `W` looks right and is not: the cast
+    subtracts the DETERMINISTIC part, so its variance depends on the estimated
+    parameters. Measured, it came out 606.75 under the diagonal fit and 356.47
+    under the joint one — and with a moving denominator the R² FELL when the
+    transfer was added (0.138 → 0.040) while the residual standard deviation
+    correctly fell too.
+
+    Two numbers from one fit pointing opposite ways is the tell. w_t is a
+    property of the DATA once λ, d and D are fixed, and only then do the two
+    fits describe the same denominator.
+    """
+    import numpy as np
+    from drtran.school import r2_brajin, stationary_series
+
+    M.load_pre("R2B", f"{ES},{WTI}")
+    M.set_network("R2B", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("R2B")
+    fj, fd = M._FITS["R2B"], M._DIAG_FIT["R2B"]
+    wj = stationary_series(fj.cast_spec.series[0].spec)
+    wd = stationary_series(fd.cast_spec.series[0].spec)
+    assert np.var(wj) == pytest.approx(np.var(wd), rel=1e-12)
+
+    r2u, sau = r2_brajin(fd, 0)
+    r2t, sat = r2_brajin(fj, 0)
+    # los dos números apuntan al MISMO lado: menos residuo, más R²
+    assert sat < sau and r2t > r2u
+
+
+def test_the_residual_panel_matches_art_s_four_readings():
+    """art closes a univariate model with verdict, white noise (Q), normality
+    (JB) and skewness/kurtosis. mtram gave only the Q, so an analyst arriving
+    from art found half a panel and had to wonder whether the rest was not
+    computed or not needed."""
+    M.load_pre("PAN", f"{ES},{WTI}", check=False)
+    M.set_network("PAN", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("PAN")
+    out = M.diagnose("PAN")
+    assert "Ruido blanco (Q):" in out
+    assert "Normalidad (JB):" in out
+    assert "Asimetría =" in out and "curtosis exceso =" in out
+    assert "Residuos extremos (|z| > 3):" in out
+
+
+def test_the_verdict_does_not_swallow_a_failing_normality():
+    """The adequacy verdict is decided by the CCF and the ACF, and normality is
+    not part of it. Printing "both instruments clean" directly under a failing
+    JB reads as a contradiction — so the JB gets its own note saying what it
+    does and does not bear on."""
+    M.load_pre("PAN2", f"{ES},{WTI}", check=False)
+    M.set_network("PAN2", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("PAN2")
+    out = M.diagnose("PAN2")
+    if "Normalidad (JB): ✗" in out:
+        assert "NO entra en el veredicto" in out
+
+
+def test_the_panel_does_not_duplicate_calibrate():
+    """art turns |z| into suggested interventions; mtram must not. `calibrate`
+    answers the question that matters here — would the verdict change without
+    that observation — by leave-one-out on the CCF and the portmanteau, and an
+    anomaly in the univariate residuals may already be explained by the input.
+    So the panel counts them and points there."""
+    M.load_pre("PAN3", f"{ES},{WTI}", check=False)
+    M.set_network("PAN3", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
+    M.estimate("PAN3")
+    out = M.diagnose("PAN3")
+    assert "Intervenciones sugeridas" not in out
+    if "Residuos extremos (|z| > 3): 0" not in out:
+        assert "No los conviertas en intervenciones desde aquí" in out
