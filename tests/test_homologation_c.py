@@ -31,11 +31,19 @@ X_PRE = os.path.join(CASES, "WTI_ar1.pre")
 
 # logL of the C binary, subtracting cast (-S). Measured difference with the
 # port: ~1e-7.
+#
+# Re-homologated 2026-08-09 after the pre-sample stopped being zeroed and
+# started being backcast (BUG-8 step 7, `drtran 655e255`+). Three of the four
+# moved by ~1e-2. **(0,0,0) did not move at all**, and that is not luck: a
+# contemporaneous transfer has a single nu weight, so the convolution is
+# complete from t=1 and there is no pre-sample to fill. The EMBEDDED values
+# below did not move either -- that cast never truncated -- which is the
+# control that says this changed what it was meant to change.
 REF_C = {
-    (0, 0, 0): -736.774158,
-    (0, 1, 0): -721.720197,
-    (0, 0, 1): -718.183933,
-    (1, 1, 1): -756.528944,
+    (0, 0, 0): -736.774158,      # unchanged: no memory, no pre-sample
+    (0, 1, 0): -721.727915,      # was -721.720197
+    (0, 0, 1): -718.200295,      # was -718.183933
+    (1, 1, 1): -756.527386,      # was -756.528944
 }
 
 # logL of the C binary with the EMBEDDED cast (-V), which is the C's DEFAULT: it

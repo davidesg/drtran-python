@@ -124,6 +124,9 @@ class CastSpec:
     # is what makes the fit use the SUBTRACTING cast, since the embedded one has
     # nowhere to put a second vector for the same series.
     alt_est: dict = field(default_factory=dict)
+    # {link index: Delta(B)} para los enlaces desajustados que SI estan
+    # anidados. Solo se usa para retropronosticar la muestra previa.
+    alt_delta: dict = field(default_factory=dict)
 
     @property
     def needs_subtracting(self):
@@ -348,6 +351,54 @@ def check_operators(cast_spec):
     return out
 
 
+def backcast(w, phi, theta, mu, L):
+    """The L values of a stationary ARMA series BEFORE its first observation.
+
+    `pre[0]` is the value immediately before `w[0]`, `pre[1]` the one before
+    that, and so on. Box-Jenkins backforecasting, and it rests on one fact: a
+    stationary ARMA's autocovariance generating function
+
+        gamma(z) = sigma^2 Theta(z)Theta(1/z) / (Phi(z)Phi(1/z))
+
+    is symmetric under z -> 1/z, so **the time-reversed process has the same
+    model**. Backforecasting is therefore ordinary forecasting of the reversed
+    series with the same phi and theta -- which is what TASTE's `BackForeCast`
+    does, and why it needs no separate machinery.
+
+    Sign convention as in `elfvarma.py`:
+    `a[t] = w[t] - SUM phi_i w[t-i] + SUM theta_j a[t-j]`.
+    """
+    w = np.asarray(w, float)
+    phi = np.asarray(phi, float)
+    theta = np.asarray(theta, float)
+    n, p, q = len(w), len(phi), len(theta)
+    if L <= 0 or n == 0:
+        return np.zeros(max(L, 0))
+
+    u = w[::-1] - mu                      # reversed and centred
+    e = np.zeros(n)
+    for t in range(n):                    # conditional residuals, zero pre-sample
+        acc = u[t]
+        for i in range(1, min(p, t) + 1):
+            acc -= phi[i - 1] * u[t - i]
+        for j in range(1, min(q, t) + 1):
+            acc += theta[j - 1] * e[t - j]
+        e[t] = acc
+
+    f = np.zeros(L)
+    for l in range(L):                    # forecast forward: future shocks are 0
+        acc = 0.0
+        for i in range(1, p + 1):
+            k = l - i
+            acc += phi[i - 1] * (f[k] if k >= 0 else u[n + k])
+        for j in range(1, q + 1):
+            k = n + l - j
+            if k < n:                     # only realised residuals enter
+                acc -= theta[j - 1] * e[k]
+        f[l] = acc
+    return f + mu
+
+
 def effective_embed(cast_spec, embed):
     """Which cast actually runs: the DISPATCH of BUG-8's fix, in one line.
 
@@ -380,7 +431,7 @@ def _alt_est_specs(cast_spec):
 
     from fue.cast_us import build_est_spec
 
-    out = {}
+    out, dlt = {}, {}
     for j, l in enumerate(cast_spec.links):
         my = cast_spec.series[l.out].spec.model
         mx = cast_spec.series[l.inp].spec.model
@@ -390,7 +441,17 @@ def _alt_est_specs(cast_spec):
         alt.d, alt.D = my.d, my.D
         alt.ifadf = list(my.ifadf) if my.ifadf else my.ifadf
         out[j] = build_est_spec(alt)
-    return out
+        # Delta, para poder retropronosticar. `alt` no tiene modelo propio con
+        # el que retropronosticarse -- su MA seria theta(B)Delta(B), y Delta
+        # tiene raices EN el circulo unidad, asi que la recursion no es
+        # invertible. Se retropronostica la serie del input, que si tiene un
+        # modelo sano, y se pasa por Delta:  alt[t] = SUM_i delta[i] w_x[t+g-i]
+        # con g = grado(Delta). Exacto cuando estan anidados; cuando no, no hay
+        # Delta y la muestra previa se queda a cero, como antes.
+        dl, nested, _ = delta_operator(my, mx)
+        if nested:
+            dlt[j] = dl
+    return out, dlt
 
 
 def build_cast_spec(specs, links=None):
@@ -419,7 +480,7 @@ def build_cast_spec(specs, links=None):
         if l.out == l.inp:
             raise ValueError(f"a link cannot go from a series to itself: {l}")
     cs.delta_warnings = check_operators(cs)
-    cs.alt_est = _alt_est_specs(cs)
+    cs.alt_est, cs.alt_delta = _alt_est_specs(cs)
     # Vector order, following shootx: transfers -> univariate -> covariance.
     # Covariance: var[0] is fixed at 1 (the scale is concentrated into sigma2),
     # then log(var_i/var_1) for i>0. The off-diagonal covariances start out FIXED
@@ -465,6 +526,57 @@ def build_sigma(x, idx, m):
             except np.linalg.LinAlgError:
                 return None, idx, 1
     return Q, idx, 0
+
+
+def _pre_sample(cast_spec, j, l, full, n, nu, phis, thetas, mus, ws):
+    """The transfer input's values BEFORE the estimation window.
+
+    `pre[m-1]` is the value `m` periods before the first one used. Two sources,
+    in this order:
+
+    1. **Real observations the end-alignment trimmed away.** When the input is
+       differenced less than the output it keeps spare leading values; they are
+       data, not estimates, and cost nothing.
+    2. **Backcasts** for whatever is still missing, which is what TASTE does.
+
+    Only as many as `nu` can reach. With `r = 0` the filter has `b+s+1` weights
+    and everything past that is exactly zero, so a contemporaneous transfer
+    needs NO pre-sample and a `(0,0,1)` one needs a single value. It is the
+    RATIONAL transfers, whose tail is infinite, that the truncation was hurting.
+
+    For a re-differenced input (`alt`) the backcast cannot be taken on `alt`
+    itself: its model would be `theta(B)Delta(B)`, and Delta has roots ON the
+    unit circle, so the residual recursion is not invertible. The input's own
+    series is backcast instead -- it has a healthy model -- and passed through
+    Delta, using `alt[t] = SUM_i delta[i] w_x[t+g-i]`, an identity verified to
+    machine zero. When the operators are not nested there is no Delta, and only
+    source 1 is available.
+    """
+    big = np.abs(nu) > 1e-12
+    K = int(np.max(np.nonzero(big)[0])) if np.any(big) else 0
+    if K <= 0:
+        return np.zeros(0)
+
+    i = l.inp
+    off = len(full) - n                 # real leading values the trim dropped
+    need = max(0, K - off)              # how far back the backcast must reach
+
+    if j not in cast_spec.alt_est:
+        ext = np.concatenate([backcast(full, phis[i], thetas[i], mus[i],
+                                       need)[::-1], full])
+        return np.array([ext[need + off - m] for m in range(1, K + 1)])
+
+    dl = cast_spec.alt_delta.get(j)
+    if dl is None:                      # not nested: only the real spare
+        return np.array([full[off - m] for m in range(1, min(K, off) + 1)])
+
+    g = len(dl) - 1
+    wx = ws[i]
+    ext = np.concatenate([backcast(wx, phis[i], thetas[i], mus[i],
+                                   need)[::-1], wx])
+    return np.array([
+        sum(dl[c] * ext[need + off - m + g - c] for c in range(g + 1))
+        for m in range(1, K + 1)])
 
 
 def cast_diagonal(x, cast_spec):
@@ -545,10 +657,27 @@ def cast_diagonal(x, cast_spec):
         tr = np.zeros_like(W)
         for j, (l, o_j, d_j) in enumerate(zip(cast_spec.links, om, de)):
             nu = compute_irf(o_j, d_j, l.b, n)
-            xin = alt[j][len(alt[j]) - n:] if j in alt else W[:, l.inp]
+            full = alt[j] if j in alt else ws[l.inp]
+            xin = full[len(full) - n:]
+            # THE PRE-SAMPLE. The convolution wants x before t=1 and it does not
+            # exist; setting it to zero is what makes the subtracting cast
+            # compute "the exact likelihood of the WRONG series". Two sources
+            # fill it, in this order:
+            #   1. REAL data the end-alignment trimmed away, when the input is
+            #      differenced less than the output and so has spare leading
+            #      observations. Free and exact.
+            #   2. BACKCASTS beyond that (`backcast`), which is what TASTE does.
+            pre = _pre_sample(cast_spec, j, l, full, n, nu,
+                              phis, thetas, mus, ws)
+            P = len(pre)
+            if P:
+                xext = np.concatenate([pre[::-1], xin])
+            else:
+                xext = xin
             acc = np.zeros(n)
-            for t in range(n):                      # SUM_{k=0..t} nu[k]*x[t-k]
-                acc[t] = float(np.dot(nu[:t + 1], xin[t::-1]))
+            for t in range(n):
+                hi = min(len(nu) - 1, P + t)        # SUM_k nu[k]*x[t-k]
+                acc[t] = float(np.dot(nu[:hi + 1], xext[P + t::-1][:hi + 1]))
             tr[:, l.out] += acc
         W = W - tr
 
