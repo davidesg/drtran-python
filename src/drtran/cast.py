@@ -190,6 +190,72 @@ def check_alignment(specs):
                 f"mean to model.")
 
 
+def differencing_poly(model):
+    """The FULL non-stationary operator as a polynomial in B, `[1, -r1, -r2...]`.
+
+    Regular, seasonal and the individual annual factors, all of it. The
+    coefficients come from `fue._nonsop_coefs` rather than being rebuilt here,
+    for the reason `forecast.py` gives: the `ifadf` factors are exactly the kind
+    of delicate detail that must have a single source of truth. Getting them
+    from there means `∇∇₄` written the school's way -- `d=2, D=0,
+    ifadf=[0,1,1]`, as m6's EA carries it -- yields the same polynomial as
+    `∇∇₄` written any other way, which is the whole point of comparing
+    polynomials instead of comparing `(d, D)` tuples.
+    """
+    from fue.forecast import _nonsop_coefs
+    freq = int(model.series.freq or 1)
+    r = np.asarray(_nonsop_coefs(model.d, model.D, freq,
+                                 ifadf=(model.ifadf or None)), float)
+    poly = np.empty(len(r) + 1)
+    poly[0] = 1.0
+    poly[1:] = -r
+    return poly
+
+
+def delta_operator(out_model, in_model, tol=1e-9):
+    """`Δ(B) = op_out / op_in` — the operator the transfer term silently applies.
+
+    BUG-8, stated as arithmetic. The embedded cast relates each series
+    differenced by ITS OWN operator, but the model says
+
+        ∇^d ∇ₛ^D N  =  ∇^d ∇ₛ^D y  −  ν(B) · (∇^d ∇ₛ^D x)
+
+    so the input must enter differenced by the OUTPUT's operator. When they
+    differ, what gets fitted is not ν but **ν·Δ**, and the reported gain is
+    `ν(1)·Δ(1)` -- measured, see `docs/LEVEL_TRANSFER_PLAN.md` §2d.
+
+    Returns `(delta, nested, resto)`:
+
+    * `delta`  -- the quotient polynomial, `[1.0]` when the operators agree;
+    * `nested` -- whether the division is EXACT, i.e. the output's operator
+      contains the input's. When it is not, the two are not merely mismatched:
+      neither differencing implies the other, and no single vector can serve
+      both roles. That case needs refusing, not dispatching;
+    * `resto`  -- the remainder's max abs coefficient, so the caller can say
+      how far from nested it was.
+
+    Δ(1) is `float(delta.sum())`: **0** means the gain is annihilated (an excess
+    root at frequency zero), **s** means it is multiplied by the period (an
+    excess purely at the seasonal frequencies), **1** means the operators agree
+    and there is nothing to do.
+    """
+    a = differencing_poly(out_model)
+    b = differencing_poly(in_model)
+    if len(b) > len(a):
+        # The INPUT is differenced harder. Not nested by construction, and the
+        # quotient is not a polynomial: say so rather than return nonsense.
+        return np.array([1.0]), False, float('inf')
+    q, r = np.polydiv(a[::-1], b[::-1])           # numpy wants highest degree first
+    resto = float(np.max(np.abs(r))) if r.size else 0.0
+    return q[::-1], resto <= tol, resto
+
+
+def operators_agree(out_model, in_model, tol=1e-9):
+    """True when the transfer needs no correction: `Δ(B) = 1`."""
+    delta, nested, _ = delta_operator(out_model, in_model, tol)
+    return bool(nested and len(delta) == 1 and abs(delta[0] - 1.0) <= tol)
+
+
 def build_cast_spec(specs, links=None):
     """Precompute the cast from the `.pre` files read (one per series).
 
