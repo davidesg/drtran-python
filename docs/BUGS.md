@@ -999,7 +999,7 @@ identity, not a tolerance: with `r[0] = 0`, `chi_test(first=0)` and
 
 ---
 
-## BUG-8. The ORACLE disagrees by a factor of ~2 on every mixed-(d,D) transfer, and agrees to 1e-6 on every matched one — CAUSE ESTABLISHED, guard shipped, fix pending
+## BUG-8. The ORACLE disagrees by a factor of ~2 on every mixed-(d,D) transfer, and agrees to 1e-6 on every matched one — **FIXED** in Python (`7a183db`) and C (`drtran 655e255`)
 
 Found 2026-08-08 extending the TASTE oracle to the eight-country IPC → WTI
 batch. TASTE shares no code with this family and estimates by unconditional
@@ -1174,11 +1174,35 @@ disagreeing it reports a DIFFERENT regression (exit 2) rather than silently
 crediting a fix — the matched agreement is the control, and losing it would
 invalidate the comparison rather than resolve it.
 
+### The fix: dispatch on the operators
+
+Embedded cast when the two series carry the same differencing operator,
+SUBTRACTING cast when they do not — and there, the transfer term is fed the
+input re-differenced by the OUTPUT's operator, which is what the model says and
+what the embedded cast has no room for (one column per series, one
+differencing).
+
+| | drtran before | drtran now | TASTE | rel before → after |
+|---|---|---|---|---|
+| ES | 0.016402 | 0.016402 | 0.016410 | 0.05 % → 0.05 % |
+| USA | 0.017161 | 0.017161 | 0.017160 | 0.01 % → 0.00 % |
+| CA | 0.013504 | 0.013504 | 0.013380 | 0.93 % → 0.93 % |
+| UK | 0.005223 | 0.005223 | 0.005220 | 0.06 % → 0.05 % |
+| **FR** | 0.004282 | **0.009162** | 0.009070 | 52.8 % → **1.01 %** |
+| **DE** | 0.006906 | **0.011608** | 0.011660 | 40.8 % → **0.45 %** |
+| **EMU** | 0.006194 | **0.011852** | 0.011880 | 47.9 % → **0.24 %** |
+
+The four matched cases are unchanged bit for bit — that is the property the
+dispatch was chosen for, and the C's was verified against the previous binary
+rather than argued. C and Python agree to the last digit on FR (logL
+−638.941000 both).
+
 ### Impact
 
-The three `∇_12` gains (FR, DE, EMU) should not be reported until this is
-settled. The five matched-differencing ones (ES, USA, CA, UK, and the canonical)
-are externally corroborated and stand.
+All seven gains stand. The arithmetic impossibility noted above is resolved
+too: the euro area is now 0.0119 against Spain's 0.0271, with France 0.0092 and
+Germany 0.0116 — an aggregate between its members instead of four times below
+them.
 
 ### Note: Japan cannot be put through the oracle at all
 

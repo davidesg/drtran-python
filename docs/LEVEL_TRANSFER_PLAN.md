@@ -486,14 +486,37 @@ FR and DE reported OK at 112 % and 69 % relative error.
    computable whatever the two operators are; Δ exists only to say how wrong the
    gain is. Requiring nestedness was an artefact of reasoning through the
    quotient.
-6. Port to the C and re-homologate. The matched cases must not move.
-7. Then, separately: backforecast the input instead of zeroing the pre-sample,
-   which is what takes the subtracting cast from "the right specification,
-   truncated" to the oracle exactly.
+6. ~~Port to the C and re-homologate~~ — **DONE**, `drtran 655e255`.
+   `operators_differ` compares the two full `rnsop` polynomials (so the school's
+   encoding is recognised, as in Python); `build_stationary_series` also builds
+   `w_alt[j]` by swapping ONLY `ornsop`/`rnsop` and calling the same
+   `apply_univariate_model`; `tran_shootx.c` feeds the transfer `w_alt[j]` when
+   it exists; and `main` switches to the subtracting cast, announcing it on
+   stderr with both orders and the reason.
 
-Step 3 is the one piece of study still owed, and it is not a blocker for 5: it
-decides how strictly "agrees with the oracle" can be used as an acceptance
-criterion, not what to implement.
+   **FR: `ω₀ = 0.009162`, `ω₁ = −0.005973`, logL `−638.941000` — identical to
+   the Python to the last digit.** C battery 303 PASS 0 FAIL, m6's canonical
+   likelihoods untouched (`−1709.511575` diagonal, `−1697.613401` network),
+   Python battery 378 passed, homologation 12 passed.
+
+   The matched control was verified against the PREVIOUS BINARY rather than
+   argued: `ES_CPI <- WTI` gives `0.016400` and logL `−718.287406` before and
+   after, identical. (`0.016402` is the same case under the SUBTRACTING cast —
+   the two casts differ slightly, and confusing them is exactly the mistake that
+   control exists to avoid. It caught it once already.)
+7. **Still open, and now the only thing left**: backforecast the input instead
+   of zeroing the pre-sample, which is what takes the subtracting cast from "the
+   right specification, truncated" to the oracle exactly. `TFEST.PAS:655-670`
+   shows how — difference each input by its own model, backforecast, then
+   `BackLevel` to rebuild the extended level. Worth doing, not urgent: the
+   remaining disagreement with the oracle is 0.24-1.01 %, inside the band the
+   four matched cases sit in (0.00-0.93 %).
+
+Step 3 answered itself. The 26 % France gap was a property of the `fue`-custom
+LEVELS route (0.011414 against the oracle's 0.009070), not of the specification:
+drtran's dispatch lands at 0.009162, **1.01 %** away. So "agrees with the
+oracle" IS a usable criterion, and the three mixed cases now meet it as well as
+the four matched ones ever did.
 
 ### How the bank stays green without forgetting — `taste-port 270868c`
 
