@@ -6,6 +6,54 @@ the non-negotiable principle and the validation criterion, and
 that are not translation, the homologation figures and the defects the port found
 in the original.
 
+## ANTES DE PUBLICAR 0.2.0 — inventario (2026-08-09)
+
+Lo que ha entrado desde 0.1.1: BUG-8 completo (Δ, el guardia, el despacho, la
+muestra previa retropronosticada) en Python **y** en C, la ruta de previsión de
+TASTE (`forecast_by_parts`) y la ventana común. Verificado: batería Python 399,
+batería C 304 PASS 0 FAIL, homologación 12, oráculo 12 casos incluidos 5 nuevos
+del banco SF_MEG.
+
+**Bloqueantes** — cosas que un usuario notaría o que informan mal:
+
+- [ ] **mtram está detrás de drtran.** `estimate(embed=True)` devuelve un ajuste
+      que NO fue empotrado cuando los operadores difieren, sin decirlo, y su
+      docstring sigue afirmando lo contrario. Es el mismo género de silencio que
+      era BUG-8. Lista completa en `docs/DOCUMENTATION_PLAN.md` §4:
+      anunciar el cast que corrió, exponer `check_operators`, informar la
+      ventana común en `load_pre`, y decir qué ruta produjo la previsión.
+- [ ] **Los enlaces de PyPI están rotos.** El repo es privado (404) y los
+      enlaces del README son relativos. Diagnóstico y arreglo en
+      `docs/DOCUMENTATION_PLAN.md` §1 y §3.1. Es visible en la página del
+      release, así que va antes del push.
+- [ ] **Subir la versión y el CHANGELOG.** `pyproject` sigue en 0.1.1, que es lo
+      que hay publicado.
+
+**HOMOLOGAR Y DECIDIR LA DOCUMENTACIÓN PUBLICABLE** (encargo de David):
+
+- [ ] Revisar documento a documento cuál es **de analista**, cuál **de
+      desarrollador** y cuál es **bitácora que no se publica** — el inventario
+      preliminar está en `docs/DOCUMENTATION_PLAN.md` §2, falta la decisión.
+- [ ] Homologar los documentos entre sí: hay afirmaciones repetidas en varios y
+      alguna ya desfasada por BUG-8. Una sola fuente por hecho.
+- [ ] Escribir la página que falta: la **especificación de `.inp`/`.out`/`.pre`**.
+      Es el contrato central de la suite y hoy sólo vive dentro de un argumento
+      en `LADDER_AS_OPTIMISATION.md` §1.
+- [ ] Decidir lo que es de David: público o no (y para el C, consultar a
+      Mauricio por `raxopt`/`qnewtopt` y `elf`), si las docs viajan en el wheel,
+      y el idioma.
+
+**No bloqueantes** — investigación, no publicación:
+
+- [ ] El certificado de los modelos mixtos (acotado + anclado) sigue **sin
+      medir**: necesita el ejercicio de previsión horizonte a horizonte.
+- [ ] `termcode 3` en el optimizador, que es asunto viejo y ahora tiene banco.
+- [ ] FR_CPI no tiene variante `airline`, así que su brazo Z no está cubierto en
+      el oráculo. Y `FR_CPI_S_f5.pre` está truncado (fichero de SF_MEG, no
+      nuestro).
+
+---
+
 ## Estado: 0.1.0b1 — PRIMERA BETA (2026-08-02)
 
 Todas las opciones del C implementadas y homologadas, más `-W`. **170 tests**
