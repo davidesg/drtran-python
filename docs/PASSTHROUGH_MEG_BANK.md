@@ -167,6 +167,26 @@ not. And `DE_CPI_sto1` came out with the **wrong sign**.
 steptol, not the gradient, `ifault = 0` — which is a long-standing open item.
 Their figures are indicative. ES_CPI's are not affected.
 
+### Two corrections the run forced
+
+**The link order is identified, not imposed.** Fixing `s=1` across every variant
+was my decision and it was wrong. Where `omega1` does not exist — DE_CPI, at
+−0.000332 — the surface is flat in that direction and the optimiser stops at
+termcode 3, which is CORRECT behaviour: it is saying the parameter is not
+identified. The same cases converge at `s=0`. Where it does exist — ES_CPI, at
+−0.010408 — `s=1` converges. The order belongs to the CASE, identified once and
+held across that case's variants; what is held fixed is the link, not the
+seasonal representation.
+
+**And the diagonal already fails, which is David's check.** All eighty DIAGONAL
+fits, with no link at all: **57 converge on gradtol, 10 on steptol, and 12 stop
+at termcode 3** — plus one broken `.pre` (`FR_CPI_S_f5`). So in those twelve the
+problem is UPSTREAM of the transfer, in the univariate models or the joint
+diagonal, and not in the link at all. They cluster in DE_CORE (6 of 12), ES_CORE
+(2) and DE_CPI (2). Any transfer figure from those cases inherits the defect,
+and the check is cheap enough to be the first gate of the bank rather than an
+afterthought.
+
 ## 6. Order of work
 
 1. **Fix the window and build the `.pre` files.** WTI over the common span; each
