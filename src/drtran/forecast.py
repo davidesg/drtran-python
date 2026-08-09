@@ -336,6 +336,15 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
         dif[l] = psis[l] - psis[l - 1]
     var_diff = error_variance(dif, sigma, L)
 
+    # Same reason as in `to_level`: for a dispatched model the OUTPUT's level
+    # variance is the by-parts one -- the noise's psi weights plus each input's
+    # propagated through nu(B) -- not this integration of the joint psi.
+    if cast_spec.links and getattr(cast_spec, "needs_subtracting", False):
+        _l, _z, v_parts = forecast_by_parts(x, cast_spec, L=L, origin=origin,
+                                            xitol=xitol)
+        var_level = np.array(var_level, float)
+        var_level[:, 0, 0] = v_parts
+
     if s > 1:
         ann = np.zeros_like(psis)
         for l in range(L + 1):
@@ -348,6 +357,198 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
                     var_annual=var_annual, names=list(cast_spec.names),
                     x=np.asarray(x, float), psi_level=psis, sigma=sigma,
                     phi0=np.asarray(phi0, float))
+
+
+def _levels_of(x, cast_spec, series, L):
+    """`u = boxcox(data) - xi`, the stochastic LEVEL the operator acts on.
+
+    Plus the deterministic path and the operator's coefficients, all from
+    `fue` so there is no second source of truth for the calendar.
+    """
+    from fue.cast_us import _boxcox
+    from fue.forecast import _build_xi, _nonsop_coefs
+
+    model = cast_spec.series[series].spec.model
+    ts = model.series
+    nobs = ts.nobs
+    freq = ts.freq if ts.freq > 0 else 1
+    shim = type("_X", (), {"x": np.asarray(x, float)})()
+    io, idl = _fitted_deterministics(shim, cast_spec, series)
+    xi = _build_xi(model, nobs, freq, L, io, idl)
+    z = np.array([_boxcox(v, model.boxlam, model.refactor) for v in ts.data])
+    u = np.zeros(nobs + L)
+    u[:nobs] = z - xi[1:nobs + 1]
+    r = np.asarray(_nonsop_coefs(model.d, model.D, freq,
+                                 ifadf=(model.ifadf or None)), float)
+    return u, xi, r, model, nobs
+
+
+def _psi_scalar(phi, theta, i, L):
+    """The psi weights of series `i`'s own ARMA, out of the block-diagonal cast.
+
+    `psi_weights` works on the (p, m, m) form; a single series' block is scalar,
+    so it goes in as (p, 1, 1) and comes back out of the corner.
+    """
+    ph = np.asarray(phi)[:, i, i].reshape(-1, 1, 1) if len(phi) else np.zeros((0, 1, 1))
+    th = np.asarray(theta)[:, i, i].reshape(-1, 1, 1) if len(theta) else np.zeros((0, 1, 1))
+    return psi_weights(ph, th, L)[:, 0, 0]
+
+
+def _integrate_psi(psi, r, L):
+    """`psi*(B) = psi(B)/op(B)`: the psi weights of the INTEGRATED process.
+
+    Built from `r` rather than from `(d, D, s)` so the individual seasonal
+    factors are carried too -- `integrated_weights` rebuilds the operator from
+    the three integers and would drop `ifadf`.
+    """
+    out = np.zeros(L + 1)
+    for k in range(L + 1):
+        acc = psi[k] if k < len(psi) else 0.0
+        for j in range(1, min(len(r), k) + 1):
+            acc += r[j - 1] * out[k - j]
+        out[k] = acc
+    return out
+
+
+def forecast_by_parts(x, cast_spec, L=12, origin=None, xitol=-1e-3):
+    """TASTE's transfer forecast: the parts forecast apart, joined on LEVELS.
+
+    The SUBTRACTING cast's forecast, and it is a different procedure from the
+    embedded one rather than the same one with a correction -- see
+    `docs/LEVEL_TRANSFER_PLAN.md`. With the embedded cast the transfer IS the
+    VARMA, so forecasting the VARMA forecasts everything, in one recursion.
+    Here the engine only ever sees the NOISE: the transfer was removed before it
+    looked at anything, so it has to be put back, and putting it back means
+    forecasting the inputs too. That is not a shortcoming of the cast; it is
+    what "subtracting" means.
+
+    `TFFO.PAS`, three problems joined at the end::
+
+        FOR t := 1 TO L DO
+           FOR j := 1 TO T DO
+              FOR i := 0 TO lags1[j] DO
+                 IF t > i THEN sum2 += NU[j][i] * fc[j][t-i]     { its FORECAST }
+                 ELSE          sum2 += NU[j][i] * Data[..][N-B+t-i]  { its LEVEL }
+           fc[0][t] := sum1 + fcN[t]                             { + the NOISE }
+
+    1. each input is forecast univariately, by its own model;
+    2. the noise is forecast by its own ARMA, on its own level;
+    3. they are joined as `y = nu(B)x + N` on the LEVELS, each input observed
+       where the index is in the past and forecast where it is not.
+
+    **The question that produced BUG-8 never arises here.** No differencing
+    appears in the recombination, so "which operator does the input carry" has
+    no meaning: the input enters as a level, exactly as it does in `CalcNoise`.
+
+    Returns `(level, z, var_level)`: the forecast on the original scale, on the
+    Box-Cox scale, and the LEVEL forecast error variance per horizon.
+    """
+    from .cast import cast_diagonal
+    from .netid import residuals
+
+    phi, theta, mu, W, sigma, ifault = cast_diagonal(x, cast_spec)
+    if ifault:
+        raise ValueError(f"the cast failed with ifault={ifault}")
+    a, ifa = residuals(x, cast_spec, embed=False, xitol=xitol)
+    if ifa:
+        raise RuntimeError(f"cannot obtain the residuals: ifault={ifa}")
+
+    # THE SCALE, and the file already warns about getting it wrong: the cast
+    # returns Q, not Sigma -- the likelihood is concentrated and sigma2 comes
+    # out separately. Reading Q as Sigma gives the right shape and the wrong
+    # magnitude, and it is easy to miss because the point forecast is unaffected.
+    from drvarma._engine import elf_c
+    _n, _m = W.shape
+    _lg, _f1, _f2, _aa, _ifa = elf_c(_m, _n, phi.shape[0], theta.shape[0],
+                                     mu, phi, theta, sigma, W, 1.0, xitol, False)
+    if _ifa or not _f1 > 0:
+        raise RuntimeError(f"cannot concentrate sigma2: ifault={_ifa}")
+    sigma = np.asarray(sigma, float) * (float(_f1) / (_n * _m))
+
+    m = cast_spec.m
+    us, xis, rs, models, nobss = {}, {}, {}, {}, {}
+    for i in range(m):
+        us[i], xis[i], rs[i], models[i], nobss[i] = _levels_of(x, cast_spec, i, L)
+    n0 = min(nobss.values())
+    for i in range(m):                       # align at the END, as the cast does
+        off = nobss[i] - n0
+        if off:
+            us[i] = np.concatenate([us[i][off:off + n0], np.zeros(L)])
+            xis[i] = np.concatenate([xis[i][:1], xis[i][1 + off:]])
+
+    kmax = max((l.b + l.s + 1) for l in cast_spec.links) if cast_spec.links else 1
+    if any(l.r for l in cast_spec.links):
+        kmax = max(kmax, min(n0 + L, 200))
+    nus = _nu_of_links(x, cast_spec, kmax)
+
+    # [1] The NOISE on levels: N = u_out - SUM_j nu_j(B) u_inp(j). This is
+    #     `CalcNoise`, and it is where the transfer relates the LEVELS.
+    N = np.zeros(n0 + L)
+    N[:n0] = us[0][:n0]
+    for k, lk in enumerate(cast_spec.links):
+        if lk.out != 0:
+            continue
+        for t in range(n0):
+            top = min(len(nus[k]), t + 1)
+            N[t] -= float(np.dot(nus[k][:top], us[lk.inp][t::-1][:top]))
+
+    # `origin` is in DATA indices, as in `to_level` -- NOT in stationary ones,
+    # which is what `forecast_mean` wants. They differ by the operator's order,
+    # and passing one where the other belongs is silent and wrong.
+    o = n0 if origin is None else int(origin)
+    f = forecast_mean(phi, theta, mu, W, a, L, o - (n0 - W.shape[0]))
+
+    # [2] Integrate each part's DIFFERENCED forecast back to its own level: the
+    #     noise by the OUTPUT's operator (W[:,0] = op_out(N)), each input by its
+    #     own.
+    def integra(dest, col, r):
+        for l in range(1, L + 1):
+            acc = f[l - 1, col]
+            for k in range(1, len(r) + 1):
+                acc += r[k - 1] * dest[o + l - 1 - k]
+            dest[o + l - 1] = acc
+
+    integra(N, 0, rs[0])
+    for i in range(1, m):
+        integra(us[i], i, rs[i])
+
+    # [3] Join on the levels.
+    uy = us[0]
+    for l in range(1, L + 1):
+        t = o + l - 1
+        acc = N[t]
+        for k, lk in enumerate(cast_spec.links):
+            if lk.out != 0:
+                continue
+            top = min(len(nus[k]), t + 1)
+            acc += float(np.dot(nus[k][:top], us[lk.inp][t::-1][:top]))
+        uy[t] = acc
+
+    from fue.forecast import _inv_boxcox
+    mdl = models[0]
+    z = np.array([uy[o + l - 1] + xis[0][o + l] for l in range(1, L + 1)])
+    level = np.array([_inv_boxcox(v, mdl.boxlam, mdl.refactor) for v in z])
+
+    # [4] The variance, split the same way (TFFO.PAS 336-360): the noise's own
+    #     psi weights plus each input's propagated through nu(B), all INTEGRATED
+    #     so they are level weights. Unlike TASTE this uses the full Sigma
+    #     rather than the diagonal, so a freed covariance is not ignored.
+    psi_n = _integrate_psi(_psi_scalar(phi, theta, 0, L), rs[0], L)
+    coef = np.zeros((L + 1, m))
+    coef[:, 0] = psi_n
+    for k, lk in enumerate(cast_spec.links):
+        if lk.out != 0:
+            continue
+        psi_i = _integrate_psi(_psi_scalar(phi, theta, lk.inp, L), rs[lk.inp], L)
+        conv = np.convolve(nus[k], psi_i)[:L + 1]
+        coef[:len(conv), lk.inp] += conv
+    var = np.zeros(L + 1)
+    for t in range(1, L + 1):
+        acc = 0.0
+        for j in range(t):
+            acc += float(coef[j] @ sigma @ coef[j])
+        var[t] = acc
+    return level, z, var
 
 
 def report_forecast(fc, series=0, which="w"):
@@ -539,6 +740,23 @@ def to_level(fc, cast_spec, series=0, origin=None, transformed=False):
     delicate detail that must have a single source of truth.
     """
     from fue.forecast import _build_xi, _inv_boxcox, _nonsop_coefs
+
+    # A DISPATCHED model's level does not come from this recursion. There the
+    # VARMA holds the NOISE, and the transfer has to be put back on the LEVELS
+    # with each input forecast by its own model -- which is a different
+    # procedure, not this one with a correction. Measured on the passthrough,
+    # the one-step level RMSE falls 6.6-20.0 % by taking the other route.
+    if (series == 0 and cast_spec.links
+            and getattr(cast_spec, "needs_subtracting", False)):
+        lvl, z_f, _var = forecast_by_parts(
+            getattr(fc, "x", None), cast_spec, L=fc.L, origin=origin)
+        if not transformed:
+            return lvl
+        from fue.cast_us import _boxcox as _bc
+        m0 = cast_spec.series[0].spec.model
+        o0 = m0.series.nobs if origin is None else origin
+        zz = np.array([_bc(v, m0.boxlam, m0.refactor) for v in m0.series.data])
+        return lvl, z_f, zz[:o0]
 
     sc = cast_spec.series[series]
     model = sc.spec.model
