@@ -169,6 +169,49 @@ def _end_date(ts):
     return tot // f, tot % f + 1
 
 
+def _span(ts):
+    """(first, last) of a series in absolute periods, plus its frequency."""
+    f = int(ts.freq or 1)
+    y, q = ts.start
+    ini = y * f + (q - 1)
+    return ini, ini + int(ts.nobs) - 1, f
+
+
+def common_window(specs):
+    """The calendar window every series shares, and who carries spare history.
+
+    Everything needed is already in the `.pre` -- `nobs`, `start` and `freq` --
+    so the window comes out as a DATE range rather than an index range, which is
+    the only form in which it means anything.
+
+    Returns `(start, end, nobs, spare)`: the first and last period as
+    `(year, period)`, how many observations that is, and `spare = {i: k}` for
+    each series carrying `k` extra observations at the FRONT.
+
+    Why it matters, and it is not the same problem `check_alignment` refuses.
+    Two series can end on the same date -- so the alignment is right, and the
+    fit is legitimate -- while one has more history. The cast then trims to the
+    common window, so the joint fit uses fewer observations than the longer
+    series' `.pre` was estimated on, and **that file is no longer an optimum of
+    the sample being used**. The factorisation identity catches it immediately;
+    this catches it before.
+
+    It bit the SF_MEG bank: a 216-observation output from 2002 against a
+    180-observation input from 2005, both ending 12/2019. Nothing was wrong with
+    the data.
+    """
+    ini = max(_span(sp.ts)[0] for sp in specs)
+    fin = min(_span(sp.ts)[1] for sp in specs)
+    f = int(specs[0].ts.freq or 1)
+    spare = {}
+    for i, sp in enumerate(specs):
+        k = ini - _span(sp.ts)[0]
+        if k > 0:
+            spare[i] = k
+    return ((ini // f, ini % f + 1), (fin // f, fin % f + 1),
+            max(fin - ini + 1, 0), spare)
+
+
 def check_alignment(specs):
     """The premise the alignment states and never checked (BUG-2).
 
@@ -479,6 +522,21 @@ def build_cast_spec(specs, links=None):
             raise ValueError(f"link out of range: {l}")
         if l.out == l.inp:
             raise ValueError(f"a link cannot go from a series to itself: {l}")
+    ini, fin, nobs_c, spare = common_window(specs)
+    if spare:
+        import warnings as _w
+        quien = ", ".join(
+            f"{specs[i].name} ({k} extra)" for i, k in sorted(spare.items()))
+        _w.warn(
+            f"the series share {nobs_c} observations "
+            f"({ini[1]:02d}/{ini[0]}-{fin[1]:02d}/{fin[0]}) but "
+            f"{quien} carries more history. They END on the same date, so the "
+            f"alignment is right and the fit is legitimate -- but the cast trims "
+            f"to the common window, so that file is the optimum of a LONGER "
+            f"sample than the one being fitted. The diagonal gate will show it "
+            f"as a non-zero optimality gap. Re-estimate it over "
+            f"{ini[1]:02d}/{ini[0]}-{fin[1]:02d}/{fin[0]} to start from an "
+            f"optimum of the window actually used.", RuntimeWarning, stacklevel=2)
     cs.delta_warnings = check_operators(cs)
     cs.alt_est, cs.alt_delta = _alt_est_specs(cs)
     # Vector order, following shootx: transfers -> univariate -> covariance.
