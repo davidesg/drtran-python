@@ -504,7 +504,50 @@ FR and DE reported OK at 112 % and 69 % relative error.
    after, identical. (`0.016402` is the same case under the SUBTRACTING cast —
    the two casts differ slightly, and confusing them is exactly the mistake that
    control exists to avoid. It caught it once already.)
-7. **Still open, and now the only thing left**: backforecast the input instead
+8. **THE FORECAST — open, and the next piece of work.** Raised by David the
+   moment the estimation was homologated, and he is right that it does not
+   follow for free.
+
+   `forecast.py:_system_forecast` puts the subtracted transfer back with
+
+   ```python
+   acc += nus[k][j] * we[tt - j, lk.inp]      # the input's OWN column
+   ```
+
+   and `we[:, lk.inp]` is the input differenced by ITS OWN operator. That was
+   the right vector before the dispatch, because it was the vector nu had been
+   fitted against. **It is no longer**: for a dispatched model nu multiplies the
+   input differenced by the OUTPUT's operator, so putting the transfer back with
+   the other one is the same category error the estimation just stopped making.
+   The future values the recursion needs have the same problem — they are the
+   input's own-differenced forecasts, and the convolution wants
+   output-differenced ones.
+
+   Two more things to settle in the same pass:
+
+   * the reintegration to levels uses `m0`'s `d`, `D` and `s` — the OUTPUT's,
+     which is correct — but the transfer contribution now arrives already in the
+     output's differences, so the two must be checked to line up rather than
+     assumed to;
+   * `kmax` is `max(l.b + l.s + 1)`, capped at 200 when any `r > 0`. With a
+     mismatched pair the effective nu is `nu*Delta`, which reaches
+     `deg(Delta)` further — twelve extra lags for a monthly seasonal
+     difference. The cap has to know that.
+
+   **Nothing here is measured yet.** A first probe compared `forecast`'s output
+   against `w - a` and failed on the MATCHED case too, which means the identity
+   was wrong (forecast returns levels), not the forecast. The honest state is: a
+   defect identified by reading, not yet demonstrated by a number. Demonstrating
+   it is step one — the estimation side took three wrong diagnoses before the
+   synthetic bank settled it, and the forecast deserves the same treatment.
+   Note the embedded cast is unaffected throughout, and it is what every matched
+   case and all of the legacy use.
+
+7. ~~Backforecast the input instead of zeroing the pre-sample~~ — **DONE**,
+   `bade3a6` (Python) and `drtran 14e948c` (C). FR's `omega[1]` went from 2.3e-4
+   to **6.0e-6** of the oracle. Detail below.
+
+   Backforecast the input instead
    of zeroing the pre-sample, which is what takes the subtracting cast from "the
    right specification, truncated" to the oracle exactly. `TFEST.PAS:655-670`
    shows how — difference each input by its own model, backforecast, then
