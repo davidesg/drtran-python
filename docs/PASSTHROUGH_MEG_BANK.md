@@ -133,6 +133,40 @@ Three things the bank can settle that the synthetic one could not:
 
 ---
 
+## 5b. First results — run 2026-08-09
+
+`SF_MEG/empirical/passthrough/` (`run_tf.py`, `RESULTADOS.md`). Window
+2005-01..2019-12, 180 observations, WTI re-estimated on it (`WTI_2005.pre`,
+AR(1) φ=0.3263). Link fixed at `b=0, r=0, s=1` across every variant.
+
+**The three arms classify themselves** — `Δ(1) = 1.000` for the harmonic
+variants, `0.268` and `0.804` for the `ifadf` ones, `0.000` for `∇∇₁₂` — from
+comparing the two operators, with nothing declared.
+
+**Check §5.1 passes, and cleanly.** ES_CPI's eight variants give a gain of
+**0.0264-0.0274**, across arms M and Z alike. The same economic pass-through,
+estimated by specifications that resolve the seasonality in opposite ways. All
+eight converged on the gradient (termcode 1).
+
+**And what the program gave before**, with the dispatch disabled — which is
+literally the old path, `xin = W[:, l.inp]`, not an approximation of it:
+
+| | arm | before | now |
+|---|---|---|---|
+| ES_CPI_airline | Z | 0.006745 | **0.026545** |
+| ES_CPI_airMA_mu | Z | 0.005197 | **0.026402** |
+| DE_CPI_airline | Z | 0.007298 | **0.013023** |
+| **DE_CPI_sto1** | **S** | **−0.000505** | **+0.015359** |
+
+Eight variants of ES_CPI: before, the five `air*` said the pass-through was
+~0.006 and the three harmonic ones ~0.027. An analyst would have concluded that
+the seasonal specification changes the economics by a factor of five. It does
+not. And `DE_CPI_sto1` came out with the **wrong sign**.
+
+**Not yet certified.** Several DE and DE_CORE variants stop at **termcode 3** —
+steptol, not the gradient, `ifault = 0` — which is a long-standing open item.
+Their figures are indicative. ES_CPI's are not affected.
+
 ## 6. Order of work
 
 1. **Fix the window and build the `.pre` files.** WTI over the common span; each
