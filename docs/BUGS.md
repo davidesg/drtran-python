@@ -999,7 +999,7 @@ identity, not a tolerance: with `r[0] = 0`, `chi_test(first=0)` and
 
 ---
 
-## BUG-8. The ORACLE disagrees by a factor of ~2 on every mixed-(d,D) transfer, and agrees to 1e-6 on every matched one — OPEN, cause not established
+## BUG-8. The ORACLE disagrees by a factor of ~2 on every mixed-(d,D) transfer, and agrees to 1e-6 on every matched one — CAUSE ESTABLISHED, guard shipped, fix pending
 
 Found 2026-08-08 extending the TASTE oracle to the eight-country IPC → WTI
 batch. TASTE shares no code with this family and estimates by unconditional
@@ -1043,15 +1043,22 @@ largest members also below it, does not add up. Substituting TASTE's numbers
 (EMU 0.0119, FR 0.0091, DE 0.0117) does not close it completely but moves every
 one of them in the direction that would.
 
-### The harness hid two of the three
+### The harness hid two of the three — FIXED, `taste-port 16161c5`
 
-`battery.py` compares with an ABSOLUTE tolerance (`tolerancia: 0.005`). For a
+`battery.py` compared with an ABSOLUTE tolerance (`tolerancia: 0.005`). For a
 coefficient of order 0.005 that tolerance is 100 % of the value, so FR and DE
-were reported **OK** at 112 % and 69 % relative error. Only EMU tripped, and
-only because it happened to exceed 5e-3 in absolute terms. **The tolerance
-should be relative (or mixed) for small coefficients**; as it stands the bank is
-blind precisely where the coefficients are smallest, which in this family is
-where the interesting countries are.
+were reported **OK** at 112 % and 69 % relative error. FR missed the threshold
+by twenty microns. Only EMU tripped, and only because it happened to exceed
+5e-3 in absolute terms.
+
+The criterion is now `tol = min(absolute, max(1e-4, 0.05·|expected|))` — the
+case's declared absolute, but never looser than 5 % of the value. It can only
+TIGHTEN, so nothing that failed can start passing. Verified across all fourteen
+cases: eleven pass, including the four matched passthrough cases and all five
+synthetic and forecast ones; the three that fail are FR, DE and EMU. They carry
+`falla_conocido`, which reports them on every run without counting towards the
+exit code — **and counts as a failure if they ever start passing**, so the
+marker cannot fossilise.
 
 ### What was ruled out, and what was not
 
@@ -1081,6 +1088,42 @@ where the interesting countries are.
 
   Inherited from the C, not introduced by the port. The fix is major surgery in
   both, and the plan is in `docs/LEVEL_TRANSFER_PLAN.md`.
+
+- **The mechanism, stated exactly and measured.** With `Δ(B) = op_out / op_in`,
+  what the cast fits is not ν but **ν·Δ**, so the reported gain is
+
+  ```
+      ν̂(1) = ν(1) · Δ(1)
+  ```
+
+  as soon as the fitted `(b, r, s)` has the reach to see where Δ puts its
+  weight. A synthetic three-arm bank (`tests/gen_mixed_operators.py`, true
+  ω₀ = 1) separates what the real cases cannot, since `(1−B¹²)` carries an
+  excess root at frequency zero AND eleven seasonal ones at once:
+
+  | arm | operators | Δ(1) | ν̂(1) |
+  |---|---|---|---|
+  | M | `∇` vs `∇` | 1 | 0.98 |
+  | S | `∇₁₂` vs `∇` | 12 | **12.04** |
+  | Z | `∇∇₁₂` vs `∇` | 0 | **0.07** |
+
+  Arm Z finds `ν̂₁₂ = −1.008` — the `−ω₀` that `(1−B¹²)` predicts — and its gain
+  collapses. That is the observed contraction, reproduced from scratch. And the
+  varying contraction of the real cases (0.36, 0.56, 0.50) follows: each fitted
+  `(b, r, s)` absorbs a different share of Δ.
+
+  **Seasonal frequencies are NOT exempt.** Arm S has identical order at
+  frequency zero and its gain is wrong by a factor of twelve. `ν̂₀`, the
+  contemporaneous impact, is right in all three arms — it is the GAIN that
+  breaks, which is the one quantity a transfer model is usually built to report.
+
+- **Guard shipped** (`ef40867`). `check_operators` runs inside `build_cast_spec`:
+  silent when the operators agree (all of the legacy, m6 and the network),
+  warning when they differ, and REFUSING when neither operator implies the
+  other — no single vector can then serve both roles. The warning says
+  explicitly not to divide the gain by Δ(1): that correction looks obvious and
+  is wrong, because the law holds only at full reach and arm S with `s=1`
+  reported 1.93 rather than 12.
 
 - **Still not established:** why `fue` and TASTE agree on DE and EMU and differ
   by 26 % on FR. The
