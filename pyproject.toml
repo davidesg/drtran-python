@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drtran"
-version = "0.1.1"
+version = "0.2.0"
 description = "Box-Jenkins transfer function models by exact maximum likelihood — the bridge from fue (univariate) to drvarma (exact VARMA likelihood)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -41,6 +41,11 @@ dependencies = [
 Homepage = "https://github.com/davidesg/drtran-python"
 Repository = "https://github.com/davidesg/drtran-python"
 Issues = "https://github.com/davidesg/drtran-python/issues"
+# El campo que PyPI muestra más arriba, y el que faltaba. Apunta al índice de
+# `docs/`, que es donde está lo de analista y lo de desarrollador; además todo
+# eso viaja en el sdist (MANIFEST.in), así que se lee sin red.
+Documentation = "https://github.com/davidesg/drtran-python/tree/master/docs"
+Changelog = "https://github.com/davidesg/drtran-python/blob/master/CHANGELOG.md"
 
 [project.scripts]
 # NOT `drtran`: that name is the C binary's on this system, and

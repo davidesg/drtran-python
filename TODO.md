@@ -24,7 +24,14 @@ del banco SF_MEG.
       tests, incluido uno que comprueba que TODAS las herramientas están
       registradas -- el decorador se me quedó sobre la función equivocada al
       escribirlo, que es exactamente BUG-4 otra vez.
-- [~] **Los enlaces de PyPI.** Hecho lo que no depende de ninguna decisión:
+- [x] ~~**Los enlaces de PyPI.**~~ HECHO. David hizo público drtran-python el
+      2026-08-09 y los tres enlaces resuelven (200), igual que los del README,
+      que ya son absolutos. Añadidos además `Documentation` --el campo que PyPI
+      muestra más arriba y que faltaba-- y `Changelog`, los dos comprobados
+      vivos. Y `MANIFEST.in` mete docs/, TODO y CHANGELOG en el sdist, así que
+      se leen sin red. **Queda el C**: `davidesg/drtran` sigue devolviendo 404, y
+      David ha dicho que puede ser público sin problema.
+      (Lo anterior) Hecho lo que no depende de ninguna decisión:
       los dos enlaces del README son ya absolutos, hay una sección
       **Documentation** que lista qué hay y para quién, y un `MANIFEST.in` mete
       `docs/`, `TODO.md` y `CHANGELOG.md` en el sdist -- verificado
@@ -33,8 +40,10 @@ del banco SF_MEG.
       **Queda tu decisión**: mientras el repo sea privado, los enlaces siguen
       dando 404 para cualquiera que no seas tú. No he añadido una URL
       `Documentation` porque hoy sería otra URL muerta.
-- [ ] **Subir la versión y el CHANGELOG.** `pyproject` sigue en 0.1.1, que es lo
-      que hay publicado.
+- [x] ~~**Subir la versión y el CHANGELOG.**~~ HECHO: 0.2.0, con la entrada de
+      BUG-8 completa. Distribuciones construidas y verificadas (docs dentro del
+      sdist, metadatos con las cinco URLs). **Falta el `twine upload`**, que es
+      publicar y no lo hago sin que lo pidas.
 
 **HOMOLOGAR Y DECIDIR LA DOCUMENTACIÓN PUBLICABLE** (encargo de David):
 
