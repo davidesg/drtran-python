@@ -534,14 +534,77 @@ FR and DE reported OK at 112 % and 69 % relative error.
      `deg(Delta)` further — twelve extra lags for a monthly seasonal
      difference. The cap has to know that.
 
-   **Nothing here is measured yet.** A first probe compared `forecast`'s output
-   against `w - a` and failed on the MATCHED case too, which means the identity
-   was wrong (forecast returns levels), not the forecast. The honest state is: a
-   defect identified by reading, not yet demonstrated by a number. Demonstrating
-   it is step one — the estimation side took three wrong diagnoses before the
-   synthetic bank settled it, and the forecast deserves the same treatment.
+   **Measured.** Two probes, and the first was worthless: comparing `forecast`'s
+   output against `w - a` failed on the MATCHED case too, so the identity was
+   wrong (forecast returns levels), not the forecast. Nor does the one-step RMSE
+   separate them — 40 origins give ratios of 0.70, 1.01, 1.18, 1.09 against the
+   reported sigma, all near one.
+
+   What does measure it is the defect itself: the transfer contribution computed
+   with the input's own column against the same thing computed with the vector
+   nu was fitted against.
+
+   | | sigma_a | sd(contribution) | sd(DIFFERENCE) | as sigma |
+   |---|---|---|---|---|
+   | FR | 0.15854 | 0.15173 | 0.10982 | **0.69** |
+   | DE | 0.21796 | 0.14162 | 0.10229 | **0.47** |
+   | EMU | 0.17649 | 0.14460 | 0.10444 | **0.59** |
+
+   Half to two-thirds of a residual standard deviation, systematically, in the
+   transfer's contribution to every forecast. Not a rounding difference. It does
+   not show up in a one-step RMSE because part of it is absorbed and forty
+   origins are few — which is exactly why the direct measurement was needed.
+
+   ### The design: copy TASTE, because this is not the embedded logic
+
+   David's call, and `TFFO.PAS` bears it out. TASTE's transfer forecast is not
+   the embedded cast's recursion with a correction; it is a different procedure,
+   and the parallel with its ESTIMATION is exact:
+
+   ```pascal
+   FOR t := 1 TO L DO
+      FOR j := 1 TO T DO                     { each input }
+         FOR i := 0 TO lags1[j] DO
+            IF t > i THEN sum2 += NU[j][i] * fc[j][t-i]              { its FORECAST }
+            ELSE          sum2 += NU[j][i] * Data[Punt[j]][N-B+t-i]  { its LEVEL }
+      fc[0][t] := sum1 + (zt[N-B+t] if in-sample else fcN[t])        { + the NOISE }
+   ```
+
+   Three separate problems, recombined on LEVELS:
+
+   1. **Each input is forecast univariately**, by its own model — `ForeCastUS`
+      after `BackForeCast`, exactly as a standalone series (line 150).
+   2. **The noise is forecast by its own ARMA**, after `CalcNoise` builds it on
+      levels and `BackForeCast` extends it (lines 242, 258, 292).
+   3. **They are recombined as `y = nu(B)x + N` on the LEVELS**, with each input
+      observed where the index is in the past and forecast where it is not.
+
+   The error variance follows the same split (lines 336-360):
+
+   ```
+   vr[t] = sigma2_noise * SUM_j PSI_noise[j]^2
+         + SUM_i sigma2_i * SUM_j (NU_i * PSI_i)[j]^2
+   ```
+
+   the noise's own psi weights, plus each input's propagated through `nu(B)`.
+   `CalcPsiB` is called with `d` and `ds`, so these are LEVEL psi weights and
+   `vr` is directly the level forecast error variance.
+
+   **And the question that started all this never arises.** No differencing
+   appears anywhere in the recombination, so "which operator does the input
+   carry" has no meaning here — the input enters as a level, exactly as it does
+   in `CalcNoise`. The dispatched forecast inherits the estimation's own
+   coherence instead of needing a patch on top of a recursion built for a
+   different cast.
+
    Note the embedded cast is unaffected throughout, and it is what every matched
-   case and all of the legacy use.
+   case and all of the legacy use. This is a SECOND forecast path for the
+   subtracting route, not a replacement.
+
+   Related material already in the tree: `drtran/docs/FORECAST_DIAGNOSIS.md`
+   (the out-of-sample criterion and its Diebold-Mariano test) and the `predice`
+   sources under `atws/fuf/predice/`, whose `usfo.c` is the univariate forecast
+   the input step needs.
 
 7. ~~Backforecast the input instead of zeroing the pre-sample~~ — **DONE**,
    `bade3a6` (Python) and `drtran 14e948c` (C). FR's `omega[1]` went from 2.3e-4
