@@ -255,6 +255,50 @@ identity fails."* It should therefore be **the bank's first gate**, run before
 any figure is read, and `run_tf.py` now picks the input matching each case's
 window.
 
+### The full bank, corrected window — and a test of mine that does NOT test the certificate
+
+Every case re-run with the input matching its window and the diagonal gate
+first. The gate is now **0.0000 exactly for every M variant** and 0.006-0.024
+for the S and Z ones — the same phenomenon in its benign form: those outputs
+lose more observations to their seasonal roots, so WTI gets trimmed by a handful
+and its `.pre` is the optimum of a slightly longer sample. Explained, small, and
+worth reporting rather than rounding away.
+
+Gains by arm (mean over each arm's variants):
+
+| case | M (harmonics) | S (`ifadf`) | Z (`∇∇₁₂`) |
+|---|---|---|---|
+| ES_CPI | 0.0158-0.0196 | — | 0.0160-0.0162 |
+| DE_CPI | 0.0118-0.0128 | 0.0118-0.0132 | 0.0116-0.0118 |
+| NL_CPI | 0.0080-0.0090 | 0.0089-0.0090 | 0.0097-0.0098 |
+| IE_CPI | 0.0072-0.0109 | 0.0082-0.0086 | 0.0088-0.0098 |
+| ES_CORE | 0.0014-0.0031 | 0.0008-0.0014 | 0.0012-0.0014 |
+| IE_CORE | 0.0031-0.0043 | 0.0041-0.0042 | 0.0044-0.0051 |
+| DE_CORE | −0.0018 to −0.0016 | −0.0018 to −0.0011 | −0.0018 to −0.0016 |
+
+Every arm of every case lands in the same neighbourhood, which is §5.1 holding
+broadly. DE_CORE sits at zero, as core inflation should when the energy
+component is excluded by construction.
+
+**And now the part to be careful about.** I tested whether the S arm's mean gain
+is bracketed by the M and Z means. It is in two cases of six — and that number
+means nothing, for two reasons:
+
+1. **It is the wrong quantity.** David's certificate is about FORECASTS.
+   Abraham & Box's argument bounds the seasonal FORECAST FUNCTION between the
+   deterministic and stochastic extremes; it says nothing about `ν(1)`, which is
+   a transfer gain and has no such bracketing behind it. Applying the test to
+   the gain was my slip.
+2. **The test is cruder than the data.** The failures are marginal — DE_CPI's S
+   mean sits 0.0002 outside an interval 0.0006 wide, on ranges that span
+   0.0014 — and the within-arm spread is comparable to the between-arm
+   differences, because the variants differ in their NOISE model too, not only
+   in the seasonal representation. Comparing arm means throws exactly that away.
+
+So the certificate is still unmeasured, and the way to measure it is the
+forecast exercise, horizon by horizon, on variants that differ ONLY in the
+seasonal representation. That is §6.4, and it is the next thing.
+
 ### The alignment is mtram's job, not the analyst's
 
 David, after the window episode: series not being aligned causes problems, but
