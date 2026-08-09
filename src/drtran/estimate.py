@@ -28,6 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .cast import cast_diagonal
+from .cast import effective_embed
 from .embed import cast_embedded
 
 
@@ -104,6 +105,7 @@ def _f1f2(x, cast_spec, xitol, embed=False):
     """
     from drvarma._engine import elf_c
 
+    embed = effective_embed(cast_spec, embed)
     build = cast_embedded if embed else cast_diagonal
     phi, theta, mu, w, sigma, ifault = build(x, cast_spec)
     if ifault:
@@ -122,7 +124,7 @@ def loglik(x, cast_spec, xitol=-1e-3, embed=False):
     f1, f2, ifa = _f1f2(x, cast_spec, xitol, embed)
     if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
         return float("-inf"), int(ifa or 5)
-    build = cast_embedded if embed else cast_diagonal
+    build = cast_embedded if effective_embed(cast_spec, embed) else cast_diagonal
     _phi, _t, _m, w, _s, _i = build(x, cast_spec)
     n, m = w.shape
     ll = (-0.5 * m * n * (math.log(2.0 * math.pi) - math.log(m) - math.log(n) + 1.0)
@@ -187,6 +189,10 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
         expand = slots.expand
 
     npar = len(x_ini)
+    # The dispatch, resolved ONCE so `Fit.embed` records the cast that really
+    # ran -- `standard_errors` reads it back, and a Fit that misreported its own
+    # cast would be worse than no dispatch at all.
+    embed = effective_embed(cast_spec, embed)
 
     def _ll(v):
         return loglik(expand(v), cast_spec, xitol, embed)

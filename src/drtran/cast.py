@@ -119,6 +119,23 @@ class CastSpec:
     # reported gain is nu(1)*Delta(1) and not nu(1). Empty for every matched
     # case, which is all of the legacy. See `check_operators` and BUG-8.
     delta_warnings: list = field(default_factory=list)
+    # {link index: est_spec of the INPUT re-differenced by the OUTPUT's
+    # operator}. Non-empty only for links whose operators differ; its presence
+    # is what makes the fit use the SUBTRACTING cast, since the embedded one has
+    # nowhere to put a second vector for the same series.
+    alt_est: dict = field(default_factory=dict)
+
+    @property
+    def needs_subtracting(self):
+        """True when at least one link's two series are differenced differently.
+
+        The embedded cast turns the transfer into off-diagonal VARMA
+        coefficients acting on `W`'s columns, so the input is whatever `W` holds
+        for it -- one column, one differencing. The subtracting cast builds the
+        transfer term explicitly, which is where the second vector fits. That
+        is the whole reason the dispatch is possible.
+        """
+        return bool(self.alt_est)
 
     @property
     def names(self):
@@ -331,6 +348,51 @@ def check_operators(cast_spec):
     return out
 
 
+def effective_embed(cast_spec, embed):
+    """Which cast actually runs: the DISPATCH of BUG-8's fix, in one line.
+
+    `embed` is what the caller asked for (True by default, as in the C). It is
+    honoured unless some link's two series are differenced by different
+    operators, in which case the transfer needs the input re-differenced by the
+    OUTPUT's operator -- a second vector for the same series, which only the
+    subtracting cast has room for.
+
+    Everything matched keeps the embedded cast exactly as before: all of the
+    legacy, m6, the network and every canonical case. That is why this can be a
+    dispatch rather than a rewrite.
+    """
+    return bool(embed) and not cast_spec.needs_subtracting
+
+
+def _alt_est_specs(cast_spec):
+    """For each link whose operators differ, the INPUT's cast under the OUTPUT's.
+
+    A copy of the input's model with the output's `d`, `D` and `ifadf`, and
+    nothing else touched: same Box-Cox, same ARMA orders, same deterministics,
+    so it consumes the SAME parameter chunk and can be driven with the input's
+    own `xi`. Only the differencing changes, which is exactly the correction
+    BUG-8 needs.
+
+    Built once here rather than per likelihood evaluation, because
+    `build_est_spec` is not cheap and the operator never changes during a fit.
+    """
+    import copy
+
+    from fue.cast_us import build_est_spec
+
+    out = {}
+    for j, l in enumerate(cast_spec.links):
+        my = cast_spec.series[l.out].spec.model
+        mx = cast_spec.series[l.inp].spec.model
+        if operators_agree(my, mx):
+            continue
+        alt = copy.deepcopy(mx)
+        alt.d, alt.D = my.d, my.D
+        alt.ifadf = list(my.ifadf) if my.ifadf else my.ifadf
+        out[j] = build_est_spec(alt)
+    return out
+
+
 def build_cast_spec(specs, links=None):
     """Precompute the cast from the `.pre` files read (one per series).
 
@@ -357,6 +419,7 @@ def build_cast_spec(specs, links=None):
         if l.out == l.inp:
             raise ValueError(f"a link cannot go from a series to itself: {l}")
     cs.delta_warnings = check_operators(cs)
+    cs.alt_est = _alt_est_specs(cs)
     # Vector order, following shootx: transfers -> univariate -> covariance.
     # Covariance: var[0] is fixed at 1 (the scale is concentrated into sigma2),
     # then log(var_i/var_1) for i>0. The off-diagonal covariances start out FIXED
@@ -430,7 +493,7 @@ def cast_diagonal(x, cast_spec):
         om.append(x[idx:idx + l.s + 1]); idx += l.s + 1
         de.append(x[idx:idx + l.r]); idx += l.r
 
-    ps, qs, phis, thetas, mus, ws = [], [], [], [], [], []
+    ps, qs, phis, thetas, mus, ws, xis = [], [], [], [], [], [], []
 
     for sc in cast_spec.series:
         xi = x[idx:idx + sc.npar]
@@ -441,6 +504,26 @@ def cast_diagonal(x, cast_spec):
         ps.append(int(p)); qs.append(int(q))
         phis.append(np.asarray(phi, float)); thetas.append(np.asarray(theta, float))
         mus.append(float(mu)); ws.append(np.asarray(w, float))
+        xis.append(xi)
+
+    # --- The input, differenced by the OUTPUT's operator (BUG-8) -----------
+    # The model says the transfer relates the LEVELS and the noise carries the
+    # differencing; since nabla commutes with nu(B),
+    #
+    #     op_y N  =  op_y y  -  nu(B) * (op_y x)
+    #
+    # so the vector that feeds the transfer is the input differenced by the
+    # OUTPUT's operator, NOT by its own. Same series, same Box-Cox, same
+    # deterministics -- only the operator changes, and it goes through the same
+    # `cast_us_py` so there is no second source of truth. Empty when the
+    # operators agree, which is every matched case.
+    alt = {}
+    for j, sp in cast_spec.alt_est.items():
+        l = cast_spec.links[j]
+        *_, w_alt, ifault = cast_us_py(xis[l.inp], sp)
+        if ifault:
+            return None, None, None, None, None, int(ifault)
+        alt[j] = np.asarray(w_alt, float)
 
     sigma, idx, ifa_q = build_sigma(x, idx, m)
     if ifa_q:
@@ -449,8 +532,9 @@ def cast_diagonal(x, cast_spec):
     # Alignment: if the series have different d/D their w's have different
     # lengths. They are aligned at the END (the last observation is the same
     # date) and trimmed to the shortest, which is what build_stationary_series
-    # does.
-    n = min(len(w) for w in ws)
+    # does. The re-differenced inputs join the min: they are the same length as
+    # their output's w in the normal case, but not if the sample lengths differ.
+    n = min([len(w) for w in ws] + [len(w) for w in alt.values()])
     W = np.column_stack([w[len(w) - n:] for w in ws])
 
     # --- Transfers: each link SUBTRACTS from its output ---------------------
@@ -459,9 +543,9 @@ def cast_diagonal(x, cast_spec):
     # and the model splits into independent univariate ones: the bridge's test.
     if cast_spec.links:
         tr = np.zeros_like(W)
-        for l, o_j, d_j in zip(cast_spec.links, om, de):
+        for j, (l, o_j, d_j) in enumerate(zip(cast_spec.links, om, de)):
             nu = compute_irf(o_j, d_j, l.b, n)
-            xin = W[:, l.inp]
+            xin = alt[j][len(alt[j]) - n:] if j in alt else W[:, l.inp]
             acc = np.zeros(n)
             for t in range(n):                      # SUM_{k=0..t} nu[k]*x[t-k]
                 acc[t] = float(np.dot(nu[:t + 1], xin[t::-1]))
