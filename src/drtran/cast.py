@@ -115,6 +115,10 @@ class CastSpec:
     m: int = 0
     n_stat: int = 0                                  # common length of the w's
     npar: int = 0
+    # Links whose two series carry DIFFERENT differencing operators, so the
+    # reported gain is nu(1)*Delta(1) and not nu(1). Empty for every matched
+    # case, which is all of the legacy. See `check_operators` and BUG-8.
+    delta_warnings: list = field(default_factory=list)
 
     @property
     def names(self):
@@ -256,6 +260,67 @@ def operators_agree(out_model, in_model, tol=1e-9):
     return bool(nested and len(delta) == 1 and abs(delta[0] - 1.0) <= tol)
 
 
+def check_operators(cast_spec):
+    """The interim guard for BUG-8: say when the reported gain is not ν(1).
+
+    Refuses what cannot be modelled at all, warns about what is modelled wrong,
+    and stays silent when the operators agree -- which is every legacy case,
+    every m6 series and the whole network, so this costs them nothing.
+
+    It warns rather than refuses on the mismatched-but-nested case for a reason
+    the plan argues at length: `IPC_FR <- WTI` is a legitimate model -- the
+    French CPI has stochastic seasonality and WTI does not, and that is the data
+    rather than an analyst's mistake. The oracle fits it happily, because in its
+    formulation the input enters in levels and there is no Δ to mismatch.
+    Refusing it would be trading a wrong answer for no answer. What is NOT
+    acceptable is returning the wrong gain in silence, which is what happened
+    until now -- and the diagonal gate cannot catch it (measured: −8.31e−08,
+    unchanged, because the factorisation identity holds under any differencing
+    as long as both sides use the same one).
+
+    Returns the list of warnings; also emits each through `warnings.warn`.
+    """
+    import warnings as _w
+
+    out = []
+    for l in cast_spec.links:
+        my = cast_spec.series[l.out].spec.model
+        mx = cast_spec.series[l.inp].spec.model
+        nom_y = cast_spec.series[l.out].name
+        nom_x = cast_spec.series[l.inp].name
+        delta, nested, resto = delta_operator(my, mx)
+        if not nested:
+            raise ValueError(
+                f"{nom_y} <- {nom_x}: neither series' differencing implies the "
+                f"other, so no single vector can both carry {nom_x}'s own "
+                f"univariate model and feed the transfer. The transfer relates "
+                f"the LEVELS, and the noise carries the differencing, so the "
+                f"input must enter differenced by {nom_y}'s operator -- which "
+                f"here would leave {nom_x} under-differenced. Respecify one of "
+                f"the two in `art`.")
+        if len(delta) == 1 and abs(delta[0] - 1.0) <= 1e-9:
+            continue
+        d1 = float(delta.sum())
+        if abs(d1) <= 1e-9:
+            efecto = ("ANNIHILATED: Δ(1) = 0, an excess root at frequency zero "
+                      "(∇∇ₛ is order TWO there, not one)")
+        else:
+            efecto = f"MULTIPLIED by {d1:.6g}: Δ(1) = {d1:.6g}"
+        msg = (f"{nom_y} <- {nom_x}: the two series are differenced by "
+               f"DIFFERENT operators, so what is fitted is not ν(B) but "
+               f"ν(B)·Δ(B), with Δ = op({nom_y})/op({nom_x}) of degree "
+               f"{len(delta) - 1}. The reported GAIN is therefore wrong -- "
+               f"{efecto} -- by up to that factor, depending on how much of Δ "
+               f"the fitted (b, r, s) has the reach to absorb. ν₀, the "
+               f"contemporaneous impact, is unaffected. Do NOT divide the gain "
+               f"by Δ(1) to correct it: the error is partial and its size is "
+               f"not knowable from the output. See BUG-8 in "
+               f"docs/LEVEL_TRANSFER_PLAN.md.")
+        out.append(msg)
+        _w.warn(msg, RuntimeWarning, stacklevel=2)
+    return out
+
+
 def build_cast_spec(specs, links=None):
     """Precompute the cast from the `.pre` files read (one per series).
 
@@ -281,6 +346,7 @@ def build_cast_spec(specs, links=None):
             raise ValueError(f"link out of range: {l}")
         if l.out == l.inp:
             raise ValueError(f"a link cannot go from a series to itself: {l}")
+    cs.delta_warnings = check_operators(cs)
     # Vector order, following shootx: transfers -> univariate -> covariance.
     # Covariance: var[0] is fixed at 1 (the scale is concentrated into sigma2),
     # then log(var_i/var_1) for i>0. The off-diagonal covariances start out FIXED

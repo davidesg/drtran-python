@@ -132,3 +132,83 @@ def test_partial_overlap_is_not_nested_either(ec):
     _, nested, resto = delta_operator(out, inp)
     assert not nested
     assert 0.0 < resto < float("inf")
+
+
+# ── the guard, and it is verified by making it fire ──────────────────────────
+WORK = "/home/david/Dropbox/SRC/drtran/examples/work"
+
+guarda = pytest.mark.skipif(
+    not os.path.exists(os.path.join(WORK, "WTI_ar1.pre")),
+    reason="the canonical .pre files from the C repo are missing")
+
+
+@pytest.fixture
+def par():
+    import drtran as _d
+    return (_d.load_pre(os.path.join(WORK, "ES_CPI_m10.pre")),
+            _d.load_pre(os.path.join(WORK, "WTI_ar1.pre")))
+
+
+@guarda
+def test_matched_operators_warn_about_nothing(par):
+    """The whole legacy is matched, so the guard must cost it nothing.
+
+    If this ever starts warning, the guard has become noise and will be turned
+    off -- which is worse than not having it.
+    """
+    import warnings
+    from drtran.cast import Link, build_cast_spec
+    y, x = par
+    with warnings.catch_warnings(record=True) as ws:
+        warnings.simplefilter("always")
+        cs = build_cast_spec([y, x], links=[Link(0, 1, 0, 0, 1)])
+    assert cs.delta_warnings == []
+    assert [w for w in ws if issubclass(w.category, RuntimeWarning)] == []
+
+
+@guarda
+def test_a_mismatched_link_warns_and_says_the_gain_is_annihilated(par):
+    import copy
+    import warnings
+    from drtran.cast import Link, build_cast_spec
+    y, x = par
+    y = copy.deepcopy(y)
+    y.model.D = 1                      # output at nabla*nabla_12, input at nabla
+    with warnings.catch_warnings(record=True) as ws:
+        warnings.simplefilter("always")
+        cs = build_cast_spec([y, x], links=[Link(0, 1, 0, 0, 1)])
+    assert len(cs.delta_warnings) == 1
+    assert len([w for w in ws if issubclass(w.category, RuntimeWarning)]) == 1
+    msg = cs.delta_warnings[0]
+    # substance, not wording: it must name both series, say the gain is gone,
+    # and warn off the correction that looks obvious and is wrong.
+    assert "ES_CPI" in msg and "WTI" in msg
+    assert "ANNIHILATED" in msg
+    assert "Do NOT divide" in msg
+
+
+@guarda
+def test_a_non_nested_pair_is_refused_not_warned(par):
+    import copy
+    from drtran.cast import Link, build_cast_spec
+    y, x = par
+    x = copy.deepcopy(x)
+    x.model.D = 1                      # the INPUT differenced harder
+    with pytest.raises(ValueError, match="neither series"):
+        build_cast_spec([y, x], links=[Link(0, 1, 0, 0, 1)])
+
+
+@guarda
+def test_the_diagonal_never_warns(par):
+    """No links, no transfer, nothing to mismatch -- the gate stays clean."""
+    import warnings
+    from drtran.cast import build_cast_spec
+    import copy
+    y, x = par
+    y = copy.deepcopy(y)
+    y.model.D = 1
+    with warnings.catch_warnings(record=True) as ws:
+        warnings.simplefilter("always")
+        cs = build_cast_spec([y, x])
+    assert cs.delta_warnings == []
+    assert [w for w in ws if issubclass(w.category, RuntimeWarning)] == []
