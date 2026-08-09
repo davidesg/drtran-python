@@ -255,6 +255,46 @@ identity fails."* It should therefore be **the bank's first gate**, run before
 any figure is read, and `run_tf.py` now picks the input matching each case's
 window.
 
+### The alignment is mtram's job, not the analyst's
+
+David, after the window episode: series not being aligned causes problems, but
+**they do not have to be aligned** — reconciling them is mtram's role.
+
+That is right, and the episode shows why, because there are TWO problems and
+only one is covered:
+
+| | what happens | who catches it |
+|---|---|---|
+| Different END dates | the cast would pair observations years apart | `check_alignment` REFUSES (BUG-2) |
+| Same end, **different start** | passes every check; the cast then trims to the common window and each `.pre` is the optimum of a LONGER one | only the factorisation identity, after the fact |
+
+The second is what bit this bank: a 216-observation output against a
+180-observation input, both ending 2019-12, both perfectly legitimate. Nothing
+is wrong with the data — one series simply has more history — and
+`check_alignment` is right not to refuse it.
+
+But the burden falls on the analyst today: its message says to rebuild the
+`.pre` in `art` over the window you mean. For the different-END case that IS the
+right answer, because trimming would silently change which observations the
+model is fitted on, and that decision belongs upstream. **For the
+different-START case it is not**: the window the joint fit will use is fully
+determined by the operators, so the reconciliation is mechanical and mtram can
+do it —
+
+1. compute the common window, which the cast already computes;
+2. re-estimate on it any series whose `.pre` is the optimum of a longer one —
+   one `fue` call;
+3. **report it**, because the univariate model will move.
+
+Step 3 is not optional. The whole point of the ladder is that a `.pre` is an
+optimum of its own specification, and a reconciled one is the optimum of a
+different sample than the file it came from. Doing it silently would break the
+convention the suite is built on; doing it and saying so is a service.
+
+Until then the gate is what stands between an analyst and a wrong answer — and
+it did stand there, which is an argument for running it FIRST, not for leaving
+the reconciliation undone.
+
 ## 6. Order of work
 
 1. **Fix the window and build the `.pre` files.** WTI over the common span; each
