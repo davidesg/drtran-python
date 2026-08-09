@@ -32,6 +32,33 @@ The artifacts are inspectable text files **on purpose**: the analyst's
 intervention between rungs is part of the method (the identified network is a
 guide, not the final one), not a limitation to be abstracted away.
 
+## Documentation
+
+Everything below **ships in the source distribution** (`pip download drtran
+--no-binary :all:`), so it is readable without depending on the repository being
+reachable.
+
+**For analysts**
+
+| | |
+|---|---|
+| `docs/SCHOOL_PRACTICE_STUDY.md` | the school's practice, tier by tier |
+| `docs/DECISION_NODES.md` | where the analyst decides, and on what |
+| `docs/LADDER_AS_OPTIMISATION.md` | what `.inp` / `.out` / `.pre` guarantee |
+
+**For developers**
+
+| | |
+|---|---|
+| `docs/ARCHITECTURE_MCP.md` | the `mtram` MCP surface |
+| `docs/PORTE.md` | how the C was ported, and what may not be broken |
+| `docs/BUGS.md` | the record of defects — including the ones that turned out not to be |
+| `docs/LEVEL_TRANSFER_PLAN.md` | BUG-8 end to end: the finding, the fix, the homologation |
+
+`docs/DOCUMENTATION_PLAN.md` records what is still to be decided about
+publishing these, and why the links on PyPI do not resolve today.
+
+
 ## Design principle, non-negotiable
 
 > drvarma's `elf` is used **as it is**. Not modified, not patched, not
@@ -178,9 +205,9 @@ measuring it settled.
 
 **Everything the C does is ported**, plus `-W`, which writes the jointly
 re-estimated univariate blocks back out as `.pre` files. Details in
-[`TODO.md`](TODO.md).
+[`TODO.md`](https://github.com/davidesg/drtran-python/blob/master/TODO.md).
 
-> **[`docs/PORTE.md`](docs/PORTE.md) — the record of the process.** How it was
+> **[`docs/PORTE.md`](https://github.com/davidesg/drtran-python/blob/master/docs/PORTE.md) — the record of the process.** How it was
 > done, which decisions are not translation and why, the homologation figures,
 > the three defects the port found in the original (among them that **mu is the
 > mean, not an intercept**) and the traps in comparing against the binary.

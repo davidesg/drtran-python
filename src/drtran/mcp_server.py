@@ -676,6 +676,77 @@ def _diagonal_gate(specs):
 
 
 @mcp.tool()
+def check_operators(name: str) -> str:
+    """Do the two series of each link carry the SAME differencing operator?
+
+    The question BUG-8 turned on, and it is decided before estimating anything.
+    The transfer relates the LEVELS with the noise carrying the differencing, so
+    the input must enter differenced by the OUTPUT's operator. When the two
+    operators agree that is the input's own column and nothing has to happen;
+    when they differ, what a naive cast would fit is not nu(B) but nu(B)·Delta(B)
+    and the reported GAIN comes out wrong by Delta(1).
+
+    Reports, per link, the quotient's degree and Delta(1): **1** means the
+    operators agree, **0** means an excess root at frequency zero and the gain
+    would be annihilated, **s** means an excess purely at the seasonal
+    frequencies and it would be multiplied. It also reports the COMMON WINDOW
+    and any series carrying spare history, which is a different problem that
+    passes every other check.
+
+    Nothing here estimates. It is the first gate, and it is cheap.
+    """
+    from drtran.cast import common_window, delta_operator
+
+    specs = _require(name)
+    cs = _cast(name)
+    out = ["```", "OPERADORES DE DIFERENCIACION", ""]
+    ini, fin, nobs_c, spare = common_window(specs)
+    out.append("  Ventana comun : %02d/%d - %02d/%d  (%d observaciones)"
+               % (ini[1], ini[0], fin[1], fin[0], nobs_c))
+    if spare:
+        for i, k in sorted(spare.items()):
+            out.append("  AVISO: %s trae %d observaciones de mas por delante. Acaban"
+                       % (specs[i].name, k))
+            out.append("         la misma fecha --el alineamiento es correcto-- pero el")
+            out.append("         cast recorta a la ventana comun, asi que su .pre es el")
+            out.append("         optimo de una muestra MAS LARGA que la que se ajusta.")
+            out.append("         Reestimalo sobre la ventana comun para arrancar de un")
+            out.append("         optimo de la ventana que de verdad se usa.")
+    else:
+        out.append("  Todas las series cubren exactamente esa ventana.")
+    out.append("")
+    if not cs.links:
+        out.append("  No hay enlaces todavia: nada que comparar.")
+    for j, l in enumerate(cs.links):
+        my = cs.series[l.out].spec.model
+        mx = cs.series[l.inp].spec.model
+        dl, nested, _ = delta_operator(my, mx)
+        nom = "%s <- %s" % (cs.series[l.out].name, cs.series[l.inp].name)
+        if not nested:
+            out.append("  %-24s Delta NO es polinomio: ninguno de los dos" % nom)
+            out.append("  %-24s operadores implica al otro. El error no es un" % "")
+            out.append("  %-24s factor unico. Revisa si el par tiene sentido." % "")
+            continue
+        d1 = float(dl.sum())
+        if len(dl) == 1:
+            out.append("  %-24s Delta(1) = 1   operadores IGUALES, nada que hacer" % nom)
+        elif abs(d1) <= 1e-9:
+            out.append("  %-24s Delta(1) = 0   exceso de raiz en FRECUENCIA CERO" % nom)
+            out.append("  %-24s (grad grad_s es de orden DOS ahi, no uno):" % "")
+            out.append("  %-24s la ganancia quedaria ANIQUILADA. Grado %d." % ("", len(dl) - 1))
+        else:
+            out.append("  %-24s Delta(1) = %-6.4g exceso SOLO en las estacionales:" % (nom, d1))
+            out.append("  %-24s la ganancia quedaria MULTIPLICADA. Grado %d." % ("", len(dl) - 1))
+        out.append("  %-24s -> `estimate` despachara al cast de RESTA." % "")
+    out.append("")
+    out.append("  NO dividas la ganancia por Delta(1) para corregirla: la ley")
+    out.append("  nu^(1) = nu(1)Delta(1) solo vale con alcance completo, y el error")
+    out.append("  real es parcial y no se conoce desde la salida. Ver BUG-8.")
+    out.append("```")
+    return "\n".join(out)
+
+
+@mcp.tool()
 def load_pre(name: str, paths: str, check: bool = True) -> str:
     """Load a case's `.pre` **or `.inp`** files, CONFIRM the roles, prove the bridge.
 
@@ -2229,6 +2300,13 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     there is no pre-sample truncation. `embed=False` subtracts it instead — the
     old cast, and what TASTE does.
 
+    **`embed=True` is a request, not a guarantee.** When a link's two series
+    carry DIFFERENT differencing operators the transfer needs the input
+    re-differenced by the OUTPUT's, which is a second vector for the same series
+    and the embedded cast has one column per series. The fit is then dispatched
+    to the subtracting cast, and the result SAYS SO — silently honouring the
+    flag while doing something else is what BUG-8 was.
+
     `cns_path` is an optional constraints file (free / fixed / shared / product /
     linear combination).
 
@@ -2246,6 +2324,7 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
             raise ValueError(f"no encuentro {cns_path}")
         read_cns(cns_path, table)
     x0 = drtran.x0_full(cs, table)
+    pedido = bool(embed)
     f = drtran.fit(cs, x0=x0, embed=embed, slots=table)
     if f.ifault:
         raise ValueError(f"la verosimilitud no se pudo evaluar: ifault={f.ifault}")
@@ -2270,11 +2349,21 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     except Exception as exc:                               # noqa: BLE001
         body = f"  (no se pudo dibujar la ecuación: {str(exc)[:120]})\n" + body
     extra = ""
+    if pedido and not f.embed:
+        extra += ("\n  EL CAST: se pidió el EMPOTRADO y corrió el de RESTA.\n"
+                  "  Los dos operadores de diferenciación difieren, así que la "
+                  "transferencia\n  necesita la entrada re-diferenciada por el "
+                  "operador de la SALIDA -- un\n  segundo vector para la misma "
+                  "serie, y el empotrado tiene una columna por\n  serie. Sin "
+                  "esto lo ajustado sería nu(B)·Delta(B) y la GANANCIA saldría\n"
+                  "  mal por Delta(1). Ver BUG-8.\n"
+                  "  Consecuencia a tener presente: las verosimilitudes de los "
+                  "dos casts NO son\n  comparables entre sí.\n")
     if cs.links:
         try:
-            extra = "\n" + "\n".join(_what_the_transfer_bought(name, f, cs))
+            extra += "\n" + "\n".join(_what_the_transfer_bought(name, f, cs))
         except Exception as exc:                           # noqa: BLE001
-            extra = f"\n  (no se pudo contrastar la transferencia: {str(exc)[:120]})"
+            extra += f"\n  (no se pudo contrastar la transferencia: {str(exc)[:120]})"
         try:
             extra += "\n" + "\n".join(_flt_influence(name, f, table, se))
         except Exception as exc:                           # noqa: BLE001
@@ -2862,6 +2951,11 @@ def forecast(name: str, horizon: int = 12, series_index: int = 0) -> str:
     The band is formed in the TRANSFORMED scale and mapped back, so with a log
     model it is ASYMMETRIC. Never build it by adding 1.96 standard errors to a
     level: the STD columns are relative (percentages), not index points.
+
+    With a DISPATCHED model the forecast follows TASTE's route -- each input
+    forecast by its own model, the noise by its own ARMA, joined on the LEVELS
+    -- rather than the embedded cast's recursion. It is a different procedure,
+    not the same one corrected, and the result says which one ran.
     """
     from drtran.forecast import forecast as _fcast
     from drtran.forecast import level_band

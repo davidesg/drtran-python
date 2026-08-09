@@ -1,0 +1,12 @@
+# La documentación viaja con el código.
+#
+# Sin esto el sdist lleva README, pyproject y src/ y nada más: quien instale
+# desde fuentes no tiene forma de leer NADA de docs/, y los enlaces del README
+# apuntan a un repositorio que hoy es privado. Incluirla es lo único que hace
+# la documentación alcanzable sin depender de esa decisión.
+include README.md
+include CHANGELOG.md
+include TODO.md
+include COPYING
+recursive-include docs *.md
+recursive-include tests *.py

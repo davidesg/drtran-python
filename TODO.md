@@ -16,16 +16,23 @@ del banco SF_MEG.
 
 **Bloqueantes** — cosas que un usuario notaría o que informan mal:
 
-- [ ] **mtram está detrás de drtran.** `estimate(embed=True)` devuelve un ajuste
-      que NO fue empotrado cuando los operadores difieren, sin decirlo, y su
-      docstring sigue afirmando lo contrario. Es el mismo género de silencio que
-      era BUG-8. Lista completa en `docs/DOCUMENTATION_PLAN.md` §4:
-      anunciar el cast que corrió, exponer `check_operators`, informar la
-      ventana común en `load_pre`, y decir qué ruta produjo la previsión.
-- [ ] **Los enlaces de PyPI están rotos.** El repo es privado (404) y los
-      enlaces del README son relativos. Diagnóstico y arreglo en
-      `docs/DOCUMENTATION_PLAN.md` §1 y §3.1. Es visible en la página del
-      release, así que va antes del push.
+- [x] ~~**mtram está detrás de drtran.**~~ HECHO. `estimate` anuncia cuando se
+      pidió el empotrado y corrió el de resta, con el motivo y el aviso de que
+      las dos verosimilitudes no son comparables; `check_operators` es
+      herramienta nueva y da la ventana común, Δ(1), el brazo y lo que le pasa a
+      la ganancia; `forecast` dice que la ruta despachada es la de TASTE. Cinco
+      tests, incluido uno que comprueba que TODAS las herramientas están
+      registradas -- el decorador se me quedó sobre la función equivocada al
+      escribirlo, que es exactamente BUG-4 otra vez.
+- [~] **Los enlaces de PyPI.** Hecho lo que no depende de ninguna decisión:
+      los dos enlaces del README son ya absolutos, hay una sección
+      **Documentation** que lista qué hay y para quién, y un `MANIFEST.in` mete
+      `docs/`, `TODO.md` y `CHANGELOG.md` en el sdist -- verificado
+      construyéndolo. Así la documentación es alcanzable sin depender de que el
+      repositorio lo sea.
+      **Queda tu decisión**: mientras el repo sea privado, los enlaces siguen
+      dando 404 para cualquiera que no seas tú. No he añadido una URL
+      `Documentation` porque hoy sería otra URL muerta.
 - [ ] **Subir la versión y el CHANGELOG.** `pyproject` sigue en 0.1.1, que es lo
       que hay publicado.
 
