@@ -500,7 +500,8 @@ degrades with `refactor=1`*.
 > disagreement.** The optimiser and its announcements are Mauricio's published,
 > refereed work; the criteria and the wording stay as he wrote them unless
 > something demonstrably better has been tested. See
-> `OPTIMIZER_STOPPING_STUDY.md`, whose whole point was that the alternatives
+> `drtran/docs/OPTIMIZER_STOPPING_STUDY.md` (the C repo), whose whole point
+> was that the alternatives
 > tried were not better.
 
 `termcode 2` is the step-tolerance stop: the step collapsed while the gradient may

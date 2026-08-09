@@ -2,6 +2,28 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## 0.2.1 — 2026-08-10
+
+Corrige el EMPAQUETADO de 0.2.0, no el código: el motor y mtram son los mismos.
+Aquella llevaba `recursive-include docs *.md`, así que el sdist repartía los diez
+documentos de `docs/` incluidos dos que son BITÁCORAS DE TRABAJO y no
+documentación: el plan de documentación, que trata de decisiones pendientes, y
+el banco pass-through × MEG, que es un experimento sobre investigación aún no
+publicada y apunta a ficheros que no están en ningún repositorio. Nada
+comprometido, pero tampoco cosas que repartir.
+
+- El `MANIFEST.in` lista los documentos uno a uno Y excluye explícitamente esos
+  dos. Las dos cosas hacen falta: `include` sólo añade --nunca quita-- y el
+  `SOURCES.txt` del `egg-info` anterior arrastra lo que se incluyó alguna vez.
+- Cualificadas dos referencias que cruzan de repositorio y quedaban colgando
+  para quien lea la copia distribuida: `drvarma/docs/DESIGN_MCP.md` en
+  ARCHITECTURE_MCP y `drtran/docs/OPTIMIZER_STOPPING_STUDY.md` --el repo del
+  C-- en BUGS.
+- El README dice cuáles viajan y cuáles viven sólo en el repositorio.
+
+Viajan: SCHOOL_PRACTICE_STUDY, DECISION_NODES, LADDER_AS_OPTIMISATION,
+ARCHITECTURE_MCP, PORTE, BUGS y LEVEL_TRANSFER_PLAN.
+
 ## 0.2.0 — 2026-08-09
 
 La versión de **BUG-8**: el cast relacionaba series diferenciadas cada una por

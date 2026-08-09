@@ -1,12 +1,25 @@
-# La documentación viaja con el código.
+# La documentación viaja con el código, pero SE LISTA UNA A UNA y además se
+# EXCLUYE lo que no se distribuye. Las dos cosas hacen falta: `include` sólo
+# añade --nunca quita-- y el SOURCES.txt del egg-info anterior arrastra lo que
+# se incluyó alguna vez, así que una lista blanca por sí sola no basta.
 #
-# Sin esto el sdist lleva README, pyproject y src/ y nada más: quien instale
-# desde fuentes no tiene forma de leer NADA de docs/, y los enlaces del README
-# apuntan a un repositorio que hoy es privado. Incluirla es lo único que hace
-# la documentación alcanzable sin depender de esa decisión.
+# El criterio es la audiencia. Van los documentos de ANALISTA y de
+# DESARROLLADOR; se quedan fuera las bitácoras de trabajo -- el plan de
+# documentación, que trata de decisiones pendientes, y el banco pass-through x
+# MEG, que es un experimento sobre investigación aún no publicada y apunta a
+# ficheros que no están en ningún repositorio.
 include README.md
 include CHANGELOG.md
 include TODO.md
 include COPYING
-recursive-include docs *.md
+include docs/SCHOOL_PRACTICE_STUDY.md
+include docs/DECISION_NODES.md
+include docs/LADDER_AS_OPTIMISATION.md
+include docs/ARCHITECTURE_MCP.md
+include docs/PORTE.md
+include docs/BUGS.md
+include docs/LEVEL_TRANSFER_PLAN.md
 recursive-include tests *.py
+
+exclude docs/DOCUMENTATION_PLAN.md
+exclude docs/PASSTHROUGH_MEG_BANK.md

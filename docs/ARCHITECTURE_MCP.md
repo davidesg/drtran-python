@@ -151,7 +151,7 @@ catching something that writing a second copy would have hidden:
 other server.** An MCP is a conversational surface for a model, not a calling
 convention between programs; server-to-server would make `mtram` depend on `art`
 *running* rather than on `art` being installed. `sima` set the precedent
-(`DESIGN_MCP.md` §3: "for the art-seeding step multiart *imports* `art` as a
+(`drvarma/docs/DESIGN_MCP.md` §3: "for the art-seeding step multiart *imports* `art` as a
 library"). The dependency graph stays acyclic — drtran → fue, drvarma,
 art-tseries; art depends on none of them — which is the same discipline the DAG
 demands of the models.

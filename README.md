@@ -55,8 +55,10 @@ reachable.
 | `docs/BUGS.md` | the record of defects — including the ones that turned out not to be |
 | `docs/LEVEL_TRANSFER_PLAN.md` | BUG-8 end to end: the finding, the fix, the homologation |
 
-`docs/DOCUMENTATION_PLAN.md` records what is still to be decided about
-publishing these, and why the links on PyPI do not resolve today.
+Two more live in the repository but do NOT ship, because they are working
+records rather than documentation: `docs/DOCUMENTATION_PLAN.md` (what is still
+to be decided about publishing) and `docs/PASSTHROUGH_MEG_BANK.md` (an
+experiment on research that is not published yet).
 
 
 ## Design principle, non-negotiable
