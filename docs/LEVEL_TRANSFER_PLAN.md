@@ -597,9 +597,28 @@ FR and DE reported OK at 112 % and 69 % relative error.
    coherence instead of needing a patch on top of a recursion built for a
    different cast.
 
-   Note the embedded cast is unaffected throughout, and it is what every matched
+   ### Why two paths and not one with a branch
+
+   The same split as in estimation, and for the same reason.
+
+   **Embedded: the transfer IS the VARMA.** Forecasting the VARMA forecasts
+   everything — one recursion and it is done. That is the same property that
+   removes the pre-sample truncation: the engine sees the whole system, so the
+   exact initialisation and the forecast both fall out of a single object.
+
+   **Subtracting: the engine only ever sees the NOISE.** The transfer was
+   removed before it looked at anything, so it has to be put back — and putting
+   it back requires forecasting the inputs too, each by its own model. That is
+   not a shortcoming of the subtracting cast; it is what "subtracting" means.
+
+   So the embedded cast is unaffected throughout, and it is what every matched
    case and all of the legacy use. This is a SECOND forecast path for the
    subtracting route, not a replacement.
+
+   **And the two will not agree on the same fitted model.** That is expected,
+   not a defect: two correct procedures for two different casts, exactly as
+   their likelihoods already stopped being comparable. Worth saying in the
+   output before it alarms someone who compares them.
 
    Related material already in the tree: `drtran/docs/FORECAST_DIAGNOSIS.md`
    (the out-of-sample criterion and its Diebold-Mariano test) and the `predice`
