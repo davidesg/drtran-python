@@ -263,20 +263,27 @@ def operators_agree(out_model, in_model, tol=1e-9):
 def check_operators(cast_spec):
     """The interim guard for BUG-8: say when the reported gain is not ν(1).
 
-    Refuses what cannot be modelled at all, warns about what is modelled wrong,
-    and stays silent when the operators agree -- which is every legacy case,
-    every m6 series and the whole network, so this costs them nothing.
+    Warns, never refuses, and stays silent when the operators agree -- which is
+    every legacy case, every m6 series and the whole network, so this costs them
+    nothing.
 
-    It warns rather than refuses on the mismatched-but-nested case for a reason
-    the plan argues at length: `IPC_FR <- WTI` is a legitimate model -- the
-    French CPI has stochastic seasonality and WTI does not, and that is the data
-    rather than an analyst's mistake. The oracle fits it happily, because in its
-    formulation the input enters in levels and there is no Δ to mismatch.
-    Refusing it would be trading a wrong answer for no answer. What is NOT
-    acceptable is returning the wrong gain in silence, which is what happened
-    until now -- and the diagonal gate cannot catch it (measured: −8.31e−08,
-    unchanged, because the factorisation identity holds under any differencing
-    as long as both sides use the same one).
+    **It warns rather than refuses**, and the reason is worth stating because
+    the first version of this guard got it wrong. `IPC_FR <- WTI` is a
+    legitimate model -- the French CPI has stochastic seasonality and WTI does
+    not, and that is the data rather than an analyst's mistake. The oracle fits
+    it happily, because in its formulation the input enters in LEVELS and there
+    is no Δ to mismatch. Refusing would trade a wrong answer for no answer.
+    What is NOT acceptable is returning the wrong gain in silence, which is what
+    happened until now -- and the diagonal gate cannot catch it (measured:
+    −8.31e−08, unchanged, because the factorisation identity holds under any
+    differencing as long as both sides use the same one).
+
+    That applies to the non-nested case too, which this first refused until
+    `EP <- EA` in the m6 network showed it up. **Route (E) never needs Δ.** It
+    needs the input differenced by the OUTPUT's operator, and that is computable
+    whatever the two operators are; Δ exists only to say HOW WRONG the gain is,
+    and when there is no Δ the honest report is that the error is not one
+    factor -- not that the model is impossible.
 
     Returns the list of warnings; also emits each through `warnings.warn`.
     """
@@ -289,33 +296,36 @@ def check_operators(cast_spec):
         nom_y = cast_spec.series[l.out].name
         nom_x = cast_spec.series[l.inp].name
         delta, nested, resto = delta_operator(my, mx)
-        if not nested:
-            raise ValueError(
-                f"{nom_y} <- {nom_x}: neither series' differencing implies the "
-                f"other, so no single vector can both carry {nom_x}'s own "
-                f"univariate model and feed the transfer. The transfer relates "
-                f"the LEVELS, and the noise carries the differencing, so the "
-                f"input must enter differenced by {nom_y}'s operator -- which "
-                f"here would leave {nom_x} under-differenced. Respecify one of "
-                f"the two in `art`.")
-        if len(delta) == 1 and abs(delta[0] - 1.0) <= 1e-9:
+        if nested and len(delta) == 1 and abs(delta[0] - 1.0) <= 1e-9:
             continue
-        d1 = float(delta.sum())
-        if abs(d1) <= 1e-9:
-            efecto = ("ANNIHILATED: Δ(1) = 0, an excess root at frequency zero "
-                      "(∇∇ₛ is order TWO there, not one)")
+        comun = (f"{nom_y} <- {nom_x}: the two series are differenced by "
+                 f"DIFFERENT operators, so what the cast fits is not ν(B). ν₀, "
+                 f"the contemporaneous impact, is unaffected; the GAIN is not. "
+                 f"See BUG-8 in docs/LEVEL_TRANSFER_PLAN.md.")
+        if not nested:
+            # No Delta: neither operator implies the other, so the discrepancy
+            # is not one factor and cannot be quoted as one. This does NOT
+            # block the fix -- route (E) never needs Delta, only the input
+            # differenced by the OUTPUT's operator, which is always computable.
+            msg = (f"{comun} Here neither operator implies the other "
+                   f"({nom_x} is differenced HARDER), so the discrepancy is "
+                   f"not a single factor Δ(1) and cannot be quoted as one. It "
+                   f"is also worth asking whether the pair makes sense: the "
+                   f"transfer would have to carry whatever {nom_x} has and "
+                   f"{nom_y} does not.")
         else:
-            efecto = f"MULTIPLIED by {d1:.6g}: Δ(1) = {d1:.6g}"
-        msg = (f"{nom_y} <- {nom_x}: the two series are differenced by "
-               f"DIFFERENT operators, so what is fitted is not ν(B) but "
-               f"ν(B)·Δ(B), with Δ = op({nom_y})/op({nom_x}) of degree "
-               f"{len(delta) - 1}. The reported GAIN is therefore wrong -- "
-               f"{efecto} -- by up to that factor, depending on how much of Δ "
-               f"the fitted (b, r, s) has the reach to absorb. ν₀, the "
-               f"contemporaneous impact, is unaffected. Do NOT divide the gain "
-               f"by Δ(1) to correct it: the error is partial and its size is "
-               f"not knowable from the output. See BUG-8 in "
-               f"docs/LEVEL_TRANSFER_PLAN.md.")
+            d1 = float(delta.sum())
+            efecto = (("ANNIHILATED: Δ(1) = 0, an excess root at frequency "
+                       "zero (∇∇ₛ is order TWO there, not one)")
+                      if abs(d1) <= 1e-9 else
+                      f"MULTIPLIED by {d1:.6g}: Δ(1) = {d1:.6g}")
+            msg = (f"{comun} What is fitted is ν(B)·Δ(B), with "
+                   f"Δ = op({nom_y})/op({nom_x}) of degree {len(delta) - 1}, so "
+                   f"the reported gain is {efecto} -- by up to that factor, "
+                   f"depending on how much of Δ the fitted (b, r, s) has the "
+                   f"reach to absorb. Do NOT divide the gain by Δ(1) to correct "
+                   f"it: the error is partial and its size is not knowable from "
+                   f"the output.")
         out.append(msg)
         _w.warn(msg, RuntimeWarning, stacklevel=2)
     return out

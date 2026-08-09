@@ -188,14 +188,30 @@ def test_a_mismatched_link_warns_and_says_the_gain_is_annihilated(par):
 
 
 @guarda
-def test_a_non_nested_pair_is_refused_not_warned(par):
+def test_a_non_nested_pair_warns_and_does_not_quote_a_factor(par):
+    """Not nested is still a warning, not a refusal.
+
+    The first version of the guard raised here, and `EP <- EA` in the m6 network
+    showed that up: the pair is refusable on modelling grounds, but not on
+    computational ones. Route (E) needs the input differenced by the OUTPUT's
+    operator, which is computable whatever the operators are -- Δ exists only to
+    quantify the damage, and when there is none the honest report is that the
+    error is not a single factor.
+    """
     import copy
+    import warnings
     from drtran.cast import Link, build_cast_spec
     y, x = par
     x = copy.deepcopy(x)
     x.model.D = 1                      # the INPUT differenced harder
-    with pytest.raises(ValueError, match="neither series"):
-        build_cast_spec([y, x], links=[Link(0, 1, 0, 0, 1)])
+    with warnings.catch_warnings(record=True) as ws:
+        warnings.simplefilter("always")
+        cs = build_cast_spec([y, x], links=[Link(0, 1, 0, 0, 1)])
+    assert len(cs.delta_warnings) == 1
+    assert len([w for w in ws if issubclass(w.category, RuntimeWarning)]) == 1
+    msg = cs.delta_warnings[0]
+    assert "not a single factor" in msg
+    assert "Δ(1) = " not in msg        # no factor is quoted, because there is none
 
 
 @guarda
