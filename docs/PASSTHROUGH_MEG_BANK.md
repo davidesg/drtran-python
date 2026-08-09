@@ -187,6 +187,45 @@ diagonal, and not in the link at all. They cluster in DE_CORE (6 of 12), ES_CORE
 and the check is cheap enough to be the first gate of the bank rather than an
 afterthought.
 
+### The diagonal gap — established facts, and an unexplained cause
+
+David's follow-up: the diagonal fits START practically at the optimum, so
+converging in twenty iterations by anything other than gradtol is odd. It is,
+and chasing it produced facts but not yet a cause. What is measured:
+
+| case | nit | termcode | logL at the stored values | fitted | **gap** |
+|---|---|---|---|---|---|
+| DE_CORE_m00 | 13 | 2 | −629.168775 | −629.168775 | **0.000000** |
+| ES_CPI_airline | 8 | 1 | −664.448426 | −664.288274 | 0.160152 |
+| ES_CPI_m00 | 19 | 1 | −681.034215 | −680.586954 | 0.447261 |
+| DE_CPI_m00 | 21 | 3 | −648.925875 | −647.566048 | 1.359826 |
+| FR_CPI_D | 21 | 1 | −586.127714 | −584.002893 | 2.124821 |
+
+Three hypotheses tested, **all three refuted**:
+
+1. **The `.pre` are not optima.** They are. Re-run through `fue` they move by
+   at most 1e-6 — the ladder's own invariant, and it holds.
+2. **The variance ratio is badly seeded**, which is the natural suspect in a
+   pass-through where the input's variance is a thousand times the output's.
+   It is not: `log(var2/var1)` starts at 6.9157 and ends at 6.9236, moving
+   0.008, and re-seeding it from the univariate sigmas changes nothing.
+3. **Some coefficients are fixed in one case and free in another.**
+   `DE_CPI_m00` and `DE_CORE_m00` each carry exactly one fixed coefficient and
+   their gaps are 1.36 and 0.00; `FR_CPI_D` carries none and has the largest.
+
+What moves is the **deterministic coefficients** — up to 0.054 in `DE_CPI_m00`
+(`omega_d1[2,0]`: −0.074221 → −0.127816) — while `DE_CORE_m00` moves nothing at
+all beyond WTI's phi at 5e-5. So a zero gap is achievable and something makes it
+non-zero in most cases.
+
+**The cause is not established and I am not going to guess it.** This is a
+finding about the ladder's diagonal gate rather than about BUG-8, it is
+reproducible in one command, and it deserves its own investigation rather than a
+paragraph at the end of someone else's. Until it is settled the bank's figures
+are indicative: the RANKING across variants of one case is what the experiment
+rests on, and every variant of a case carries the same gap, but the absolute
+likelihoods are not clean.
+
 ## 6. Order of work
 
 1. **Fix the window and build the `.pre` files.** WTI over the common span; each
