@@ -469,10 +469,23 @@ FR and DE reported OK at 112 % and 69 % relative error.
    FR. Until that is explained, "landing on the oracle" is not a criterion that
    can be applied uniformly.
 4. ~~Choose the route~~ — **DECIDED: (E)**, dispatch on Δ.
-5. Implement in Python: the Δ computation and the dispatch, then feed the
-   subtracting cast's transfer term an input differenced by the OUTPUT's
-   operator (`cast.py:323`, `xin = W[:, l.inp]` today). Verify against the three
-   banks.
+5. Implement in Python. **Δ and the guard are DONE** (`75ea12e`, `ef40867`,
+   `8156910`): `delta_operator` divides the two operators' polynomials -- so the
+   school's `∇∇₄` as `d=2, ifadf=[0,1,1]` is recognised as the SAME operator as
+   `d=1, D=1`, which comparing `(d, D)` tuples would not -- and
+   `check_operators` warns inside `build_cast_spec`, silently for every matched
+   case. Full battery 371 passed.
+
+   **The dispatch itself is still to do**: feed the subtracting cast's transfer
+   term an input differenced by the OUTPUT's operator (`cast.py`,
+   `xin = W[:, l.inp]` today) and route Δ ≠ 1 to it.
+
+   One correction the battery forced, and it matters for the design: the guard
+   first REFUSED the non-nested case, and `EP <- EA` in the m6 network showed
+   that up. **Route (E) never needs Δ.** It needs `∇^{d_y}∇ₛ^{D_y} x`, which is
+   computable whatever the two operators are; Δ exists only to say how wrong the
+   gain is. Requiring nestedness was an artefact of reasoning through the
+   quotient.
 6. Port to the C and re-homologate. The matched cases must not move.
 7. Then, separately: backforecast the input instead of zeroing the pre-sample,
    which is what takes the subtracting cast from "the right specification,
