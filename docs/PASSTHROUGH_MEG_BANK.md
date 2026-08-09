@@ -187,44 +187,73 @@ diagonal, and not in the link at all. They cluster in DE_CORE (6 of 12), ES_CORE
 and the check is cheap enough to be the first gate of the bank rather than an
 afterthought.
 
-### The diagonal gap — established facts, and an unexplained cause
+### The diagonal gap — RESOLVED, and the gate is what resolved it
 
-David's follow-up: the diagonal fits START practically at the optimum, so
-converging in twenty iterations by anything other than gradtol is odd. It is,
-and chasing it produced facts but not yet a cause. What is measured:
+David: face this properly, find the cause if there is one — there is a bank, so
+the investigation can be field work and not only theory. There was a cause, it
+was mine, and **the diagonal gate is what found it**.
 
-| case | nit | termcode | logL at the stored values | fitted | **gap** |
-|---|---|---|---|---|---|
-| DE_CORE_m00 | 13 | 2 | −629.168775 | −629.168775 | **0.000000** |
-| ES_CPI_airline | 8 | 1 | −664.448426 | −664.288274 | 0.160152 |
-| ES_CPI_m00 | 19 | 1 | −681.034215 | −680.586954 | 0.447261 |
-| DE_CPI_m00 | 21 | 3 | −648.925875 | −647.566048 | 1.359826 |
-| FR_CPI_D | 21 | 1 | −586.127714 | −584.002893 | 2.124821 |
+**The theory says the gap should be zero.** With a diagonal structure and no
+links the exact likelihood factorises, so the joint optimum IS the collection of
+univariate optima. Measured, it was not: gaps of 0.16 to 2.12, with
+`DE_CORE_m00` at exactly 0.000000.
 
-Three hypotheses tested, **all three refuted**:
+**Three hypotheses tested and refuted.** The `.pre` are not optima — they are,
+`fue` moves them by 1e-6. The variance ratio is badly seeded — it is not, it
+starts at 6.9157 and ends at 6.9236, and re-seeding it changes nothing. Some
+coefficients are fixed in one case and free in another — `DE_CPI_m00` and
+`DE_CORE_m00` carry one each and their gaps are 1.36 and 0.00.
 
-1. **The `.pre` are not optima.** They are. Re-run through `fue` they move by
-   at most 1e-6 — the ladder's own invariant, and it holds.
-2. **The variance ratio is badly seeded**, which is the natural suspect in a
-   pass-through where the input's variance is a thousand times the output's.
-   It is not: `log(var2/var1)` starts at 6.9157 and ends at 6.9236, moving
-   0.008, and re-seeding it from the univariate sigmas changes nothing.
-3. **Some coefficients are fixed in one case and free in another.**
-   `DE_CPI_m00` and `DE_CORE_m00` each carry exactly one fixed coefficient and
-   their gaps are 1.36 and 0.00; `FR_CPI_D` carries none and has the largest.
+**A fourth measurement turned it round.** The joint fit makes the output's
+univariate sigma^2 WORSE — 0.068945 to 0.069993 in `DE_CPI_m00` — and the joint
+likelihood still improves. That cannot happen if the joint is the sum of the
+univariate ones, so the question became the identity itself.
 
-What moves is the **deterministic coefficients** — up to 0.054 in `DE_CPI_m00`
-(`omega_d1[2,0]`: −0.074221 → −0.127816) — while `DE_CORE_m00` moves nothing at
-all beyond WTI's phi at 5e-5. So a zero gap is achievable and something makes it
-non-zero in most cases.
+**The pair matrix settles it.** Every pair among five series, joint diagonal at
+the stored values against the sum of the C's univariate `logelf`:
 
-**The cause is not established and I am not going to guess it.** This is a
-finding about the ladder's diagonal gate rather than about BUG-8, it is
-reproducible in one command, and it deserves its own investigation rather than a
-paragraph at the end of someone else's. Until it is settled the bank's figures
-are indicative: the RANKING across variants of one case is what the experiment
-rests on, and every variant of a case carries the same gap, but the absolute
-likelihoods are not clean.
+```
+WTI + DE_CORE_m00       0.000000   CUADRA        ES_CPI + DE_CPI    0.000000   CUADRA
+WTI + ES_CPI_m00        8.925791                 ES_CPI + FR_CPI    0.000000   CUADRA
+WTI + DE_CPI_m00        2.283734                 DE_CPI + FR_CPI    0.000000   CUADRA
+WTI + FR_CPI_D         -7.058378
+```
+
+Two groups. Within a group the identity is exact; across groups it fails. And
+the groups are windows:
+
+```
+WTI_2005, DE_CORE_m00        180 obs from 2005   ->  w = 179
+ES_CPI, DE_CPI, FR_CPI, ...  216 obs from 2002   ->  w = 215
+```
+
+**SF_MEG's cases do not all share a window** — only `DE_CORE` runs 2005-2019;
+the other seven run 2002-2019 — and I built one WTI at 180 having seen it in
+`DE_CORE`. Pairing a 216-observation output with a 180-observation input passes
+`check_alignment`, correctly: they DO end on the same date. But the cast then
+trims to the common window, so the joint estimates the output on 179
+observations while its `.pre` is the optimum on 215. Hence the gap, the twenty
+iterations and the moving deterministics.
+
+**Confirmed by fixing it.** With the matching 216-observation WTI:
+
+| | joint | sum of univariate | difference | nit |
+|---|---|---|---|---|
+| ES_CPI_m00 | −816.352154 | −816.352154 | **0.000000** | 11 |
+| DE_CPI_m00 | −777.601757 | −777.601757 | **−0.000000** | 9 |
+| FR_CPI_D | −705.461484 | −705.461485 | **0.000000** | 12 |
+
+Exact, and the iterations fall from ~21 to 9-12.
+
+**So there is no defect, and the episode is an argument for the gate rather than
+against it.** `check_alignment` cannot catch this — the dates really do line up
+— and nothing else would have. The factorisation identity caught it in one
+evaluation, which is precisely the claim `LADDER_AS_OPTIMISATION.md` §3 makes
+for it: *"it is a complete check on the crossing: the transformation, the
+differencing, the deterministics and the seeds either all arrived intact or the
+identity fails."* It should therefore be **the bank's first gate**, run before
+any figure is read, and `run_tf.py` now picks the input matching each case's
+window.
 
 ## 6. Order of work
 
