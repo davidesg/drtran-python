@@ -29,8 +29,20 @@ import tempfile
 
 import numpy as np
 
+# El aviso `IncompleteFieldDefinitionWarning` sobre el campo `lifespan` lo emite
+# `pydantic_settings` al construir el modelo de ajustes de FastMCP: es una
+# interacción entre versiones de dependencias, NO de este código, y no afecta al
+# protocolo --stdout sale limpio--. Pero un servidor MCP habla por stdio y algunos
+# clientes muestran lo que vaya a stderr como si fuera un error. Se silencia
+# ACOTADO A ESE AVISO y sólo alrededor del import que lo dispara: un filtro
+# general taparía los que sí importan.
+import warnings as _w
+
 try:
-    from mcp.server.fastmcp import FastMCP
+    with _w.catch_warnings():
+        _w.filterwarnings("ignore", message=r".*lifespan.*incomplete definition.*")
+        _w.filterwarnings("ignore", category=UserWarning, module=r"pydantic_settings.*")
+        from mcp.server.fastmcp import FastMCP
 except ImportError:                                        # pragma: no cover
     raise ImportError("mtram needs the MCP extra: pip install 'drtran[mcp]'")
 

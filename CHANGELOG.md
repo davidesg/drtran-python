@@ -2,6 +2,15 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## 0.2.3 — 2026-08-10
+
+Limpieza para una versión estable. Sin cambios en el motor ni en mtram.
+
+- **Silenciado el aviso de `pydantic_settings` al arrancar mtram.** Sale de la
+  interacción entre versiones de dependencias, no de este código, y no toca el
+  protocolo; pero un servidor de stdio que escribe en stderr al arrancar puede
+  leerse como un fallo. Acotado a ese aviso.
+
 ## 0.2.2 — 2026-08-10
 
 Documentación. Sin cambios en el motor ni en mtram.
