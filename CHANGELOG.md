@@ -2,6 +2,12 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## 0.2.4 — 2026-08-10
+
+Corrige el silenciado de 0.2.3, que no silenciaba: el aviso de
+`pydantic_settings` salta al CONSTRUIR FastMCP, no al importarlo, y el filtro
+estaba alrededor del import. Ahora a nivel de módulo. Comprobado con -W always.
+
 ## 0.2.3 — 2026-08-10
 
 Limpieza para una versión estable. Sin cambios en el motor ni en mtram.
