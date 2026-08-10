@@ -2,6 +2,18 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## 0.2.2 — 2026-08-10
+
+Documentación. Sin cambios en el motor ni en mtram.
+
+- **`docs/TOOLS.md`, generado de los docstrings** (`tools/gen_tools_md.py`): las
+  **21** herramientas de mtram, que hasta ahora no tenían referencia ninguna. En
+  un servidor MCP el docstring es lo que lee el modelo, así que documento e
+  instrucción son el mismo texto por construcción.
+- Los enlaces de la tabla de documentación del README pasan a absolutos: los
+  relativos se rompen en cuanto el README sale del repositorio, que es lo que
+  hace en PyPI.
+
 ## 0.2.1 — 2026-08-10
 
 Corrige el EMPAQUETADO de 0.2.0, no el código: el motor y mtram son los mismos.
