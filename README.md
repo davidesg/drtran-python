@@ -42,18 +42,19 @@ reachable.
 
 | | |
 |---|---|
-| `docs/SCHOOL_PRACTICE_STUDY.md` | the school's practice, tier by tier |
-| `docs/DECISION_NODES.md` | where the analyst decides, and on what |
-| `docs/LADDER_AS_OPTIMISATION.md` | what `.inp` / `.out` / `.pre` guarantee |
+| [`docs/SCHOOL_PRACTICE_STUDY.md`](https://github.com/davidesg/drtran-python/blob/master/docs/SCHOOL_PRACTICE_STUDY.md) | the school's practice, tier by tier |
+| [`docs/DECISION_NODES.md`](https://github.com/davidesg/drtran-python/blob/master/docs/DECISION_NODES.md) | where the analyst decides, and on what |
+| [`docs/LADDER_AS_OPTIMISATION.md`](https://github.com/davidesg/drtran-python/blob/master/docs/LADDER_AS_OPTIMISATION.md) | what `.inp` / `.out` / `.pre` guarantee |
 
 **For developers**
 
 | | |
 |---|---|
-| `docs/ARCHITECTURE_MCP.md` | the `mtram` MCP surface |
-| `docs/PORTE.md` | how the C was ported, and what may not be broken |
-| `docs/BUGS.md` | the record of defects — including the ones that turned out not to be |
-| `docs/LEVEL_TRANSFER_PLAN.md` | BUG-8 end to end: the finding, the fix, the homologation |
+| [`docs/TOOLS.md`](https://github.com/davidesg/drtran-python/blob/master/docs/TOOLS.md) | every `mtram` tool, generated from the docstrings |
+| [`docs/ARCHITECTURE_MCP.md`](https://github.com/davidesg/drtran-python/blob/master/docs/ARCHITECTURE_MCP.md) | the `mtram` MCP surface |
+| [`docs/PORTE.md`](https://github.com/davidesg/drtran-python/blob/master/docs/PORTE.md) | how the C was ported, and what may not be broken |
+| [`docs/BUGS.md`](https://github.com/davidesg/drtran-python/blob/master/docs/BUGS.md) | the record of defects — including the ones that turned out not to be |
+| [`docs/LEVEL_TRANSFER_PLAN.md`](https://github.com/davidesg/drtran-python/blob/master/docs/LEVEL_TRANSFER_PLAN.md) | BUG-8 end to end: the finding, the fix, the homologation |
 
 Two more live in the repository but do NOT ship, because they are working
 records rather than documentation: `docs/DOCUMENTATION_PLAN.md` (what is still

@@ -15,6 +15,7 @@ include COPYING
 include docs/SCHOOL_PRACTICE_STUDY.md
 include docs/DECISION_NODES.md
 include docs/LADDER_AS_OPTIMISATION.md
+include docs/TOOLS.md
 include docs/ARCHITECTURE_MCP.md
 include docs/PORTE.md
 include docs/BUGS.md
