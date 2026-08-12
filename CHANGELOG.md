@@ -2,6 +2,39 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## Sin publicar — 2026-08-12
+
+**La muestra común de la puerta diagonal ignoraba `ifadf`.** `_muestra_comun`
+contaba las observaciones perdidas por diferenciación como `d + D·s`, y un factor
+de frecuencia consume observaciones igual que ∇: con `ifadf[3]=1` el operador
+lleva un `(1+B²)` de grado 2 que nadie descontaba. La puerta pedía entonces a fue
+que puntuara dos observaciones más de las que usa el ajuste conjunto, y los dos
+lados dejaban de comparar los mismos datos.
+
+Es **BUG-5 reabierto por otra puerta**: aquel se arregló para `D`, el motor ya
+tenía `differencing_poly` —que sí incluye `ifadf`— y esta función no la usaba. La
+lección de BUG-8 otra vez: comparar polinomios, no tuplas `(d, D)`. Ahora las
+pérdidas se cuentan por el grado del polinomio.
+
+Medido sobre el caso reportado (IPC_ES con f=3 estocástica frente a WTI con d=1),
+que reproduce exactamente las cifras del informe:
+
+```
+antes   suma fue = -772.025418   diagonal = -764.493984   dif +7.53
+ahora   suma fue = -765.017984   diagonal = -764.493984   dif +0.524
+```
+
+Cierra el 93 % del hueco, y el ajuste conjunto no se mueve porque sólo el lado
+univariante se estaba puntuando sobre la ventana equivocada. El residuo no es de
+muestra —los dos lados usan ya 213 observaciones— y el conjunto termina con
+`termcode=3`, así que queda anotado con el `termcode 3` de `docs/BUGS.md`.
+
+De paso, refutado el diagnóstico que traía el informe: `estimate` **sí**
+auto-detecta operadores distintos y conmuta al cast de resta —`effective_embed`
+en las líneas 108, 127 y 195 de `estimate.py`—, desde BUG-8.
+
+8 tests nuevos, 4 de los cuales fallan contra el código previo.
+
 ## 0.2.4 — 2026-08-10
 
 Corrige el silenciado de 0.2.3, que no silenciaba: el aviso de

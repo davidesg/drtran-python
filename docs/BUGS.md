@@ -1211,3 +1211,76 @@ them.
 inputs. IPC_JP needs 13 — 11 harmonics + the Nyquist alter + the 04/2014
 consumption-tax step, plus WTI. A structural limit of TASTE's format, not a
 defect, but it means the one case whose exogeneity fails has no second opinion.
+
+---
+
+## BUG-9. The diagonal gate's common sample ignored `ifadf` — FIXED
+
+**Found 2026-08-12**, moved here from `art-python/bugs/BUG-0017`, where it had
+been filed against the wrong package and with the wrong cause.
+
+### The reported cause, refuted
+
+The report said `estimate` keeps `embed=True` and never switches to the
+subtracting cast when the operators differ, calling the line in
+`check_operators` that promises the dispatch "aspirational documentation with no
+code implementing it".
+
+**It is not.** `estimate.py` calls `effective_embed(cast_spec, embed)` at lines
+108, 127 and 195. The dispatch exists and works, and has since BUG-8. Anyone
+acting on the report as filed would have rewritten something that was already
+right.
+
+### The actual cause
+
+`mcp_server.py:527`, in `_muestra_comun`:
+
+```python
+perdidas = int(getattr(m, "d", 0) or 0) + int(getattr(m, "D", 0) or 0) * freq
+```
+
+The observations lost to differencing were counted as `d + D·s`, which **ignores
+`ifadf`**. A frequency factor consumes observations exactly as ∇ does: with
+`ifadf[3]=1` the operator carries a `(1+B²)` of degree 2 that nothing subtracted.
+The gate therefore asked `fue` to score two observations MORE than the joint fit
+uses, and the two sides stopped comparing the same data.
+
+This is **BUG-5 reopened through another door.** That one was diagnosed and fixed
+for `D`; the engine already had `differencing_poly`, which does include `ifadf`,
+and this function did not use it. The lesson of BUG-8 once more: **compare
+polynomials, not `(d, D)` tuples.**
+
+### Measured
+
+IPC_ES with f=3 reformulated stochastic against WTI at d=1 — the reported case,
+whose figures it reproduces exactly:
+
+| | sum of univariate (fue) | joint diagonal (drtran) | difference |
+|---|---|---|---|
+| before | **−772.025418** | −764.493984 | **+7.53** |
+| after | −765.017984 | −764.493984 | **+0.524** |
+
+The report gave −772.03, −764.50 and +7.53. The fix closes **93 %** of the gap.
+The joint fit does not move (−764.493984 either way), because only the univariate
+side was being scored on the wrong window.
+
+### Fix
+
+Count the losses by the degree of `differencing_poly(model)`.
+
+### Regression
+
+`tests/test_common_sample_counts_ifadf.py`, 8 tests, 4 of which fail against the
+previous code. They include guards that the plain `d` and `D` cases do not move —
+among them the `D=1` that BUG-5 fixed — and the BUG-8 identity that
+`d=2, D=0, ifadf=[0,1,1]` and `d=1, D=1` give the same operator at freq=4 (degree
+**5**, not 4: `∇∇₄ = (1−B)²(1+B)(1+B²)` carries order TWO at frequency zero) and
+therefore the same common sample.
+
+### Residual, and it is not this
+
+The gate still reports «NO coinciden» by **+0.524**. That is not a windowing
+problem — both sides now score 213 observations — and the joint diagonal fit ends
+with `termcode=3` (*stopped without improvement*, 14 iterations) on a problem
+whose answer is known by construction. It belongs with the `CONVERGED (step)` /
+`termcode 2` entry under "To watch" above, not here.

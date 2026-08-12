@@ -521,13 +521,24 @@ def _muestra_comun(specs):
     correcto para un ajuste conjunto -- no se pueden usar observaciones de una
     entrada que no tienen contraparte en la salida. El oráculo hace lo mismo:
     `TFEST.PAS:71` toma un único `nob` y lo aplica a todas las series.
+
+    Las pérdidas se cuentan por el GRADO DEL POLINOMIO de diferenciación, no por
+    `d + D·s`. Esa fórmula ignora `ifadf`, y un factor de frecuencia consume
+    observaciones igual que ∇: con `ifadf[3]=1` el operador lleva un `(1+B²)` de
+    grado 2 que nadie descontaba, así que la puerta pedía a fue que puntuara dos
+    observaciones más de las que usa el ajuste conjunto y los dos lados dejaban de
+    comparar los mismos datos. Es BUG-5 reabierto por otra puerta: aquel se
+    diagnosticó y arregló para `D`, el motor ya tenía `differencing_poly` —que sí
+    incluye `ifadf`— y esta función no la usaba.
+
+    La lección de BUG-8, otra vez: **comparar polinomios, no tuplas `(d, D)`.**
     """
+    from .cast import differencing_poly
+
     ns = []
     for sp in specs:
         m = sp.model
-        freq = int(getattr(m.series, "freq", 1) or 1)
-        perdidas = int(getattr(m, "d", 0) or 0) + \
-            int(getattr(m, "D", 0) or 0) * freq
+        perdidas = len(differencing_poly(m)) - 1
         ns.append(int(getattr(m.series, "nobs", 0) or 0) - perdidas)
     return min(ns) if ns else 0
 

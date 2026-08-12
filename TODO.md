@@ -6,6 +6,41 @@ the non-negotiable principle and the validation criterion, and
 that are not translation, the homologation figures and the defects the port found
 in the original.
 
+## PRIORIDAD — Separar el asistente del motor (mtram fuera de drtran)
+
+**Plan maestro y justificación:** `art-python/TODO.md` §PRIORIDAD — Arquitectura
+asistente/motor, y `art-python/docs/ASSISTANT_LAYER_PROPOSAL.md` (inventario de
+símbolos medido). Contexto: `~/Dropbox/SRC/atws/atsw-suite/RESPUESTA_REVISION_2026-08-12.md`.
+
+La regla que decide qué va a cada lado: **todo lo que el modelo lee pertenece al
+asistente; el motor entrega números y no argumenta.** Corolario: el motor lleva
+sus reservas como DATO, no como prosa.
+
+Orden obligatorio, y el motivo: hacer (4) antes que (2) publicaría un paquete
+cuya dependencia son internos no declarados, y dejaría dos salidas — promoverlos
+igual, o clavar la versión del asistente a la del motor, que devuelve el
+acoplamiento por la puerta principal.
+
+- [ ] **(1)** `drtran/assistant/` — subir la capa de criterio fuera de
+      `mcp_server.py` a su propio subpaquete. Sin cambio de empaquetado.
+      Ahí van `report_fit` (hoy en `cli.py`, por eso el servidor importa
+      del CLI — un olor en sí mismo), el renderizado de ecuaciones,
+      `_what_the_transfer_bought` y `_certificado`.
+- [ ] **(2)** Declarar la API: `common_window` y `delta_operator` entran en
+      `__all__` con el docstring que un símbolo público debe. Son 2 de 33: el
+      resto ya es público, así que el seam está casi hecho.
+- [ ] **(3)** Partir la batería: hoy el servidor viaja con el motor.
+- [ ] **(4)** Entonces `mtram-tseries`, que a esas alturas es mecánico.
+
+**Nota de secuencia:** `mtram`/`drtran` es el par mejor desarrollado y
+portado de los tres, y el que está en uso diario. Por eso NO es por donde
+empezar: el patrón se construye primero en `sima`/`drvarma`, que no lo usa
+nadie, y se trae aquí ya aprendido. Coste ya pagado por no tenerlo: 0.2.2 →
+0.2.3 → 0.2.4 fueron documentación y un filtro de avisos, y los usuarios
+movieron su motor de estimación tres veces.
+
+---
+
 ## ANTES DE PUBLICAR 0.2.0 — inventario (2026-08-09)
 
 Lo que ha entrado desde 0.1.1: BUG-8 completo (Δ, el guardia, el despacho, la
