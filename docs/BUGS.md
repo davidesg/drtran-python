@@ -1284,3 +1284,61 @@ problem — both sides now score 213 observations — and the joint diagonal fit
 with `termcode=3` (*stopped without improvement*, 14 iterations) on a problem
 whose answer is known by construction. It belongs with the `CONVERGED (step)` /
 `termcode 2` entry under "To watch" above, not here.
+
+---
+
+## BUG-10. The level forecast's VARIANCE integrates with `d + D·s` and ignores `ifadf` — **OPEN**
+
+Found 2026-08-15, reviewing whether BUG-9 was really closed. It was, where it was
+fixed: `mcp_server._muestra_comun` now counts the losses with
+`cast.differencing_poly(m)`, and its eight tests pass. **The same defect survives
+in a second place that the fix did not reach.**
+
+`forecast.py:325-330`, inside `forecast()`:
+
+```python
+m0 = cast_spec.series[0].spec.model
+d = int(getattr(m0, "d", 0));  D = int(getattr(m0, "D", 0))
+psis = integrated_weights(psi, d, D, s)      # <- only d, D, s
+var_level = error_variance(psis, sigma, L)
+```
+
+`integrated_weights` rebuilds Δ(B) with its own `_differencing_poly(d, D, s)` —
+literally the `d + D·s` formula BUG-9 declared insufficient. A frequency factor
+consumes observations and integrates just like ∇: with `ifadf[1]=1` and s=12 the
+operator carries a `(1 − 2cos(π/6)B + B²)` that this does not see.
+
+**The MEAN of the level is right.** `to_level` (line 779) and `_build_xi` (381)
+ask `fue._nonsop_coefs` for the operator and pass it `ifadf`. Only the VARIANCE
+uses the incomplete one, which is why the defect is invisible in the point
+forecast and comes out whole in the bands.
+
+### Reproduction and size
+
+`ifadf=[0,1,0,0,0,0,0]`, s=12, white-noise ψ:
+
+| | Δ(B) used | level variance at l=12 |
+|---|---|---|
+| as it stands | `[1, −1]` | **650** |
+| with `ifadf` | `[1, −2.732, 2.732, −1]` | **12641** |
+
+A factor **19 in variance**, 4.4 in width: the bands come out at under a quarter
+of their size. The bias always runs the dangerous way — omitting non-stationary
+factors can only *reduce* the integration, never inflate it.
+
+### Two more things in those six lines, not chased
+
+1. `m0 = cast_spec.series[0]` takes the FIRST series' differencing to integrate
+   *all* of them, while the comment right above says «EACH series' differencing is
+   undone». With output and input carrying different `d` (BUG-8 territory) each is
+   integrated with the other's operator.
+2. `_differencing_poly` in `forecast.py` is a second source of truth for what
+   `cast.differencing_poly` already gets from `fue`. BUG-9's entry pointed at
+   exactly that.
+
+### Fix
+
+Have `integrated_weights` take the operator already built (or the model) instead
+of the `(d, D, s)` triple, from the same single source of truth as everything
+else. Not applied: reported and left open on 2026-08-15, with the efficiency
+study, in `docs/STUDY_efficiency_vs_c.md` §7.
