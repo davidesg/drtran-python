@@ -205,3 +205,69 @@ tomar mirándolos, no por omisión:
   estudio — falla igual contra el árbol limpio. Causa sin establecer; candidatos:
   el commit `f8ee98e` de art, el cambio a instalaciones editables, o un
   estadístico que decide al filo. Pide ficha propia en `art` y bisección.
+
+---
+
+## 8. El 42 %, desglosado (2026-08-16)
+
+Era la deuda de medición del §2. Ya no lo es. Perfil del mismo caso (r=1, `-Q`),
+agregado por módulo, excluyendo `cast_us_py` y `drvarma_elf`:
+
+| módulo | tiempo | % del total |
+|---|---|---|
+| `<builtin>` (agregado: `len`, `reduce`, `re`, `marshal`…) | 1,22 s | 13,2 % |
+| **`_docscrape.py`** (numpydoc) | **0,41 s** | **4,4 %** |
+| `embed.py` | 0,26 s | 2,8 % |
+| `forecast.py` | 0,17 s | 1,9 % |
+| `numeric.py`, `cast.py`, `linalg.py` | 0,46 s | 5,0 % |
+| `inspect.py` | 0,11 s | 1,1 % |
+| resto (cola larga) | ~1,8 s | ~19 % |
+
+Y por función, las mayores:
+
+```
+0.19 s  n=1481    embed.py:cast_embedded
+0.09 s  n=5928    forecast.py:_unscramble
+0.09 s  n=2962    cast.py:ar_is_stationary
+0.09 s  n=18482   numpy.ufunc.reduce
+0.08 s  n=588130  builtins.len
+0.08 s  n=2962    polynomial.py:roots      ─┬─ la comprobación de estacionariedad
+0.08 s  n=2962    linalg.py:eigvals        ─┘
+0.07 s  n=10752   re.Pattern.sub
+0.06 s  n=473     marshal.loads
+0.06 s  n=733     inspect.py:cleandoc
+```
+
+### La conclusión, que es negativa y por eso útil
+
+**No hay un segundo foco.** El residuo se parte en dos cosas y ninguna es un
+bloque atacable como lo era el cast:
+
+1. **Arranque fijo, ~0,7–0,8 s.** `marshal.loads` (473 módulos), `_docscrape`
+   (numpydoc analizando docstrings), `inspect.cleandoc` y las expresiones
+   regulares que los acompañan. **No escala con el problema**: es el mismo coste
+   para una serie de 300 datos que para una de 30.000, y desaparece por completo
+   si el proceso se reutiliza — que es justo lo que hace un servidor MCP.
+2. **Cola larga por evaluación, sin cima.** Nada por encima de 0,2 s. El renglón
+   mayor es el propio cuerpo de `cast_embedded`; luego `_unscramble`, la
+   comprobación de estacionariedad con `roots`/`eigvals`, y medio millón de
+   llamadas a `len`. Optimizar cualquiera de ellos por separado devuelve entre el
+   1 % y el 3 %.
+
+### Qué implica para la decisión
+
+* **Después del cast no queda una tercera palanca.** Quien esperara un segundo
+  hallazgo del tamaño del primero, no lo hay. Eso *cierra* la pregunta de si
+  merece la pena seguir buscando antes de actuar: no la merece.
+* El **arranque** es el único renglón aislable y barato, y es relevante donde de
+  verdad molesta —la latencia del servidor MCP— pero **no** en un estudio Monte
+  Carlo, donde se paga una vez. Merece una mirada (¿quién arrastra numpydoc en el
+  import?), no un proyecto.
+* La cola larga es lo que es: código Python honesto haciendo trabajo pequeño
+  muchas veces. Sólo bajaría con un cambio de contrato, que es exactamente lo que
+  propone el cast propio de `drtran` — y ése ya está justificado por el 56 %.
+
+**Aviso de método:** cProfile infla el código con muchas llamadas pequeñas, que es
+precisamente el perfil de esta cola. Los porcentajes valen para ordenar, no como
+tiempos absolutos; el reloj sin perfilar de este caso es 6,09 s frente a los 9,27 s
+perfilados.
