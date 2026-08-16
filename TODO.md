@@ -723,3 +723,113 @@ uso.
       to the same point.
       NB: multiart (drvarma) rejects termcode 3 in its order search, where the
       seeds are OLS. The two criteria coexist, but they are worth not confusing.
+
+---
+
+## APLAZADO A PROPÓSITO — un cast propio para drtran (y para drvec)
+
+**Estado: plan escrito, ejecución pospuesta. La razón del aplazamiento es de
+diseño, no de agenda, y está en §0.**
+
+Material de partida, ya escrito y verificado:
+`fue/docs/CAST.md` (el estudio del cast, doce secciones) y
+`docs/STUDY_efficiency_vs_c.md` (las mediciones, incluido el desglose del 42 %).
+
+### 0. Por qué se pospone
+
+A la suite le falta una pieza: **`drvec`**, el driver que estimará modelos de
+**corrección de error** sobre `drvarma`. `drvec` va a usar **este mismo cast**,
+igual que `drtran` — no es eficiente, pero es sólido, y esa es la propiedad que
+importa mientras una pieza se está construyendo.
+
+De ahí la decisión: **no se diseña un cast especializado para un consumidor
+cuando el segundo consumidor todavía no existe.** Un cast propio de `drtran`,
+escrito hoy contra los requisitos de `drtran`, tendría que rehacerse o
+generalizarse en cuanto `drvec` trajera los suyos — y generalizar a posteriori es
+como se llega a tres copias sin sincronizar, que es el modo de fallo conocido de
+esta suite (`drvarma`, `qnewtopt.c`).
+
+Por tanto el orden es: **`drvec` primero con el cast de `fue`**, y después una
+investigación de cast propio que **integre a los dos consumidores** y se justifique
+por los requisitos de ambos.
+
+Lo que sí conviene hacer mientras tanto: **anotar, al construir `drvec`, qué le
+pide al cast** — cuántos casts por evaluación, qué parte de su vector cambia entre
+evaluaciones, qué necesita constante. Ese registro es la entrada del punto 2 de
+abajo, y si no se toma en su momento habrá que reconstruirlo como hubo que
+reconstruir el de `drtran`.
+
+### 1. Lo que el plan puede dar por establecido
+
+De `fue/docs/CAST.md`, y no hay que volver a averiguarlo:
+
+* **§2 — el cast es reemplazable por construcción.** `est()` lo recibe como
+  puntero a función; el driver no sabe qué es un modelo de fue. Un cast propio
+  trabaja *a favor* de la arquitectura.
+* **§4 — el orden de empaquetado de `x`** es el contrato, con sus nueve grupos, y
+  hoy sólo lo sostiene la convención.
+* **§6 — la tabla de qué es constante durante una optimización.** La fila que lo
+  decide todo: para deterministas **FIR puros** el camino determinista es
+  **lineal en ω con matriz constante**, ξ = X·ω.
+* **§3 — `firstx`/`lastx` son asignación y liberación**, no recomputación parcial.
+* **§10 — el espejo en Python debe seguir siendo espejo.** Es el oráculo del
+  porte; no se reescribe por velocidad.
+
+De `docs/STUDY_efficiency_vs_c.md`:
+
+* el cast es el **56 %** del reloj; `elf` el **2 %**;
+* el 42 % restante **no tiene un segundo foco** — arranque fijo (~0,8 s, que
+  desaparece en un proceso reutilizado) y cola larga sin cima;
+* el memo (−30 %) se probó y **se revirtió**: no queda holgura por esa vía.
+
+### 2. Alcance propuesto — mínimo, y deliberadamente
+
+**Ruta rápida sólo para deterministas FIR puros con ω libres.** Es el caso caro
+—la estacionalidad determinista completa, 11 armónicos sobre 288 observaciones— y
+es además la especificación preferible en multivariante, así que no es un caso de
+laboratorio.
+
+`X` (nobs × n_interv) se construye **una vez**, al crear el `cast_spec`, y vive
+ahí. En cada evaluación el bloque [6] pasa de un bucle doble en Python a un
+`X @ ω`.
+
+**Todo lo demás delega en `fue.cast_us.cast_us_py`, sin excepciones**: un δ(B) no
+vacío, un ω fijo, cualquier forma no prevista. La superficie propia queda mínima y
+auditable, y la respuesta correcta sigue estando siempre a una llamada.
+
+Ampliar este alcance es tentador y es exactamente como empiezan las copias que
+divergen. Cualquier ampliación debería justificarse con una medición, no con una
+expectativa.
+
+### 3. La prueba de equivalencia ES el contrato
+
+No es un test más. Sin ella el porte pierde lo que hoy tiene gratis: el cast es el
+mismo objeto que valida la reproducción del binario en C a 1e-9.
+
+* la ruta rápida contra `cast_us_py` sobre **todo el banco de specs**, en cada
+  ejecución de la batería;
+* tolerancia de **epsilon de máquina**, no el «acuerdo entre motores» de 1,9e-07:
+  aquí las dos rutas deben computar lo mismo, no algo parecido;
+* y con casos que ejerciten la **frontera de la delegación**: un modelo con δ(B)
+  no vacío, uno con ω fijo, uno mixto.
+
+Si `fue` cambia el cast, la batería de `drtran` se pone roja **el mismo día**. Eso
+es lo contrario de lo que pasó con `qnewtopt.c`.
+
+### 4. Orden de ejecución, cuando llegue el momento
+
+1. `drvec` construido sobre el cast de `fue`, **anotando lo que le pide** (§0).
+2. Requisitos de los dos consumidores puestos uno al lado del otro.
+3. Prototipo de la ruta rápida **con su prueba de equivalencia desde el primer
+   commit**, no después.
+4. Medir: el caso r=1 del estudio, y un caso de `drvec`, contra las cifras ya
+   publicadas.
+5. Decidir con el número delante si el alcance mínimo basta.
+
+### 5. Lo que este plan NO promete
+
+* **Paridad con el binario en C.** No es alcanzable por esta vía ni por ninguna
+  que no sea tener todo el camino por evaluación en C.
+* **Tocar `raxopt` o `elf`.** Trabajo publicado; cualquier cosa ahí es estudio.
+* **Resolver el arranque de ~0,8 s.** Es independiente, es el único renglón
+  aislable del 42 %, y molesta en la latencia del MCP, no en un Monte Carlo.
