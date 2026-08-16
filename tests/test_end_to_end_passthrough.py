@@ -222,12 +222,25 @@ def test_regression_art_still_identifies_the_same_two_models(ladder):
     """ART's surface. lambda, d and the seasonality are what art DECIDES from
     the raw levels, and they are the whole input to everything downstream.
 
-    Recorded 2026-08-07: IPC_ES lambda=1 d=1 D=0 with 11 deterministics —
-    seasonality as HARMONICS, i.e. deterministic, which is also the preferable
-    specification for multivariate work; WTI lambda=0 d=1 D=0 with 3.
+    RE-RECORDED 2026-08-15, and the reason matters more than the numbers.
+
+    The 2026-08-07 pin said IPC_ES lambda=**1**. That was art BEFORE it had the
+    index rule, and pinning it consecrated the defect. `art f8ee98e` closed
+    BUG-0015: for a PRICE INDEX the answer is lambda=0 whatever the statistic
+    says. An index has no natural zero — its base year is a convention
+    (2016=100) — so only relative changes carry meaning, and the first
+    difference of the log reads as INFLATION, the quantity actually worked
+    with. Measured over eight monthly CPIs the statistic split them four in
+    logs and four in levels, one a hair from flipping: nothing in the data
+    distinguishes them, which is why the rule is substantive and not
+    statistical. See art/bugs/BUG-0020.
+
+    So: IPC_ES lambda=0 d=1 D=0 with 11 deterministics — seasonality as
+    HARMONICS, i.e. deterministic, which is also the preferable specification
+    for multivariate work; WTI lambda=0 d=1 D=0 with 3, unchanged throughout.
     """
     g = ladder["gate"]
-    assert "IPC_ES: lambda=1 d=1 D=0 refactor=100 deterministas=11" in g, g
+    assert "IPC_ES: lambda=0 d=1 D=0 refactor=100 deterministas=11" in g, g
     assert "WTI: lambda=0 d=1 D=0 refactor=100 deterministas=3" in g, g
 
 
@@ -238,7 +251,7 @@ def test_regression_the_univariate_likelihoods_are_unchanged(ladder):
     said. That is why this one is separate: it is the only check that fue's own
     answer has not drifted."""
     g = ladder["gate"]
-    assert _num(g, "| IPC_ES |") == pytest.approx(-988.177767, abs=1e-3)
+    assert _num(g, "| IPC_ES |") == pytest.approx(-7.297333, abs=1e-3)
     assert _num(g, "| WTI |") == pytest.approx(-755.957815, abs=1e-3)
 
 
@@ -262,7 +275,7 @@ def test_regression_mtram_lands_on_the_same_transfer(ladder):
     out = ladder["auto"]
     assert "b=1 r=0 s=0  ->  b=0 r=0 s=1" in out, out
     assert _num(out, "adecuación p =") == pytest.approx(0.0, abs=1e-4)   # antes
-    assert "exogeneidad p = 0.97" in out or "exogeneidad p = 0.98" in out
+    assert "exogeneidad p = 0.90" in out or "exogeneidad p = 0.91" in out
 
 
 def test_regression_the_gain_is_unchanged(ladder):
@@ -271,12 +284,15 @@ def test_regression_the_gain_is_unchanged(ladder):
     end of a long pipeline, and a change of 1e-6 in the fifth decimal of an
     optimiser is not a regression. A change in the second is.
 
-    NOTE for whoever reads it: output and input carry DIFFERENT lambdas here
-    (IPC_ES in levels, WTI in logs), so the gain is in units of IPC_ES level
-    per log-unit of WTI. It is not a percentage pass-through.
+    NOTE for whoever reads it: since the index rule (art BUG-0015) BOTH series
+    carry lambda=0, so the gain IS an elasticity — a percentage pass-through.
+    Under the old lambda=1 pin it read 2.5190, in units of IPC_ES level per
+    log-unit of WTI, which is not a quantity anyone can act on. The re-recorded
+    0.026920 is the number the pass-through study reports (0.0271), which is
+    the strongest available evidence that lambda=0 is the right reading.
     """
     assert _num(ladder["auto"], "ganancia nu(1) =") == pytest.approx(
-        2.5190, abs=0.01)
+        0.026920, abs=0.001)
 
 
 def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
@@ -286,7 +302,7 @@ def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
     does. It re-estimates each series with fue on the way in, so the stored
     values are seeds and nothing more: fed art's `.inp` with every parameter at
     zero, the gate lands on the same likelihoods as with fue's `.pre`
-    (-1744.135582 both ways) and closes the same way.
+    (-763.255149 both ways) and closes the same way.
 
     Which sharpens what the ladder's contract actually is. mtram needs a
     SPECIFICATION, and estimates the univariate optima itself; the `.pre` is
@@ -297,7 +313,7 @@ def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
     d = ladder["dir"]
     out = M.load_pre("SPEC", f"{d}/IPC_ES_auto.inp,{d}/WTI_auto.inp")
     assert "✅" in out, out
-    assert "-1744.135582" in out
+    assert "-763.255149" in out
 
 
 def test_a_diagonal_fit_reproduces_the_univariate_optima_exactly(ladder):
