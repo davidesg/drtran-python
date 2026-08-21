@@ -1342,3 +1342,348 @@ Have `integrated_weights` take the operator already built (or the model) instead
 of the `(d, D, s)` triple, from the same single source of truth as everything
 else. Not applied: reported and left open on 2026-08-15, with the efficiency
 study, in `docs/STUDY_efficiency_vs_c.md` §7.
+
+---
+
+## BUG-11. `fue_pre_reader.c` skips a section that `fue` always writes, and every annual `.pre` is read WRONG — **OPEN**
+
+Found 2026-08-17 from outside: `drvec` (the VEC estimator, Mauricio 2006) needed
+to read `.pre` files and reused `drtran/src/fue_pre_reader.c` rather than write a
+second reader — it is the only reader in C that is factored out, since `fue`'s
+lives inside `src/fue.c`. Its bench is **annual** (mink–muskrat, 1850–1911), and
+that is the case the reader gets wrong.
+
+### What it is
+
+`fue_pre_reader.c`, section «ifadf»:
+
+```c
+    /* ── ifadf ── */
+    if (Ts->freq > 1) {
+        Tm->ifadf = ivector(0, Ts->freq / 2);
+        fgets(line, MAXSTR, f); fgets(line, MAXSTR, f);   /* ← INSIDE the if */
+        ...
+    }
+```
+
+The two `fgets` that consume the section are **inside** the `freq > 1` branch.
+But the section is not conditional: **both of `fue`'s writers emit it always**,
+and for annual data they emit a literal `" 0"` —
+
+* `fue-1.13.1/src/fue.c:3485-3494` — `if (Ts.freq > 1) {...} else { fprintf(preputv, " 0"); }`
+* `fue/src/fue/report.py:1203-1209` — same shape in the Python port
+
+— so on an annual file the reader is two lines out of step from there on.
+
+### It is `drtran`'s alone, and it entered on extraction
+
+**`fue`'s own C reader is correct.** `fue.c:819-832` has the branch this one
+lost:
+
+```c
+   if ( Ts.freq > 1 ) { ... }
+   else                                        /* Annual data (no ifadf):    */
+      {
+      fgets( dumstrg, MAXSTR, inputv );
+      fgets( dumstrg, MAXSTR, inputv );
+      }
+```
+
+So this is not inherited from Mauricio's code: the `else` was dropped when the
+reader was extracted from `fue.c` into `fue_pre_reader.c`.
+
+### What it costs — measured, not argued
+
+On an annual `.pre` written by `fue` (61 obs, ARMA(1,1), `refactor = 1`):
+
+| | the file says | `read_fue_pre` returns |
+|---|---|---|
+| `refactor` | 1.0 | **6.95e-310** — uninitialised memory |
+| `data[1..4]` | 0.103888 0.407200 0.523871 0.036454 | **0.0 0.0** 0.103888 0.407200 |
+| `data[58..61]` | −0.860050 0.561151 0.907856 0.251745 | −0.418470 −0.534040 −0.860050 0.561151 |
+| return code | — | **0 (success)** |
+
+So: the series is displaced by two, the first two entries are zeros, **the last
+two observations are lost**, and nothing reports anything. Note `refactor` is
+read from uninitialised memory, so the existing `if (refactor == 0.0)
+refactor = 1.0` guard does **not** fire — it is not exactly zero.
+
+The AR/MA factors and `mu` come out RIGHT, because they are read *before* the
+section. That is what makes it dangerous: a consumer that only looks at the model
+block sees nothing wrong.
+
+The monthly path is untouched (checked against `tests/cases/WTI_ar1.pre`:
+`refactor = 100`, `data[1..3] = 19.67 20.74 24.42`, all correct).
+
+### Reproduction
+
+Needs no `drtran` build; the reader compiles standalone against `main.h` plus
+`nlatools.c` and the two date helpers:
+
+```c
+#include "main.h"
+#include "fue_pre_reader.h"
+real macheps;
+int main(int argc, char **argv) {
+    struct Tusmodel Tm; struct Tseries Ts; real **D = NULL;
+    printf("rc=%d refactor=%.17g data[1..3]=%.6f %.6f %.6f\n",
+           read_fue_pre(argv[1], &Tm, &Ts, &D), Ts.refactor,
+           Ts.data[1], Ts.data[2], Ts.data[3]);
+}
+```
+
+Any annual `.pre` shows it. One can be made with
+`drvec <file> 2 1 1 -case 2 -writeres p` followed by `python -m fue p.1 eml`.
+
+### Fix
+
+Move the two `fgets` out of the `if`, which is the shape `fue.c` already has:
+
+```c
+    fgets(line, MAXSTR, f); fgets(line, MAXSTR, f);
+    if (Ts->freq > 1) {
+        Tm->ifadf = ivector(0, Ts->freq / 2);
+        { char *p = line; ... }
+    } else {
+        Tm->ifadf = NULL;          /* the original left it uninitialised */
+    }
+```
+
+**Applied and verified in `drvec`'s copy** (`drvec/src/fue_pre_reader.c`, commit
+`ade4f99`), which is where it was found; annual reads then match `fue`'s parser
+exactly and the monthly path does not move. **Not applied here** — that is
+`drtran`'s call.
+
+### Why it may not have bitten yet, and when it will
+
+`drtran`'s homologated workload is monthly (`ES_CPI_m10` / `WTI_ar1`,
+`refactor=100`), and the annual workload that produced BUG-1…BUG-3 went through
+the Python, which uses `fue.load` and is not affected. What is affected is
+**anything that reads an annual `.pre` through the C binary** — and there the
+series itself is wrong, so it is not a cosmetic defect. Worth checking against
+the *Joseph's Cycles* material, which is annual by construction.
+
+### A note on where this class of defect comes from
+
+BUG-9, BUG-10 and this one are all the same shape: **`ifadf` handled as if it
+were an optional extra rather than part of the format**. Two of them compute the
+non-stationary operator without it; this one does not even read past it. The
+underlying cause is that the annual-difference factor list is the field no other
+program in this family has, so every reimplementation forgets it.
+
+---
+
+## BUG-12. `read_fue_pre` has no deallocator, so every `.pre` read is a leak — **OPEN**
+
+Found 2026-08-18 from `drvec`, which reuses the same reader (see BUG-11) and ran
+valgrind over its seeding paths.
+
+### What it is
+
+`read_fue_pre` allocates, per file: the series name and data, `DataMat`, the
+deterministic blocks (`detspec`, `Nomega`, `Omega`, `Imega`, `Ndelta`, `Delta`,
+`Ielta`), the four ARMA factor blocks (`p1/Ar1/Ia1`, `p2/Ar2/Ia2`, `q1/Ma1/Im1`,
+`q2/Ma2/Im2`), the two fixed-frequency blocks, `ifadf`, `rnsop` and `residuals`.
+
+**Nothing frees any of it.** There is no `free_fue_pre` in `drtran`, and
+`drtran.c:4278` — the only caller — does not free the structures it fills. Grep
+for a deallocator across the suite returns nothing.
+
+### What it costs
+
+Measured with valgrind on `drvec` before the fix, reading two `.pre` files:
+
+```
+definitely lost: 1,391 bytes in 22 blocks
+```
+
+~700 bytes per file, at start-up, in a batch program that exits. So the practical
+cost today is nil, and that is exactly why it has survived. Two reasons it is
+still a defect and not an acceptable state:
+
+* it is **unbounded in the number of files**, and the natural direction of this
+  suite is more series, not fewer — `drtran` already reads two, a VAR-sized
+  consumer reads M;
+* it makes the reader **unusable from a long-lived process**. `mtram` is an MCP
+  server; anything that reads `.pre` files on request and does not exit leaks
+  monotonically.
+
+### Fix
+
+`drvec` now carries one: `free_fue_pre(Tm, Ts, DataMat)` in
+`drvec/src/fue_bridge.c`. It is written as **new code in a separate file**, not
+as a patch to the vendored reader, so the reader's delta against `drtran` stays
+countable.
+
+Two things it has to respect, and getting them wrong is worse than the leak:
+
+* the 1-based Numerical-Recipes vectors are released with
+  `free_vector`/`free_ivector` **and the same bounds** they were created with;
+* the pointer arrays use the `malloc(n*size) - 1` idiom, so the pointer handed
+  back to `free()` is `p + 1`. (`gcc` cannot see the reader's subtraction and
+  warns `free-nonheap-object`; that warning is a false positive here.)
+
+Verified the only way a hand-written deallocator for someone else's allocator
+can be verified: **valgrind reports 0 bytes definitely lost and 0 errors** on
+the seeding paths afterwards, which also rules out over-freeing.
+
+It is offered for lifting into `drtran` as-is; it is a pure addition, and the
+reader itself does not change.
+
+### While there: `drvec` had the same shape of defect in its own code
+
+Worth recording because it is the general lesson, not the specific one. `main`
+had four exits — the normal one, `-lrtest`, `-writeinp/-writeres` and `-eval` —
+and only the normal one freed the file-name buffers. valgrind found it in the
+first run of a memory check that had never been run. Four exits and one cleanup
+is how a harmless leak becomes a real one; the cleanup is now a single function
+called from all four.
+
+---
+
+## BUG-13. `chisq()` inverts the tail for `df >= 30`, so every p-value built on it is complemented — **FIXED 2026-08-21 in all three programs**
+
+Found 2026-08-19 from `drvec`, which vendored `multivariate_diagnostics` and got
+`Q(40) = 23.48, p = 0.0175` with the verdict *"REJECT H0: residuals are not white
+noise"* on residuals whose true p-value is **0.98**.
+
+### What it is
+
+`nlatools.c:chisq(x, df)` is documented as the CDF, `P(chi2 < x | df)`, and is
+not one consistently:
+
+* `df < 30` — returns `gammap(df/2, x/2)`, the regularised lower incomplete
+  gamma. **Correct.**
+* `df >= 30` — Wilson–Hilferty, and then **two** tail corrections:
+
+```c
+    if (z > 0) prob = 1.0 - prob;   /* upper -> lower: right for z > 0 */
+    if (z < 0) prob = 1.0 - prob;   /* WRONG: for z < 0 it was already the CDF */
+```
+
+The Abramowitz–Stegun polynomial evaluated at `|z|` gives the upper tail of
+`|z|`, which for `z < 0` **is** the lower tail of `z`. The second `if` flips a
+value that was already right, so for `z < 0` the function returns the
+*complement* of what it promises.
+
+`z < 0` is exactly `x` below the mean of the distribution — that is, **the case
+where the statistic says the model is fine**.
+
+### What it costs
+
+Every caller writes `pval = 1.0 - chisq(stat, df)`. Composing that with the
+defect gives the LOWER tail, i.e. `1 - p`. Measured with GSL as the reference:
+
+| statistic | df | reported | true (`gsl_cdf_chisq_Q`) |
+|---|---|---|---|
+| Hosking Q | 40 | 0.0528 | **0.9472** |
+| Hosking Q | 40 | 0.0175 | **0.9825** |
+| Hosking Q | 40 | 0.3465 | **0.6535** |
+
+`chisq()` itself agrees with GSL to 4 decimals *as an upper tail* for `z < 0`,
+which is how the defect was localised.
+
+**The verdict inverts.** `multivariate_diagnostics` prints
+*"REJECT H0: residuals are not white noise"* when `pQ < 0.05`, so a model whose
+residuals are clean gets declared inadequate. The failure is silent and
+plausible-looking, and it only fires on the *good* cases.
+
+### Where it is
+
+* `drtran/src/nlatools.c` — the function.
+* `drtran/src/diagnose.c:887` (Hosking), `:946` (Jarque–Bera), `:1033` (Wald).
+* `drtran/src/drtran.c:1149` — a Ljung–Box on residuals, `nlags` can exceed 30.
+* **`drvarma`**: the same function in
+  `drvarma_source/drvarma/csrc/internal/nlatools.c`, and the same call sites in
+  `drvarma_v.04/src/diagnose.c:873, 932, 1019` (and in the earlier versions).
+
+The Wald site at `:1033` is likely unaffected in practice — a Wald test's `df`
+is usually small — but it is the same expression and should be changed with the
+rest.
+
+### Fix
+
+Two independent choices, and either works:
+
+1. **Repair `chisq`**: delete the second `if (z < 0)`. One line, and it fixes
+   every caller at once.
+2. **Ask for the tail you want**: replace `1.0 - chisq(stat, df)` with
+   `gsl_cdf_chisq_Q(stat, df)`, which *is* the upper tail and removes the
+   `1 - ...` that made the composition hard to read in the first place.
+
+`drvec` took (2), because `nlatools.c` is engine there and is not touched:
+`drvec/src/diagnose_mv.c` uses `gsl_cdf_chisq_Q` and records why. For `drtran`
+and `drvarma`, (1) is probably better — the defect is in the function, not in
+its callers.
+
+### How to test it so the test can fail
+
+This one is worth a note, because a badly chosen case passes with the bug in
+place. The defect needs **`df >= 30` AND a statistic below its mean**, so:
+
+* `df < 30` — the `gammap` branch, correct either way;
+* `df >= 30` with `Q > df` — `z > 0`, the branch that is right.
+
+Only a model that **fits**, on a system large enough for `m^2 * sqrt(n) >= 30`,
+exercises it. In `drvec`'s suite the check runs on a synthetic three-series case
+giving `Q(126) = 110`: with the fix it raises 0 failures, and restoring the
+original expression raises 1. On the two cases tried first — 28 df, and 72 df
+with `Q = 148` — the mutation raised nothing.
+
+### Fixed — 2026-08-21
+
+The second correction is gone; the first stays, because it is right:
+
+```c
+        /*  ... el polinomio de Abramowitz-Stegun evaluado en |z| da la cola
+         *  SUPERIOR de |z|.  Para z > 0 la CDF es 1 - Q(z) ... Para z < 0 la
+         *  cola superior de |z| YA ES la cola inferior de z ...              */
+        if (z > 0) prob = 1.0 - prob;
+```
+
+Applied **character for character in the four copies at once**, because the file
+is shared and a divergent fix would be worse than the defect:
+
+| copy | |
+|---|---|
+| `drvarma_source/drvarma_v.04.1/src/nlatools.c` | the canonical one |
+| `drvarma_source/drvarma/csrc/internal/nlatools.c` | the Python package's |
+| `drtran/src/nlatools.c` | |
+| `drvec/src/nlatools.c` | |
+
+`fue`'s copy does not carry `chisq` at all, so it is not affected. The archived
+`drvarma_v.01`–`v.04` still have it and were deliberately left alone.
+
+**Checked before touching anything: no caller had adapted to the defect.** All of
+them — `diagnose.c:887, 946, 1033`, `drtran.c:1149, 1313, 1320, 1353, 1474` and
+the `drvarma` equivalents — write `1.0 - chisq(...)`, so every one wants the
+upper tail and expects the CDF. Correcting the function corrects them.
+
+**Verified against `gsl_cdf_chisq_P`** through the built object, not a
+transcription:
+
+| `x` | df | `chisq()` | GSL | diff |
+|---|---|---|---|---|
+| 23.4777 | 40 | 0.01748408 | 0.01737665 | 1.1e−04 |
+| 30 | 40 | 0.12460781 | 0.12478122 | 1.7e−04 |
+| 110 | 126 | 0.15580182 | 0.15587354 | 7.2e−05 |
+| 45 | 40 | 0.72964995 | 0.72945565 | 1.9e−04 |
+| 15 | 20 | 0.22359239 | 0.22359239 | 6.3e−12 |
+
+The residue for `df ≥ 30` is Wilson–Hilferty's own approximation error, worst
+1.9e−04 over the range; below 30 the `gammap` branch is exact to machine
+precision. The first row is the one that was reported as 0.9825.
+
+### And a regression, in the one program that has a suite
+
+`drvec` **does not call** `chisq` — it routes its p-values through
+`gsl_cdf_chisq_Q` and says so in `diagnose_mv.c` — so its battery would not have
+noticed the fix breaking. It now carries `tests/chisq_probe.c` and a block
+`[8h]` that checks the function against GSL anyway: the tail is not inverted,
+the agreement is within 5e−4, and the `df < 30` branch is exact. Measured that it
+bites: putting the second correction back raises two failures.
+
+That is deliberate and worth stating, because it is unusual — **a program
+watching code it does not execute**, on the grounds that it belongs to a file
+shared with two programs that do execute it and that have no automatic suite.
+
