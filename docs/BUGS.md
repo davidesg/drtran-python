@@ -1345,7 +1345,7 @@ study, in `docs/STUDY_efficiency_vs_c.md` §7.
 
 ---
 
-## BUG-11. `fue_pre_reader.c` skips a section that `fue` always writes, and every annual `.pre` is read WRONG — **OPEN**
+## BUG-11. `fue_pre_reader.c` skips a section that `fue` always writes, and every annual `.pre` is read WRONG — **FIXED 2026-08-21**
 
 Found 2026-08-17 from outside: `drvec` (the VEC estimator, Mauricio 2006) needed
 to read `.pre` files and reused `drtran/src/fue_pre_reader.c` rather than write a
@@ -1473,7 +1473,7 @@ program in this family has, so every reimplementation forgets it.
 
 ---
 
-## BUG-12. `read_fue_pre` has no deallocator, so every `.pre` read is a leak — **OPEN**
+## BUG-12. `read_fue_pre` has no deallocator, so every `.pre` read is a leak — **FIXED 2026-08-21**
 
 Found 2026-08-18 from `drvec`, which reuses the same reader (see BUG-11) and ran
 valgrind over its seeding paths.
@@ -1686,4 +1686,54 @@ bites: putting the second correction back raises two failures.
 That is deliberate and worth stating, because it is unusual — **a program
 watching code it does not execute**, on the grounds that it belongs to a file
 shared with two programs that do execute it and that have no automatic suite.
+
+---
+
+## BUG-11 and BUG-12 — fixed 2026-08-21, in `drtran` (`d5bf5be`)
+
+Both had been fixed in `drvec`'s copy since August 17; they are now back in the
+original, which is what closes them.
+
+**BUG-11** — the two `fgets` come out of the `if (Ts->freq > 1)`, since both of
+`fue`'s writers emit the section always, and `ifadf` is set to `NULL` in the
+annual branch rather than left uninitialised. Two more things travelled with it,
+found the same way:
+
+* **the header is free-form.** Counting five lines does not read the *format*,
+  it reads one file: `fue`'s `.pre` carries a blank line after the banner, the
+  `.inp` `drvec` writes does not, and DRVUS's has one specification line fewer.
+  One row of slippage raises no error — it gives a `nobs` read off the wrong
+  line, measured at 1787128427 and death by allocation. The reader now scans for
+  the separator that says `frequency`, which is what `fue`'s own parser does.
+* **an absurd `nobs` stops there**, instead of asking for the vector and dying
+  without saying of what.
+
+**BUG-12** — `free_fue_pre` (written in `drvec`, which needed it to make its own
+memory block green) is ported and, crucially, **called** at the end of `main`. A
+deallocator nobody invokes is dead code, not a fix.
+
+Measured on `examples/work/ES_CPI_m10.pre` + `WTI_ar1.pre`:
+
+| | before | after |
+|---|---|---|
+| blocks definitely lost | **20** | **2** |
+| of them, from `read_fue_pre` | several | **0** |
+
+The two that remain are `drtran`'s own — one in `main`, one in
+`apply_univariate_model` through `build_stationary_series` — and have nothing to
+do with the reader. Left alone and recorded here rather than swept into an
+unrelated fix.
+
+**And checked that nothing moved in what already worked**: the same monthly case
+under the old reader and the new one gives a **byte-identical** output, and still
+converges in 24 iterations with `omega_0 = 0.016795 (t = 10.03)` and
+`delta_1 = 0.455685 (t = 6.39)`.
+
+### What the three of them have in common
+
+BUG-11, BUG-12 and BUG-13 were all found from `drvec`, and none of them because
+anybody went looking. They came out because a fourth program reused this code on
+a bank the original never had — **annual** rather than monthly — and ran it under
+`valgrind` with a suite that had to be green. Reuse is what found them; the
+register is what will keep them found.
 
