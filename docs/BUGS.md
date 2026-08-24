@@ -3,7 +3,7 @@
 > **Numeración compartida.** `BUG-1` a `BUG-13` viven aquí. `BUG-14` y `BUG-15`
 > son de `drvec` y están en `drvec/docs/BUGS.md`: la serie es una sola para
 > todo el conjunto —motor y cast compartidos— de modo que un número no signifique
-> nunca dos cosas. Lo siguiente que se numere aquí empieza en `BUG-16`.
+> nunca dos cosas. Lo siguiente que se numere aquí empieza en `BUG-17`.
 
 
 Found while building climate → wheat-price transfer functions on annual data
