@@ -1743,3 +1743,172 @@ a bank the original never had — **annual** rather than monthly — and ran it 
 `valgrind` with a suite that had to be green. Reuse is what found them; the
 register is what will keep them found.
 
+---
+
+## BUG-21. `test_only_fue_produces_a_pre` afirma que el `.inp` de art lleva los parámetros a 0.000000, y lo comprueba buscando una SUBCADENA: hoy falla, y cuando pasaba no probaba nada
+
+Encontrado 2026-09-23, revisando la suite de drtran-python tras los arreglos
+del contrato de ficheros en fue/art (fue BUG-0017…0022, art BUG-0187…0189).
+
+### Qué es
+
+`tests/test_end_to_end_passthrough.py::test_only_fue_produces_a_pre`:
+
+```python
+assert "0.000000" in spec, "art's .inp must be a specification, not estimates"
+```
+
+y su docstring: *«art writes one, with every parameter at 0.000000 — verified
+below»*.
+
+Las dos cosas están mal:
+
+1. **La premisa es falsa.** art no escribe los parámetros a cero: siembra el AR
+   por Yule-Walker y el MA por Hannan-Rissanen desde 2026-07-04 (`d7a9751`), la
+   μ en la media transformada desde el 18-jul (`f3de4a3`, BUG-0001), y en el
+   carril autónomo cada ronda parte del `.pre` de la anterior (regla 3 de
+   `art/AGENTS.md`). Y eso es correcto según el propio convenio: en un `.inp` los
+   valores son **semillas**, cualesquiera; lo que distingue a un `.pre` no es que
+   sus números sean distintos de cero, sino que son un óptimo.
+2. **La comprobación no mide la premisa.** `"0.000000" in spec` busca la
+   subcadena en TODO el fichero —datos incluidos— y basta un valor cualquiera
+   con esos dígitos para que pase. No puede distinguir una especificación de
+   unas estimaciones.
+
+### Reproducción
+
+```sh
+python3 -m pytest tests/test_end_to_end_passthrough.py::test_only_fue_produces_a_pre
+# AssertionError: art's .inp must be a specification, not estimates
+```
+
+El `IPC_ES_auto.inp` que genera el fixture (art en `30fdb9a`, igual con y sin los
+arreglos de hoy — comprobado generándolo con los dos):
+
+```
+** Number and orders of regular MA operators:
+1 1
+**
+-0.431588  1
+** Mean parameter (mu):
+0.154827 1
+```
+
+y los once ω de los armónicos, todos distintos de cero. No hay un solo
+`0.000000` en el fichero.
+
+### Qué cuesta
+
+Un test rojo en la suite que no señala ningún defecto del puente, y un
+docstring que enseña una regla falsa del convenio («un `.inp` lleva ceros»).
+El resto del test —que el `.pre` lo produce fue y no un MCP— es la parte que
+sí vale.
+
+### Arreglo propuesto (no aplicado)
+
+Comprobar lo que el test dice que importa: que **art no deja ningún `.pre`**.
+En el fixture, antes del paso de fue, guardar
+`glob(os.path.join(d, "*_auto.pre"))` y afirmar en el test que estaba vacío.
+Y quitar del docstring la frase de los 0.000000.
+
+### Los otros seis fallos del mismo fichero — también anteriores
+
+La suite completa da 7 fallos, todos en `test_end_to_end_passthrough.py`. Los
+siete se reproducen **idénticos, número a número, con art en `30fdb9a` y fue en
+`2549870`** (antes de los arreglos del contrato de ficheros), montados en
+worktrees. Ninguno es de esos arreglos.
+
+- **Cuatro son tripwires fijados el 16-ago** (`97ee22c`), y su propio docstring
+  dice qué hacer: leer el diff y mover el número si la respuesta nueva es mejor.
+  Es decisión del analista, no un defecto:
+  - art identifica ahora WTI con **1** determinista (antes 3);
+  - ℓ univariante de WTI **−741.630405** (fijado −755.957815);
+  - ganancia ν(1) **0.02937** (fijado 0.02692) y la p de exogeneidad;
+  - la puerta sobre la especificación: el ✅ sale, pero no el −763.255149 fijado.
+- **`test_a_genuine_pre_is_a_fixed_point`**: se movió **1.000000000001e-06**
+  contra `assert moved < 1e-6`. Es exactamente una unidad del sexto decimal —
+  el cuanto con el que el escritor redondea—, así que la tolerancia es igual a
+  la resolución del fichero y un redondeo que cambia de lado la tumba. Lo que
+  corresponde es una tolerancia de unos pocos cuantos (p. ej. `<= 5e-6`), o
+  comparar ℓ en vez de valores.
+
+---
+
+## BUG-22. El binario en C aplica Box-Cox con λ=1 como (y−1), y fue como y: sin diferenciar y con la media FIJA el escalón diagonal no homologa, y una serie en niveles que cruce el cero no entra
+
+Encontrado 2026-09-23 comprobando que el C lee los `.pre` que escribe ahora
+`fue.write_pre` (datos exactos, μ fija conservada, δ de orden 2, parámetros
+fijos exactos). Todo eso lo lee bien; esto no tiene que ver con el formato.
+
+### Qué es
+
+Con λ=1 fue **no transforma** (`fue-1.14/src/fue.c:3399-3405`, `BoxCox`):
+
+```c
+else
+    for ( i = 1; i <= nobs; i++ ) DataOutput[i] = refactor*DataInput[i];
+```
+
+drtran usa la fórmula general sin esa excepción (`drtran.c:885-888`):
+
+```c
+if (fabs(lam) < 1e-8)
+    DataMat[0][t] = log(y) * Ts->refactor;
+else
+    DataMat[0][t] = ((pow(y, lam) - 1.0) / lam) * Ts->refactor;
+```
+
+que con λ=1 es `refactor·(y−1)`. La misma fórmula está en `drtran.c:1780-1782`
+y `2300-2302`. Y antes de transformar rechaza `y <= 0` con cualquier λ.
+
+El puerto en Python homologa: usa la convención de fue.
+
+### Reproducción
+
+```sh
+python3 scripts/repro_boxcox_lambda1_c.py
+```
+
+```
+caso                     fue (suma)       drtran C        dif  medias del C
+mu_Y libre              -339.952449    -339.952449  -0.000000  mu[1] 3.515795  mu[2] 5.796710
+mu_Y fija en 0          -348.016544    -347.281718  +0.734826  mu[2] 5.796710
+mu_Y fija en 10/3       -342.806811    -340.053588  +2.753223  mu[2] 5.796710
+
+serie que cruza el cero, lambda=1: fue estima (loglik -148.620784);
+drtran C: Error: dato no positivo para Box-Cox (t=1, y=0)
+```
+
+fue estima μ_X = 6.796710 y μ_Y = 4.515795; el C da 5.796710 y 3.515795:
+**exactamente `refactor` (aquí 1) por debajo**. Sobre los mismos ficheros,
+`drtran.load_pre` da diferencia −4.9e-08 en los tres casos.
+
+### Qué cuesta
+
+- **Con la media libre, nada**: es una reparametrización (μ baja `refactor`
+  unidades y la verosimilitud coincide). Por eso la homologación canónica
+  (`ES_CPI_m10` ← `WTI_ar1`, μ libre o λ=0) nunca lo vio.
+- **Con diferencias en la frecuencia cero (d ≥ 1, o D ≥ 1), nada**: la
+  diferencia se come la constante. Medido: con d=1 y con D=1, μ_Y fija en 0, el
+  C homologa a 1e-6.
+- **Con λ=1, d=D=0 y la media FIJA, otro modelo.** Una μ fijada en 0 —la línea
+  `0`— dice E[w]=0 en fue y E[w]=+refactor en drtran (medido: +6.18 de ℓ en un
+  caso d=0 con μ_Y=0 fija; el puerto Python, −4.9e-08). La verosimilitud
+  diagonal deja de ser la suma de las de fue, que es la identidad sobre la que
+  se apoya el puente (el LR «qué compró la transferencia» se calcula contra
+  esa base). Con `refactor=100`, el desplazamiento es de 100 unidades. Es el
+  caso menos frecuente de la escuela (serie estacionaria en niveles con la
+  media fijada), por eso no salió antes.
+- **λ=1 con datos ≤ 0**, con cualquier d: tipos de interés, saldos,
+  crecimientos, series centradas. fue las estima; el C sale con 5 antes de
+  empezar. Es la consecuencia más probable en la práctica.
+- En la previsión (1780, 2300) la inversa usa la misma convención, así que los
+  niveles previstos son coherentes con el propio C; lo que no casa es la media
+  fija heredada de fue.
+
+### Arreglo propuesto (no aplicado)
+
+La excepción de fue en los tres sitios: `if (lam == 1.0) DataMat[0][t] =
+y * Ts->refactor;` (y su inversa), y mover la comprobación `y <= 0` dentro de
+las ramas que la necesitan (λ=0 y λ no entero). El repro tiene que salir con
+diferencia 0 en los tres casos y aceptar la serie que cruza el cero.
