@@ -2256,3 +2256,38 @@ señalando esta línea.
 
 La validación de atsw (`publish-atsw.yml`, art-python) importa ahora los tres
 asistentes en Python 3.10, 3.11, 3.12 y 3.13: habría parado esta publicación.
+
+---
+
+## BUG-54. Con numpy 2 el ajuste bien escalado llega al mismo óptimo pero ya no lo CERTIFICA el gradiente: `termcode` 3 en vez de 1 — **OPEN**
+
+**Qué.** `tests/test_refactor_scale.py::test_the_certificate_is_what_degrades`
+afirma que el caso canónico, a escala 100, para con `termcode == 1` —«certificado
+por el gradiente»— y a escala 1 con `termcode == 2`. En un entorno limpio con
+numpy 2.5.3 y scipy 1.18.1 (el de desarrollo tiene numpy 1.26.4 y scipy 1.17.1),
+el ajuste a escala 100 termina con:
+
+```
+Fit(logL=-718.287406, stopped without improvement, termcode=3, nit=25, npar=17)
+```
+
+El **mismo óptimo** —las otras tres pruebas del fichero, que comparan el valor,
+pasan—, con otro motivo de parada. Igual en Python 3.10, 3.11, 3.12, 3.13 y en
+Alpine.
+
+**Cómo se encontró.** Suite completa de drtran 0.2.5 sobre la rueda instalada en
+contenedores limpios (2026-09-26). No lo introduce la 0.2.5: no toca el
+optimizador.
+
+**Qué cuesta.** No es un número mal calculado. Lo que cambia es lo que mtram le
+dice al usuario sobre POR QUÉ paró el optimizador: con numpy 2, «paró sin
+mejora» donde antes decía «certificado por el gradiente», y la guía de reescalar
+a 100 —que este test documenta— pierde su síntoma visible. Es la misma familia
+que fue/BUG-0005: sobre una verosimilitud sin óptimo nítido, el camino del
+optimizador depende de detalles numéricos, y aquí el detalle es la versión de
+numpy. `test_network.py` ya lo dice del criterio: «what is required is the value».
+
+**Qué falta.** Decidir si el certificado se puede pedir con una tolerancia que
+no dependa de la última cifra del gradiente, o si la prueba y la guía tienen que
+hablar del valor y no del motivo de parada. Hasta entonces la prueba se deja
+fallando en numpy 2: la diferencia es información.
