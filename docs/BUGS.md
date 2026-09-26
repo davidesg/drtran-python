@@ -2033,7 +2033,7 @@ register is what will keep them found.
 
 ---
 
-## BUG-21. `test_only_fue_produces_a_pre` afirma que el `.inp` de art lleva los parámetros a 0.000000, y lo comprueba buscando una SUBCADENA: hoy falla, y cuando pasaba no probaba nada
+## BUG-21. `test_only_fue_produces_a_pre` afirma que el `.inp` de art lleva los parámetros a 0.000000, y lo comprueba buscando una SUBCADENA: hoy falla, y cuando pasaba no probaba nada — **FIXED 2026-09-26**
 
 Encontrado 2026-09-23, revisando la suite de drtran-python tras los arreglos
 del contrato de ficheros en fue/art (fue BUG-0017…0022, art BUG-0187…0189).
@@ -2092,7 +2092,23 @@ docstring que enseña una regla falsa del convenio («un `.inp` lleva ceros»).
 El resto del test —que el `.pre` lo produce fue y no un MCP— es la parte que
 sí vale.
 
-### Arreglo propuesto (no aplicado)
+### Arreglo aplicado — 2026-09-26
+
+Lo propuesto, y los tripwires movidos con su razón en el propio test:
+
+* el fixture guarda los `*_auto.pre` que existen ANTES de correr fue, y el test
+  exige que no haya ninguno; el docstring ya no dice que un `.inp` lleva ceros;
+* el punto fijo, con tolerancia `<= 5e-6` —unos pocos cuantos del escritor—;
+* los pines de WTI, tras comprobar que la respuesta nueva es mejor: el modelo de
+  agosto se reprodujo exacto con art-tseries 0.1.11 + fue 0.1.11 —tres impulsos
+  en 9, 10 y 11/2008 + MA(1), 4 parámetros, ℓ −755.957815— y el de art 0.2.2 es
+  un escalón en 10/2008 con ω(B) de orden 2 + MA(1), también 4 parámetros, ℓ
+  −741.630405 (AIC 1519.9 → 1491.3). La ganancia pasa de 0.026920 a 0.029370 y
+  se aparta un 8 % del 0.0271 del estudio de pass-through: dicho en el test.
+
+Resultado: `test_end_to_end_passthrough.py`, 17 de 17.
+
+### Arreglo propuesto (el de 2026-09-23)
 
 Comprobar lo que el test dice que importa: que **art no deja ningún `.pre`**.
 En el fixture, antes del paso de fue, guardar

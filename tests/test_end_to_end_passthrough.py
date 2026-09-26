@@ -79,6 +79,9 @@ def ladder(tmp_path_factory):
     # ── 3. .inp -> .pre. There is no MCP tool for this hop: art's autonomous
     #        batch writes the model as a fue input file, and fue turns it into
     #        the `.pre` that is mtram's entry contract. See the test below.
+    #        What art left BEFORE fue runs is recorded: it must be no `.pre`.
+    import glob
+    pre_de_art = sorted(glob.glob(os.path.join(d, "*_auto.pre")))
     pres = {}
     for col in ("IPC_ES", "WTI"):
         stem = os.path.join(d, f"{col}_auto")
@@ -89,7 +92,8 @@ def ladder(tmp_path_factory):
     # ── 4 y 5. mtram: the gate, then the transfer ─────────────────────────
     gate = M.load_pre("E2E", f"{pres['IPC_ES']},{pres['WTI']}")
     auto = M.build_model("E2E")
-    return dict(dir=d, batch=batch, pres=pres, gate=gate, auto=auto)
+    return dict(dir=d, batch=batch, pres=pres, gate=gate, auto=auto,
+                pre_de_art=pre_de_art)
 
 
 def test_art_builds_a_univariate_model_for_each_series(ladder):
@@ -104,9 +108,11 @@ def test_only_fue_produces_a_pre(ladder):
     The file conventions carry the division of labour, and each extension is a
     different claim:
 
-        .inp   a SPECIFICATION. art writes one, with every parameter at
-               0.000000 — verified below. Identifying is deciding lambda, d and
-               the orders; it is not estimating, and art does not claim to.
+        .inp   a SPECIFICATION. Its values are SEEDS, whatever they are —
+               art seeds the AR by Yule-Walker, the MA by Hannan-Rissanen and
+               μ at the transformed mean, so they are not zeros (BUG-21: this
+               docstring used to say they were, and the test checked it with a
+               substring search that could not tell a spec from estimates).
         .out   the full record of an estimation and its diagnosis.
         .pre   the same .inp with the estimates as new initial values — i.e.
                AN OPTIMUM, in re-runnable form. That is what makes the ladder
@@ -118,9 +124,8 @@ def test_only_fue_produces_a_pre(ladder):
     fabricated one is indistinguishable downstream from a genuine one. Only the
     program that did the estimating can make that claim.
     """
-    with open(os.path.join(ladder["dir"], "IPC_ES_auto.inp")) as fh:
-        spec = fh.read()
-    assert "0.000000" in spec, "art's .inp must be a specification, not estimates"
+    assert not ladder["pre_de_art"], (
+        f"art left a .pre before fue ran: {ladder['pre_de_art']} (BUG-21)")
     for p in ladder["pres"].values():
         assert os.path.exists(p), "fue is what turns the specification into a .pre"
 
@@ -152,7 +157,10 @@ def test_a_genuine_pre_is_a_fixed_point(ladder):
                         + [c for f in m.ma for c in f], float)
 
     moved = float(np.max(np.abs(vals(src) - vals(stem + ".pre"))))
-    assert moved < 1e-6, f"un .pre genuino debe ser punto fijo; se movió {moved}"
+    # El escritor redondea a 1e-6: una tolerancia IGUAL a esa resolución la
+    # tumba un redondeo que cambia de lado (se midió 1.000000000001e-06, una
+    # unidad del sexto decimal). Unos pocos cuantos (BUG-21).
+    assert moved <= 5e-6, f"un .pre genuino debe ser punto fijo; se movió {moved}"
 
 
 def test_the_crossing_is_exact(ladder):
@@ -241,7 +249,9 @@ def test_regression_art_still_identifies_the_same_two_models(ladder):
     """
     g = ladder["gate"]
     assert "IPC_ES: lambda=0 d=1 D=0 refactor=100 deterministas=11" in g, g
-    assert "WTI: lambda=0 d=1 D=0 refactor=100 deterministas=3" in g, g
+    # Movido 2026-09-26 (art 0.2.2): 3 -> 1. Ver el comentario de la
+    # verosimilitud, debajo.
+    assert "WTI: lambda=0 d=1 D=0 refactor=100 deterministas=1" in g, g
 
 
 def test_regression_the_univariate_likelihoods_are_unchanged(ladder):
@@ -252,7 +262,13 @@ def test_regression_the_univariate_likelihoods_are_unchanged(ladder):
     answer has not drifted."""
     g = ladder["gate"]
     assert _num(g, "| IPC_ES |") == pytest.approx(-7.297333, abs=1e-3)
-    assert _num(g, "| WTI |") == pytest.approx(-755.957815, abs=1e-3)
+    # Movido 2026-09-26: −755.957815 -> −741.630405. art 0.2 rehízo el nodo de
+    # intervención, y el hundimiento del crudo de 2008 pasa de TRES IMPULSOS
+    # (9, 10 y 11/2008, que dicen que el precio vuelve) a UN ESCALÓN en 10/2008
+    # con ω(B) de orden 2 (dice que se queda abajo, que es lo que pasó). Los dos
+    # con MA(1) y 4 parámetros: ℓ +14.33, AIC 1519.9 -> 1491.3. El modelo de
+    # agosto se reprodujo exacto con art-tseries 0.1.11 + fue 0.1.11.
+    assert _num(g, "| WTI |") == pytest.approx(-741.630405, abs=1e-3)
 
 
 def test_regression_the_diagonal_identity_holds_to_precision(ladder):
@@ -275,7 +291,8 @@ def test_regression_mtram_lands_on_the_same_transfer(ladder):
     out = ladder["auto"]
     assert "b=1 r=0 s=0  ->  b=0 r=0 s=1" in out, out
     assert _num(out, "adecuación p =") == pytest.approx(0.0, abs=1e-4)   # antes
-    assert "exogeneidad p = 0.90" in out or "exogeneidad p = 0.91" in out
+    # Movido 2026-09-26 con el modelo nuevo de WTI: 0.90/0.91 -> 0.77.
+    assert "exogeneidad p = 0.76" in out or "exogeneidad p = 0.77" in out
 
 
 def test_regression_the_gain_is_unchanged(ladder):
@@ -290,9 +307,18 @@ def test_regression_the_gain_is_unchanged(ladder):
     log-unit of WTI, which is not a quantity anyone can act on. The re-recorded
     0.026920 is the number the pass-through study reports (0.0271), which is
     the strongest available evidence that lambda=0 is the right reading.
+
+    MOVIDO 2026-09-26: 0.026920 -> 0.029370, con el modelo nuevo de WTI (un
+    escalón en 10/2008 con ω(B) de orden 2 en vez de tres impulsos; ver la
+    verosimilitud univariante). Y hay que decirlo: el número nuevo se APARTA
+    un 8 % del 0.0271 del estudio de pass-through, con el que coincidía el
+    viejo. Mejor modelo univariante no garantiza mejor ganancia: la coincidencia
+    de antes era evidencia de que λ=0 era la lectura correcta, no de que tres
+    impulsos lo fueran. Si el estudio se rehace con el WTI de art 0.2, éste es
+    el número que hay que comparar.
     """
     assert _num(ladder["auto"], "ganancia nu(1) =") == pytest.approx(
-        0.026920, abs=0.001)
+        0.029370, abs=0.001)
 
 
 def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
@@ -302,7 +328,8 @@ def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
     does. It re-estimates each series with fue on the way in, so the stored
     values are seeds and nothing more: fed art's `.inp` with every parameter at
     zero, the gate lands on the same likelihoods as with fue's `.pre`
-    (-763.255149 both ways) and closes the same way.
+    (-748.927739 both ways; -763.255149 before the WTI model of art 0.2) and
+    closes the same way.
 
     Which sharpens what the ladder's contract actually is. mtram needs a
     SPECIFICATION, and estimates the univariate optima itself; the `.pre` is
@@ -313,7 +340,7 @@ def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
     d = ladder["dir"]
     out = M.load_pre("SPEC", f"{d}/IPC_ES_auto.inp,{d}/WTI_auto.inp")
     assert "✅" in out, out
-    assert "-763.255149" in out
+    assert "-748.927739" in out
 
 
 def test_a_diagonal_fit_reproduces_the_univariate_optima_exactly(ladder):

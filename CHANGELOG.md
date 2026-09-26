@@ -2,7 +2,11 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
-## Sin publicar — 2026-08-12 · 2026-09-26
+## 0.2.5 — 2026-09-26
+
+Sale sobre todo por el primer punto: la 0.2.4 publicada —la que instala atsw
+1.5.0— no arranca `mtram` en Python 3.10 ni 3.11. Lleva también lo que estaba
+sin publicar desde agosto (al final).
 
 **`mtram` no arrancaba en Python 3.10 ni 3.11** (BUG-51). `mcp_server.py` usaba
 una barra invertida dentro de la expresión de un f-string, sintaxis que sólo
@@ -11,6 +15,23 @@ caía al importarse con un `SyntaxError`. Encontrado instalando atsw 1.5.0 en fr
 en contenedores. Una prueba nueva exige que todo el código compile con el Python
 mínimo declarado, y falla también en 3.12.
 
+**El test de la escalera completa, al día** (BUG-21). `test_end_to_end_passthrough`
+—levels → art → fue → mtram— tenía 7 fallos, ninguno del puente. Su prueba de
+que art no escribe `.pre` buscaba una subcadena y afirmaba una regla falsa (que
+un `.inp` lleva los parámetros a cero): ahora comprueba lo que importa, que art
+no deja ningún `.pre`. Y sus tripwires se movieron con la mejora de art 0.2 en
+la identificación de WTI —el hundimiento de 2008 pasa de tres impulsos a un
+escalón con dinámica, con los mismos 4 parámetros y ℓ +14.3—; la ganancia pasa
+de 0.02692 a 0.02937. La aserción que sostiene el test, la identidad de la puerta
+diagonal, no se movió: coinciden a 1.6e-7.
+
+**`drtran[plots]` exige pyfug ≥ 2.0.1**: la 2.0.0 rompe con toda serie anual.
+
+**Registrados, ABIERTOS** (del estudio de atsw, fase 3): BUG-2 sigue abierto en
+el binario en C; BUG-52 (el `.cns` nombra por posición) y BUG-53 (`load_pre` deja
+vivo el ℓ diagonal que usa el LR). Ver `docs/BUGS.md`.
+
+### Lo que estaba sin publicar (2026-08-12)
 
 **La muestra común de la puerta diagonal ignoraba `ifadf`.** `_muestra_comun`
 contaba las observaciones perdidas por diferenciación como `d + D·s`, y un factor
