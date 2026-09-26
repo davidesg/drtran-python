@@ -3,7 +3,13 @@
 > **Numeración compartida.** `BUG-1` a `BUG-13` viven aquí. `BUG-14` y `BUG-15`
 > son de `drvec` y están en `drvec/docs/BUGS.md`: la serie es una sola para
 > todo el conjunto —motor y cast compartidos— de modo que un número no signifique
-> nunca dos cosas. Lo siguiente que se numere aquí empieza en `BUG-17`.
+> nunca dos cosas. `BUG-14` a `BUG-50` están en `drvec/docs/BUGS.md`; aquí
+> siguen `BUG-51` en adelante.
+>
+> **Renumerados 2026-09-26:** los dos defectos que el estudio de atsw (fase 3,
+> 2026-09-17) registró aquí como `BUG-17` y `BUG-18` son ahora **`BUG-52`** y
+> **`BUG-53`**. Aquellos números ya los tenía `drvec` desde agosto, para otros
+> defectos: se numeraron sin mirar la serie compartida.
 
 
 Found while building climate → wheat-price transfer functions on annual data
@@ -194,7 +200,35 @@ fixed in the C as well.
 
 ---
 
-## BUG-2. The series were paired by INDEX, not by date, silently — FIXED
+## BUG-2. The series were paired by INDEX, not by date, silently — FIXED in the port, **STILL OPEN IN THE C BINARY**
+
+> **Reabierto a medias 2026-09-17** (fase 3 del estudio de atsw). El arreglo de
+> 2026-08-08 es de la LIBRERÍA en Python (`cast.check_alignment`) y de la
+> puerta. **El binario en C nunca se tocó**, y sigue cruzando series con
+> calendarios distintos sin una palabra.
+>
+> Medido sobre el m6, copiando `M6_EU.pre` con su fecha de inicio cambiada de
+> `3 1976` a `3 1990` — catorce años — y cruzándola con `M6_EP.pre`:
+>
+> ```
+> drtran M6_EP.pre M6_EU.pre            ->  0,  Log-likelihood = -626.801209
+> drtran M6_EP.pre M6_EU_desfasada.pre  ->  0,  Log-likelihood = -658.217748
+> ```
+>
+> Los mismos datos, 31,4 unidades de verosimilitud de diferencia, salida 0 en
+> los dos y **ni un aviso**. Y el informe imprime `Start: 3 1976` —la fecha de
+> la SALIDA— que es precisamente lo que tapa el desajuste: mirando el `.out` no
+> hay forma de verlo.
+>
+> La premisa está declarada en el propio C y no se comprueba:
+> `drtran.c:368-375` («ambas series arrancan en la misma fecha, así que alinear
+> por el final las alinea en el calendario»). El arreglo es el mismo que el del
+> puerto, en `read_network`/`main` antes de construir el cast: misma frecuencia
+> y misma fecha final, o error con las dos fechas en el mensaje.
+>
+> Mientras esto siga así, el arreglo protege a quien entra por mtram y no a
+> quien corre el binario — que es el camino del m6 y de todo lo documentado en
+> `drtran/docs/`.
 
 > **Verdict 2026-08-07: CONFIRMED, and it belongs to BOTH.** The dates are
 > available — `spec.ts.start`, `.freq`, `.nobs` are all read from the `.pre`
@@ -448,6 +482,260 @@ python3 scripts/repro_identify_link_output_schema.py
 Self-contained: it uses the repo-root `ES_CPI_m10.1.pre` and `WTI_ar1.1.pre`,
 prints the declared schemas of the three tools, the actual return type, the
 failure through `mcp.call_tool`, and the inverted-branch check.
+
+---
+
+## BUG-52. El `.cns` nombra por POSICIÓN —y por DOS posiciones distintas— y ninguna de las dos está en un fichero: otro orden, otro modelo, sin un aviso
+
+Encontrado 2026-09-17 en la fase 3 del estudio de atsw, subiendo un escalón de
+la escalera a mano.
+
+### Qué es
+
+El `.dag` nombra las series por **nombre**:
+
+```
+EP <- EI   1 0 1
+EP <- EC   1 0 2
+```
+
+El `.cns`, para las covarianzas de innovación, las nombra por **posición**:
+
+```
+q[5,2] = free
+q[5,4] = free
+q[3,2] = free
+```
+
+Y esa posición es el lugar que ocupa el `.pre` en la línea de órdenes. El
+propio fichero lo sabe, y lo dice — en un **comentario**, que nadie parsea:
+
+```
+# ORDEN de series en la linea de comandos (para las posiciones q[i,j]):
+#   1=EP  2=EI  3=EU  4=EC  5=EA  6=P
+```
+
+De modo que el `.cns` sólo significa algo junto a una invocación concreta, y
+esa invocación no está en ningún fichero: en el m6 vive en un Markdown,
+`drtran/docs/M6_TABLA4_BASELINE.md:318`. Y ahí escrita **no corre**, porque le
+faltan las extensiones `.pre`.
+
+### Reproducción
+
+Mismo `.dag`, mismo `.cns`, los mismos seis `.pre`. Sólo cambian de sitio las
+dos últimas series:
+
+```sh
+cd drtran/tests/data/m6
+
+drtran M6_EP.pre M6_EI.pre M6_EU.pre M6_EC.pre M6_EA.pre M6_P.pre \
+       -n m6_net.dag -c m6_net.cns -m bien
+
+drtran M6_EP.pre M6_EI.pre M6_EU.pre M6_EC.pre M6_P.pre M6_EA.pre \
+       -n m6_net.dag -c m6_net.cns -m permutado
+```
+
+Los dos salen con **0**. Los dos dicen `Constraints from m6_net.cns: 3` y
+`Structural parameters: 67 (free: 55, fixed/shared: 12)`. Los dos resuelven
+**la misma red**, porque el `.dag` va por nombre:
+
+```
+  EP <- EI   b=1, r=0, s=1        (idéntico en los dos)
+  EP <- EC   b=1, r=0, s=2
+  EI <- EU   b=1, r=0, s=3
+  EU <- EC   b=2, r=0, s=1
+```
+
+Y son modelos distintos:
+
+| | ℓ | q[3,2] | q[5,2] | q[5,4] |
+|---|---|---|---|---|
+| orden correcto | **−1697.613401** | 0.1326 * | −0.1085 | **−0.2020 \*** |
+| permutado | **−1733.212791** | 0.1646 *** | 0.0159 | **+0.0117** |
+
+35,6 unidades de verosimilitud. En el orden bueno, `q[5,4]` es la covarianza
+EA·EC y sale **−0.202, significativa**; en el permutado la posición 5 es P, así
+que es otra covarianza distinta, sale **+0.012 y no significativa**. Cambia el
+signo y cambia la conclusión: un analista publicaría lo contrario.
+
+### Y lo escribe el propio programa
+
+No es un fichero que un usuario redactara mal. `drtran -g NAME` —el conductor
+guiado de la escalera— **escribe los dos**, y escribe uno con nombres y el otro
+con números:
+
+```
+$ drtran M6_EP.pre M6_EI.pre M6_EU.pre M6_EC.pre M6_EA.pre M6_P.pre -g guiado
+
+$ cat guiado.dag
+EC   <- P      5 0 0      # pico +0.387
+EP   <- EA     5 0 0      # pico +0.377
+
+$ cat guiado.cns
+# Indices q[i,j] por orden en la linea de comandos:
+#   1=EP 2=EI 3=EU 4=EC 5=EA 6=P
+q[3,2] = free      # EI - EU : r(0) = +0.336
+q[5,4] = free      # EC - EA : r(0) = -0.338
+```
+
+Fíjate en el comentario de cada línea: **`# EI - EU`**. El programa tiene los
+nombres delante en el instante de escribir el fichero, y escribe el número,
+dejando el nombre en un comentario. La información está; el formato no la
+sostiene.
+
+### Y son DOS índices posicionales, no uno
+
+El de arriba es el orden de la línea de órdenes, que indexa `q[i,j]`,
+`phi_i`, `theta_i`, `mu[i]`. Hay un segundo, independiente: **`omega{j}` y
+`delta{j}` numeran por el ORDEN DE LAS LÍNEAS DEL `.dag`**
+(`drtran.c:3120-3123`). Reordenar líneas reetiqueta las restricciones.
+
+Medido con `m6_net_prod.cns`, que trae
+
+```
+omega1[1] = omega1[0] * theta_2[B^1]
+```
+
+—el numerador de la transferencia factorizado con la MA de su propia entrada,
+la forma m6 de Mauricio— y las **mismas cuatro líneas** del `.dag` en otro
+orden:
+
+| | ℓ | libres | qué es `omega1` | a qué se liga |
+|---|---|---|---|---|
+| `.dag` original | **−1729.016382** | 53 | `EP <- EI` (s=1) | `theta_2` = MA de **EI** ✓ |
+| líneas reordenadas | **−1733.043403** | 53 | `EP <- EC` (s=2) | `theta_2` = MA de **EI** ✗ |
+
+En el segundo, la restricción factoriza la transferencia de **EC** con la media
+móvil de **EI**. No significa nada, y se estima sin una palabra: salida 0,
+idéntico recuento de parámetros, y la red impresa es la misma —porque la red
+sí va por nombre—. Sólo cambia de sitio una línea.
+
+### Impacto
+
+Alto, y de la peor clase: no falla, acierta a medias. Un `.cns` reutilizado
+—entre casos, entre revisiones, entre personas— aplica sus restricciones a
+covarianzas distintas de las que su autor quiso, y todo lo que se ve es un
+modelo que converge.
+
+No lo atrapa ninguna de las puertas existentes. La diagonal compara el ajuste
+conjunto con red vacía contra las univariantes por separado, y las covarianzas
+liberadas no entran en esa comparación; el test del ciclo mira el `.dag`, que
+aquí está bien.
+
+Y es exactamente el mismo defecto que BUG-2 (*las series se emparejaban por
+índice, no por fecha*), un piso más arriba: allí el índice era la observación,
+aquí es la serie.
+
+### Arreglo
+
+Admitir nombres donde hoy sólo hay posiciones, que es lo que el `.dag` ya hace,
+en los dos índices:
+
+```
+q[EA,EI] = free                       # en vez de q[5,2]
+omega[EP<-EI][1] = omega[EP<-EI][0] * theta[EI][B^1]
+```
+
+o, más corto, dejando que el enlace se nombre por su par:
+
+```
+q[EA,EI] = free
+omega_EP_EI[1] = omega_EP_EI[0] * theta_EI[B^1]
+```
+
+Aceptando las dos formas, los `.cns` existentes siguen valiendo. `series_index`
+(`drtran.c:2629-2640`) ya resuelve un token a serie — es la función que el
+`.dag` usa— así que el `.cns` sólo tiene que llamarla en vez de hacer `atoi`.
+
+Ojo al hacerlo con la divergencia ya registrada: el C prueba `strtol` **antes**
+que el nombre (`drtran.c:2629-2640`) y el puerto prueba el nombre primero
+(`network.py:38-46`). Con nombres puramente numéricos eso resuelve cosas
+distintas, y conviene cerrarlo en el mismo viaje.
+
+El `.out` **sí** apunta el orden —`Output (Y): M6_EP.pre`, `Input (X1):
+M6_EI.pre`…— así que un resultado ya dice a qué serie corresponde cada
+posición. Pero el `.out` es el resultado, no la entrada: no se puede volver a
+entrar por ahí, y el `.cns` sigue sin poder expresar la ligadura. Mientras las
+covarianzas se nombren por posición, el `.cns` no es un fichero: es media
+frase.
+
+---
+
+## BUG-53. `load_pre` invalida la mitad del estado: el `logL` diagonal sobrevive a un cambio de series, y es la base del contraste LR
+
+Encontrado 2026-09-17, en el inventario de estado de la fase 3 del estudio de
+atsw.
+
+### Qué es
+
+mtram guarda su estado en seis diccionarios indexados por nombre de caso
+(`mcp_server.py:267-272`). Al recargar un caso, `load_pre` limpia dos:
+
+```python
+_SPECS[name] = specs
+_LINKS.pop(name, None)
+_FITS.pop(name, None)
+```
+(`mcp_server.py:836-838`)
+
+y deja vivos **`_TABLES`, `_DIAG` y `_DIAG_FIT`** — no hay ningún `.pop` de los
+tres en el módulo.
+
+`_DIAG[name]` es la verosimilitud del **escalón diagonal**: la que escribe la
+puerta (`mcp_server.py:651`) y la que `estimate` usa para contrastar si la
+transferencia se gana su sitio (`mcp_server.py:1806`). `_DIAG_FIT[name]` es el
+ajuste diagonal completo, y de él cuelgan la reducción de varianza
+(`:1825`), la previsión diagonal (`:1835`, `:2083`) y el orden de integración
+(`:2280`).
+
+De modo que si se recarga el mismo **nombre** de caso con series distintas —o
+con los mismos `.pre` reeditados, que por el convenio ya son `.inp`— el
+contraste «qué compró la transferencia» se calcula contra la base del caso
+anterior.
+
+### Por qué es peor que un valor que falta
+
+El código ya prevé que `_DIAG` no esté, y entonces lo dice
+(`mcp_server.py:1806-1810`):
+
+> *(No hay verosimilitud diagonal guardada: se calculó con
+> `load_pre(check=False)`. Vuelve a cargar con `check=True` para poder
+> contrastar si la transferencia se gana su sitio.)*
+
+Un valor ausente produce **ese aviso**. Un valor rancio produce **un número**,
+con sus grados de libertad y su p, y nada que lo distinga de uno bueno.
+
+### Impacto
+
+Alto en una sesión larga, que es la sesión típica: se carga un caso, se
+identifica, se prueba otra combinación de series bajo el mismo nombre, y el LR
+de la segunda se mide contra la diagonal de la primera. El síntoma es un
+contraste que sale demasiado bien o demasiado mal sin razón visible.
+
+Es además el mismo motivo por el que la fase 3 concluye que el certificado de
+la puerta diagonal tiene que **persistirse con la sesión** y no vivir en un
+diccionario: es la premisa de todo lo que está encima del escalón, y hoy es lo
+único que no se invalida cuando cambia lo de debajo.
+
+### Arreglo
+
+Invalidar los seis a la vez, que es lo que `load_pre` quiere decir:
+
+```python
+_SPECS[name] = specs
+for d in (_LINKS, _FITS, _TABLES, _DIAG, _DIAG_FIT):
+    d.pop(name, None)
+```
+
+Y, mejor, que el certificado diagonal lleve consigo **de qué series es**: la
+lista ordenada de rutas con su hash, de modo que usarlo contra otra cosa sea
+imposible en vez de improbable.
+
+### Regresión que conviene dejar
+
+Cargar un caso `X` con dos series, pasar la puerta, recargar `X` con otras dos,
+y comprobar que el contraste LR o bien se recalcula o bien dice que no lo
+tiene — pero nunca usa el anterior.
 
 ---
 
