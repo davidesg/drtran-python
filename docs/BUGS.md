@@ -1912,3 +1912,43 @@ La excepción de fue en los tres sitios: `if (lam == 1.0) DataMat[0][t] =
 y * Ts->refactor;` (y su inversa), y mover la comprobación `y <= 0` dentro de
 las ramas que la necesitan (λ=0 y λ no entero). El repro tiene que salir con
 diferencia 0 en los tres casos y aceptar la serie que cruza el cero.
+
+---
+
+## BUG-51. `mtram` no arranca en Python 3.10 ni 3.11: `mcp_server.py` usa sintaxis de f-string de 3.12 y el paquete declara `>=3.10` — **FIXED 2026-09-26**
+
+> Número de la serie compartida del conjunto: `drvec` llega hasta BUG-50.
+
+**Qué.** `_cols_polinomio` (`mcp_server.py`) escribía el signo de cada término
+dentro de la expresión de un f-string:
+
+```python
+txt = f"{'+ ' if c >= 0 else '− '}{abs(c):.4f}{pot}"
+```
+
+Una barra invertida dentro de la expresión de un f-string sólo es válida desde
+Python 3.12 (PEP 701). En 3.10 y 3.11 el módulo no compila:
+
+```
+  File ".../drtran/mcp_server.py", line 1915
+SyntaxError: f-string expression part cannot include a backslash
+```
+
+**Cómo se encontró.** Instalación en frío de atsw 1.5.0 en contenedores limpios
+de Python 3.10–3.13 (2026-09-26): `pip install atsw` termina sin aviso —drtran
+declara `Requires-Python: >=3.10`—, pero `mtram` cae al arrancar en 3.10 y 3.11.
+`compileall` con 3.10 sobre drtran, drvarma, art, fue y pyfug: éste es el único
+fichero. Se desarrolla con 3.12, por eso nadie lo había visto.
+
+**Qué cuesta.** El asistente `mtram` entero, para todo usuario con Python 3.10 o
+3.11. Publicado en 0.2.4.
+
+**Fix.** El signo, en una variable fuera del f-string.
+`tests/test_bug51_python_minimo.py` exige que todo `src/` compile con el Python
+mínimo que declara `pyproject.toml`, y falla también EN 3.12: allí el compilador
+acepta la sintaxis nueva, así que la prueba busca en los tokens las
+construcciones de f-string exclusivas de 3.12. Contra el código previo, falla
+señalando esta línea.
+
+La validación de atsw (`publish-atsw.yml`, art-python) importa ahora los tres
+asistentes en Python 3.10, 3.11, 3.12 y 3.13: habría parado esta publicación.

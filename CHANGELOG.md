@@ -2,7 +2,15 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
-## Sin publicar — 2026-08-12
+## Sin publicar — 2026-08-12 · 2026-09-26
+
+**`mtram` no arrancaba en Python 3.10 ni 3.11** (BUG-51). `mcp_server.py` usaba
+una barra invertida dentro de la expresión de un f-string, sintaxis que sólo
+acepta Python 3.12, y el paquete declara `>=3.10`: en 3.10 y 3.11 el servidor
+caía al importarse con un `SyntaxError`. Encontrado instalando atsw 1.5.0 en frío
+en contenedores. Una prueba nueva exige que todo el código compile con el Python
+mínimo declarado, y falla también en 3.12.
+
 
 **La muestra común de la puerta diagonal ignoraba `ifadf`.** `_muestra_comun`
 contaba las observaciones perdidas por diferenciación como `d + D·s`, y un factor

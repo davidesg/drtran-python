@@ -1923,7 +1923,12 @@ def _poly_lines(terms, sangria="    "):
     linea, cols, errs = sangria, [], []
     for c, e, k in terms:
         pot = "" if k == 0 else ("\u00b7B" if k == 1 else f"\u00b7B{_sup(k)}")
-        txt = f"{'+ ' if c >= 0 else '\u2212 '}{abs(c):.4f}{pot}"
+        # El signo, FUERA del f-string: una barra invertida dentro de la
+        # expresión de un f-string sólo es válida desde Python 3.12 (PEP 701),
+        # y drtran declara >=3.10. Con 3.10/3.11 este módulo no se importaba y
+        # mtram no arrancaba (BUG-51).
+        signo = "+ " if c >= 0 else "\u2212 "
+        txt = f"{signo}{abs(c):.4f}{pot}"
         if cols:
             linea += "   "
         cols.append(len(linea))
