@@ -2291,3 +2291,65 @@ numpy. `test_network.py` ya lo dice del criterio: «what is required is the valu
 no dependa de la última cifra del gradiente, o si la prueba y la guía tienen que
 hablar del valor y no del motivo de parada. Hasta entonces la prueba se deja
 fallando en numpy 2: la diferencia es información.
+
+## BUG-55. The C engine forecasts the MA part with STANDARDISED residuals for every series but the first — **OPEN**
+
+**Where.** The C engine only: `engines/drtran/src/drtran.c` in the atsw-gui
+monorepo, `forecast_levels` (~1320) and `transfer_forecast` (~1727). The Python
+port is **not** affected: `netid.residuals` calls `elf` with `atf=True`.
+
+**What.** Both functions call `elf` with `atf = FALSE`, under a comment that
+says the call is there to obtain the residuals for the MA part of the forecast.
+With `atf = FALSE`, `elf` does not run `cres`. What it leaves in `a` is
+η = L⁻¹a (`elfvarma.c`, block [5.2]): the conditional residuals premultiplied
+by the inverse Cholesky factor of Q, **not** the residuals. `forecast_model`
+then uses η in the MA part as if it were a.
+
+In the embedded form `elf` does provide the residuals, as it should, but it
+provides them standardised, and the forecast needs them on their own scale.
+
+- Row 1 has Q₁₁ = 1 (the structural normalisation) and L₁₁ = 1, so its
+  residual comes out right.
+- Every other row is scaled by 1/√Qᵢᵢ and mixed with the rows above it by L.
+
+**Reproduction** (`engines/drtran/tests/repro/bug55_ma_residuals.sh`). The
+diagonal system (`-0`, no transfer) of two univariate models must forecast each
+series exactly as its own model does. ES_CPI_airline has MA(1)×SMA(1)₁₂:
+
+| 1/2020, 2/2020, 12/2020 | level forecast |
+|---|---|
+| fue (and drvarma's ladder) | 81.89, 81.91, 83.82 |
+| drtran, airline **first**, WTI second | 81.89, 81.92, 83.84 |
+| drtran, WTI first, airline **second** | **85.42, 79.97, 95.01** |
+
+With WTI first, Q₂₂ = σ²_ES/σ²_WTI ≈ 1e-3, so the MA part is about 30 times too
+large. A copy of drtran with `atf = TRUE` in those two calls forecasts
+81.89, 81.91 and 83.82 with the airline second: that confirms the cause.
+
+**What it touches.** Every forecast of the C engine (the forecast report, the
+LaTeX report, the aggregates, and the recursive evaluation `-R`) for a row
+whose MA part is not empty and whose Cholesky row is not the identity. Checked
+against the same copy with `atf = TRUE`:
+
+- **verified:** a series other than the first with an MA of its own (the
+  reproduction above);
+- **verified:** the first series, when a contemporaneous link (b = 0) moves
+  its reduced Q₁₁ away from 1. ES_CPI_m10 ← WTI with `-b 0 -r 1 -s 0` gives
+  82.00 / 84.18 (1/2020, 12/2020) against 82.03 / 84.26;
+- **verified unaffected:** the first series with b = 1, even when its MA row
+  carries a rational denominator (`-b 1 -r 1 -s 0`: 82.07 / 84.35 both ways);
+- **inferred, not reproduced:** a series other than the first that receives
+  a rational transfer (r > 0) inside a network (`-n`). In the embedded cast
+  its MA row carries Dᵢ θᵢ, so it has an MA part even without an MA of its
+  own.
+
+A system whose rows are all pure AR (the battery's canonical case, CPI + WTI
+AR(1) with r = 0) never enters the MA part. That is why nothing caught it.
+
+**Why it was there.** The call was added so that the MA part would not use
+residuals that were all ZERO (the comment says so). It did not have to
+recompute anything. It had to ask `elf` for the residuals with `atf = TRUE`,
+which is what drvarma's `.inp` path, its ladder, and drtran-python do.
+
+**Fix.** `atf = TRUE` in both calls. The C forecasts of the cases above then
+agree with fue.
