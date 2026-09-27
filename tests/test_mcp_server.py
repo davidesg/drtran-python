@@ -74,8 +74,12 @@ def test_a_cyclic_network_is_refused_and_routed_to_sima():
     mtram.load_pre("c", f"{ES},{WTI}")
     cyclic = json.dumps([{"out": 0, "inp": 1, "b": 1},
                          {"out": 1, "inp": 0, "b": 1}])
-    with pytest.raises(ValueError, match="CYCLE|ciclo"):
-        mtram.set_network("c", cyclic)
+    txt = mtram.set_network("c", cyclic)
+    assert "CYCLE" in txt                           # refused, and says why
+    assert "c" not in mtram._LINKS                  # nothing was set
+    # ...and says where to go: the exact call, with the SAME files
+    assert 'load_pre(name="c"' in txt
+    assert ES in txt and WTI in txt
 
 
 @pytest.mark.skipif(not os.path.exists(os.path.join(DATA, "m6")),
@@ -91,6 +95,9 @@ def test_the_cycle_message_names_sima_and_the_cycle():
     assert "sima" in txt
     assert "->" in txt, "it must name the cycle, not just its existence"
     assert "poda" in txt.lower() or "PODE" in txt
+    # the hand-over is a call, not prose: sima loads the SAME .pre files
+    assert 'load_pre(name="m6"' in txt
+    assert "M6_EP.pre" in txt and "M6_P.pre" in txt
 
 
 # ── the refusals, which are answers ──────────────────────────────────────────

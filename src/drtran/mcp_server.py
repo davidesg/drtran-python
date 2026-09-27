@@ -239,8 +239,12 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
 7. evaluate            fuera de muestra: MAE/RMSE/MAPE por horizonte
 
 ⚠ SI identify_network PROPONE UN CICLO: el sistema es SIMULTÁNEO. No se puede
-  expresar como VARMA triangular. DÍSELO al usuario y remítelo a `sima`, el
-  asistente de VARMA simultáneo. No podes el ciclo por tu cuenta para que
+  expresar como VARMA triangular: un ciclo es donde TERMINA mtram. DÍSELO al
+  usuario y pásalo a `sima` con los MISMOS .pre: el tool te da la llamada
+  exacta (load_pre con la lista de ficheros). No es la mejor parametrización de
+  un VARMA, pero es una buena semilla —la autocorrelación de cada serie ya viene
+  modelizada— y el univariante es la vara de medir: un VARMA que no lo mejora
+  fuera de muestra no aporta. No podes el ciclo por tu cuenta para que
   "funcione": la poda es juicio del analista, no aritmética.
 
 ══════════════════════════════════════════════════════
@@ -1497,6 +1501,21 @@ def refine_link(name: str, input_index: int = 1, b: int = -1,
     return "\n".join(out)
 
 
+def _handoff_to_sima(name, specs):
+    """The hand-over to sima when the network has a cycle: the exact call.
+
+    A cycle is where mtram ends, and sima (sima-tseries, on drvarma's ladder)
+    takes the SAME .pre files as a general VARMA. The hand-over used to be
+    prose ("route them to sima") while sima could not read a .pre; now it is a
+    call the model can make.
+    """
+    paths = json.dumps([sp.path for sp in specs])
+    return ("  → sima: los MISMOS modelos univariantes, como VARMA general:\n"
+            f"      load_pre(name=\"{name}\", paths_json='{paths}')\n"
+            "    Cada modelo queda en la diagonal; son la semilla del sistema y la\n"
+            "    vara de medir que el VARMA tiene que mejorar fuera de muestra.")
+
+
 @mcp.tool()
 def identify_network(name: str, nlags: int = 0) -> str:
     """Propose the whole NETWORK from the residual CCFs of the DIAGONAL fit.
@@ -1506,8 +1525,10 @@ def identify_network(name: str, nlags: int = 0) -> str:
     together contemporaneously.
 
     ⚠ IF THE PROPOSAL CONTAINS A CYCLE the system is SIMULTANEOUS: it has no
-    topological order and cannot be cast as a triangular VARMA. Tell the analyst
-    and route them to `sima`. Do not prune the cycle yourself to make it fit.
+    topological order and cannot be cast as a triangular VARMA. That is where
+    mtram ends. Tell the analyst and hand the SAME .pre files to `sima` (the
+    output gives the exact load_pre call). Do not prune the cycle yourself to
+    make it fit.
     """
     specs = _require(name)
     cs = build_cast_spec(specs)
@@ -1521,8 +1542,9 @@ def identify_network(name: str, nlags: int = 0) -> str:
         txt += ("\n\n  *** CICLO: " + route + "\n"
                 "  La propuesta NO es un DAG: el sistema es SIMULTÁNEO y no se\n"
                 "  puede expresar como VARMA triangular. Esto es el límite de\n"
-                "  mtram. Remite al analista a `sima` (VARMA simultáneo), o\n"
-                "  pídele que PODE uno de esos enlaces — la poda es su juicio.\n")
+                "  mtram. Dos salidas, y la decisión es del analista:\n"
+                + _handoff_to_sima(name, specs) + "\n"
+                "  → o PODAR uno de esos enlaces — la poda es su juicio.\n")
     return txt
 
 
@@ -1540,7 +1562,11 @@ def set_network(name: str, links_json: str) -> str:
     links = [Link(out=int(d["out"]), inp=int(d["inp"]), b=int(d.get("b", 0)),
                   r=int(d.get("r", 0)), s=int(d.get("s", 0))) for d in spec]
     names = [s.name for s in specs]
-    check_acyclic(links, len(specs), names)          # raises on a cycle
+    try:
+        check_acyclic(links, len(specs), names)      # raises on a cycle
+    except ValueError as e:
+        return (f"{e}\n\nUn ciclo es donde termina mtram.\n"
+                + _handoff_to_sima(name, specs))
     _LINKS[name] = links
     _FITS.pop(name, None)
     return "\n".join([f"Red de {name!r}: {len(links)} enlace(s)."] +
@@ -3069,7 +3095,8 @@ def build_model(name: str, horizon: int = 12) -> str:
                 "    sería inventar una estructura recursiva que los datos no",
                 "    sostienen. Esto es un HALLAZGO, no un obstáculo.",
                 "",
-                "    → El asistente que corresponde es `sima` (VARMA simultáneo).",
+                "    → El asistente que corresponde es `sima` (VARMA simultáneo):",
+                _handoff_to_sima(name, specs),
                 "    → O poda tú uno de esos enlaces: la poda es tu juicio."]
         return "\n".join(log)
 

@@ -2,6 +2,20 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## Unreleased
+
+**A cycle hands the SAME `.pre` files to sima, as a call.** When the network
+identification finds a cycle, the system is simultaneous and mtram ends there.
+mtram already said "route them to sima", but sima could not read a `.pre`,
+so the hand-over was prose. sima-tseries (on drvarma 0.2's ladder) takes the
+same files, and mtram now writes the exact call for the model to make:
+`load_pre(name="…", paths_json='[…]')`. It does so in `identify_network`, in
+the autonomous lane (`build_model`), and in `set_network`, which now returns
+the refusal with the way on instead of raising. The framing is in the
+instructions: the univariate models are the seed of the VARMA and the
+yardstick it has to beat out of sample. Tested on m6, whose proposal is
+cyclic (EP → EC → EA → EP); the six files load in sima and pass its gate.
+
 ## 0.2.5 — 2026-09-26
 
 Sale sobre todo por el primer punto: la 0.2.4 publicada —la que instala atsw
