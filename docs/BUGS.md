@@ -2364,3 +2364,47 @@ those standardised residuals for every series but the first: on the
 canonical case, WTI's residuals read 0.23 where they are 7.52. The forecasts
 of pure-AR systems do not change: 13 reference outputs are identical except
 that column.
+
+## BUG-56. The C engine turned a Hessian that is not positive definite into standard errors, and lost the status that said so — **FIXED 2026-09-27**
+
+**Where.** The C engine only: `engines/drtran/src/drvmlest.c`, `est` [2b], in
+the atsw-gui monorepo. drvarma's C has the same code under `est_fdhess` (the
+ladder), and it is fixed the same way. The Python port (`estimate.standard_errors`)
+already checks the eigenvalues and returns NaN with `ifault = 2`.
+
+**What.** After `fdhess`, `est` factors the Hessian with `choldcp`. That is the
+MODIFIED Cholesky of the optimiser: it patches a pivot that is small or
+slightly negative, and only fails on a clearly negative one. So a Hessian that
+is not positive definite still yields a covariance, and those standard errors
+describe curvature that does not exist. When `choldcp` did fail, its status
+went to `*ifault`, which block [4] then overwrote with the status of the last
+`cast`/`elf`. Nobody ever saw it.
+
+**Reproduction** (`test_battery.sh` §3d). ES_CPI_m10 ← WTI_ar1, `-b 0 -r 0 -s 1
+-S` with `q[2,1] = free`: a contemporaneous transfer and a free innovation
+covariance explain the same lag-0 covariance, so the likelihood has a ridge.
+The estimates run to a corner (correlation −0.986). The old binary reported
+omega1[0] with SE 0.0018 (t = 87) and |t(q[2,1])| > 100, and the battery
+pinned that as "the pathology". At that point the Hessian is not positive
+definite, so the precision was invented.
+
+**Fix (2026-09-27, atsw-gui).**
+
+- Before trusting `fdhess`, `est` checks it with a plain Cholesky.
+- A neighbour that `objcfunc` refuses (non-invertible, non-stationary, Q not
+  positive definite) means the optimum is on the boundary, where no
+  unrestricted Hessian exists.
+- In either case the BFGS factor that `raxopt` left is used. The report
+  says so and says why: `Standard errors: bfgs (fdhess: the Hessian is not
+  positive definite)` / `(… on the boundary …)`. Otherwise it reads
+  `Standard errors: fdhess`.
+- The `choldcp` status no longer goes through `*ifault`.
+- §3d now pins the correlation and that statement: t(q[2,1]) = −0.95.
+
+**Still open.** The C and this port now say "no fdhess here" in different
+ways: the C falls back to BFGS with the reason, and the port gives NaN with
+`ifault = 2`. The port also has no boundary check: its sentinel is 1.0 on an
+objective that is not normalised, so it cannot be told from a real value.
+drvarma-python, which the standard-error study
+(`docs/STUDY-standard-errors.md` there) decided, falls back like the C. The
+choice between the two is left to be made for the family.
