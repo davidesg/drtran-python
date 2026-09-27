@@ -2292,7 +2292,7 @@ no dependa de la última cifra del gradiente, o si la prueba y la guía tienen q
 hablar del valor y no del motivo de parada. Hasta entonces la prueba se deja
 fallando en numpy 2: la diferencia es información.
 
-## BUG-55. The C engine forecasts the MA part with STANDARDISED residuals for every series but the first — **OPEN**
+## BUG-55. The C engine forecasts the MA part with STANDARDISED residuals for every series but the first — **FIXED 2026-09-27**
 
 **Where.** The C engine only: `engines/drtran/src/drtran.c` in the atsw-gui
 monorepo, `forecast_levels` (~1320) and `transfer_forecast` (~1727). The Python
@@ -2309,7 +2309,10 @@ In the embedded form `elf` does provide the residuals, as it should, but it
 provides them standardised, and the forecast needs them on their own scale.
 
 - Row 1 has Q₁₁ = 1 (the structural normalisation) and L₁₁ = 1, so its
-  residual comes out right.
+  residual has the right scale. It is still the CONDITIONAL residual,
+  though, not the exact one. With an MA near non-invertibility (the airline's
+  SMA, Θ = 0.81) the conditional residuals converge slowly, and row 1 was off
+  too, only slightly: 83.84 against 83.82 at 12/2020.
 - Every other row is scaled by 1/√Qᵢᵢ and mixed with the rows above it by L.
 
 **Reproduction** (`engines/drtran/tests/repro/bug55_ma_residuals.sh`). The
@@ -2351,5 +2354,13 @@ residuals that were all ZERO (the comment says so). It did not have to
 recompute anything. It had to ask `elf` for the residuals with `atf = TRUE`,
 which is what drvarma's `.inp` path, its ladder, and drtran-python do.
 
-**Fix.** `atf = TRUE` in both calls. The C forecasts of the cases above then
-agree with fue.
+**Fix (2026-09-27, atsw-gui).** `atf = TRUE` in both calls, which gives the
+exact residuals, on their own scale. The reproduction gives 81.89 / 81.91 /
+83.82 in both positions, as fue does. `test_battery.sh` §17 checks it, and
+fails on the previous binary (85.42 / 95.01 second, 83.84 first).
+
+A second symptom went with it. The ERR column of the forecast report printed
+those standardised residuals for every series but the first: on the
+canonical case, WTI's residuals read 0.23 where they are 7.52. The forecasts
+of pure-AR systems do not change: 13 reference outputs are identical except
+that column.
