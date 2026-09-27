@@ -2401,10 +2401,20 @@ definite, so the precision was invented.
 - The `choldcp` status no longer goes through `*ifault`.
 - §3d now pins the correlation and that statement: t(q[2,1]) = −0.95.
 
-**Still open.** The C and this port now say "no fdhess here" in different
-ways: the C falls back to BFGS with the reason, and the port gives NaN with
-`ifault = 2`. The port also has no boundary check: its sentinel is 1.0 on an
-objective that is not normalised, so it cannot be told from a real value.
-drvarma-python, which the standard-error study
-(`docs/STUDY-standard-errors.md` there) decided, falls back like the C. The
-choice between the two is left to be made for the family.
+**The port, aligned (2026-09-27).** `estimate.standard_errors` now does what
+the C and drvarma do:
+
+- It counts the neighbours the likelihood refuses, which is the boundary check.
+  The sentinel 1.0 alone could not be told apart from a real value.
+- When fdhess cannot be used, it falls back to the BFGS Hessian `fit`
+  now keeps (`Fit.bfac`, `Fit.fk`). The reason goes in
+  `StdErrors.method`, and the report prints it as `Standard errors: …`.
+  `ifault` is 0 then.
+- It falls back only if the search built that Hessian. raxopt starts it at
+  the identity, so a search that stopped at step 0 has none. Then the
+  standard errors stay NaN, `ifault` is 2 (not PD) or 3 (boundary), and
+  `method` starts with "none". The C engines gained the same rule
+  (`EST_SE_NONE_*`).
+
+`tests/test_stderr.py::test_ridge_falls_back_to_bfgs_and_says_why` (slow)
+runs the §3d ridge.

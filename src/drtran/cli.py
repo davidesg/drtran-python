@@ -316,8 +316,9 @@ def report_fit(fit, table, names, se=None):
     if se is not None and not se.ifault:
         out.append("")
         out.append("  Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1")
-        out.append("  Standard errors from the Hessian recomputed at the optimum")
-        out.append("  (finite differences), not from the optimiser's BFGS matrix.")
+    if se is not None:
+        # The method, always, as the C writes it (BUG-56).
+        out.append(f"  Standard errors: {se.method}")
     out.append("=" * 70)
     return "\n".join(out)
 
@@ -643,8 +644,7 @@ def _run(o, files):
         from .estimate import standard_errors
         se = standard_errors(f, xitol=-1e-3)
         if se.ifault and o["verbose"]:
-            sys.stderr.write("drtran: the Hessian at the optimum is not usable; "
-                             "reporting without standard errors\n")
+            sys.stderr.write(f"drtran: no standard errors: {se.method}\n")
     parts = [report_fit(f, table, names, se)]
 
     # ── network identification (-i / -g) ─────────────────────────────────────

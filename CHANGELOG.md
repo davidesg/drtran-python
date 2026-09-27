@@ -4,6 +4,14 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**Standard errors: when fdhess cannot be used, the BFGS Hessian, said**
+(BUG-56). Until now a Hessian that was not positive definite gave NaN. It now
+gives the BFGS Hessian of the search, as the C engines and drvarma do. A
+neighbour the likelihood refuses marks a boundary optimum, which also falls
+back. Every report ends with `Standard errors: <method>`, where the method is
+`fdhess`, `bfgs (fdhess: <why>)`, or `none (…)` when the search did not move
+and so built no BFGS Hessian.
+
 **A cycle hands the SAME `.pre` files to sima, as a call.** When the network
 identification finds a cycle, the system is simultaneous and mtram ends there.
 mtram already said "route them to sima", but sima could not read a `.pre`,

@@ -46,6 +46,10 @@ class Fit:
     slots: object = None          # SlotTable, if the fit is constrained
     xfree: object = None          # what the optimizer saw (x is the full one)
     embed: bool = True            # which cast produced it; `standard_errors` needs it
+    # raxopt's factored BFGS Hessian and the (normalised) objective it goes
+    # with: `standard_errors` falls back to them when fdhess cannot be used.
+    bfac: object = None
+    fk: float = None
 
     # The optimizer's termcode (raxopt / qnewtopt.c), with the classification
     # drtran settled on at its M1 milestone: 1-2 convergence, 3 stopped WITHOUT
@@ -197,11 +201,11 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     def _ll(v):
         return loglik(expand(v), cast_spec, xitol, embed)
 
-    def _pack(v, ll, ifa, termcode, nit):
+    def _pack(v, ll, ifa, termcode, nit, bfac=None, fk=None):
         return Fit(x=np.asarray(expand(v), float), loglik=ll, ifault=int(ifa),
                    termcode=int(termcode), nit=int(nit), cast_spec=cast_spec,
                    converged=int(termcode) in (1, 2), slots=slots,
-                   xfree=np.asarray(v, float), embed=embed)
+                   xfree=np.asarray(v, float), embed=embed, bfac=bfac, fk=fk)
 
     f1_0, f2_0, ifa0 = _f1f2(expand(x_ini), cast_spec, xitol, embed)
     if ifa0 or f1_0 is None or not (f1_0 > 0.0 and f2_0 > 0.0):
@@ -226,11 +230,11 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     def func1(xk1):
         return objective(xk1[1:npar + 1])
 
-    _fk, _bfac, nit, termcode = _qnewt.raxopt(func1, npar, xk, maxits, grtol, sptol)
+    fk, bfac, nit, termcode = _qnewt.raxopt(func1, npar, xk, maxits, grtol, sptol)
     x_hat = xk[1:npar + 1].copy()
 
     ll, ifa = _ll(x_hat)
-    return _pack(x_hat, ll, ifa, termcode, nit)
+    return _pack(x_hat, ll, ifa, termcode, nit, bfac=bfac, fk=float(fk))
 
 
 @dataclass
@@ -243,6 +247,9 @@ class StdErrors:
     t: np.ndarray                 # (nslot,) t = estimate / s.e.
     p: np.ndarray                 # (nslot,) two-sided p-value
     ifault: int = 0
+    # Which Hessian: "fdhess"; "bfgs (fdhess: <why>)" when it could not be
+    # used and the search built one; "none (…)" when neither exists.
+    method: str = "fdhess"
 
 
 def _normal_cdf(z):
@@ -278,10 +285,17 @@ def standard_errors(fit, xitol=-1e-3):
     therefore do not depend on where the search started, which is the whole
     point.
 
-    `ifault` in the result: 0 fine, 1 the Hessian could not be built, **2 the
-    Hessian at that point is not positive definite** — which means the point is
-    not a maximum, not that the arithmetic failed. Reporting standard errors
-    there would be reporting curvature that does not exist.
+    When fdhess cannot be used, the BFGS Hessian of the search is, and
+    `method` says why: `"bfgs (fdhess: the Hessian is not positive
+    definite)"` (the point is not a maximum) or `"bfgs (fdhess: the optimum is
+    on the boundary of the admissible region)"`. The C does the same
+    (BUG-56). `ifault` stays 0 then, and the covariance is usable, with that
+    caveat.
+
+    `ifault` otherwise: 1 the Hessian could not be built; 2 or 3 (not
+    positive definite / boundary) only when there is no BFGS Hessian either,
+    because the search did not move. Then all standard errors are NaN and
+    `method` starts with "none".
 
     Cost: (k^2 + 3k)/2 likelihood evaluations for k free parameters, so this is
     computed on demand rather than inside `fit`.
@@ -302,9 +316,12 @@ def standard_errors(fit, xitol=-1e-3):
     k = len(xfree)
     nslot = len(slots) if slots is not None else k
 
+    rejected = [0]
+
     def objective(v):
         f1, f2, ifa = _f1f2(expand(np.asarray(v, float)), cast_spec, xitol, embed)
         if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
+            rejected[0] += 1          # counted: 1.0 alone cannot be told apart
             return 1.0
         return (f1 ** cast_spec.m) * f2
 
@@ -333,7 +350,9 @@ def standard_errors(fit, xitol=-1e-3):
         return empty
 
     H = np.zeros((k + 1, k + 1))
-    _qnewt.fdhess(func1, k, x1, fk, _qnewt.MACHEPS, H)
+    rejected[0] = 0
+    with np.errstate(over="ignore", invalid="ignore"):
+        _qnewt.fdhess(func1, k, x1, fk, _qnewt.MACHEPS, H)
 
     # POSITIVE DEFINITENESS, checked before trusting the factorisation.
     #
@@ -345,27 +364,48 @@ def standard_errors(fit, xitol=-1e-3):
     # m6, at the `.pre` seeds 2 of its 55 eigenvalues are <= 0, while at the C's
     # actual optimum all 55 are positive.
     #
-    # This is the risk drvarma's `est` avoids by using the optimiser's BFGS
-    # matrix instead, which is positive definite by construction and therefore
-    # never fails — at the price of not being the curvature at the optimum. The
-    # trade is: BFGS always answers, sometimes wrongly; fdhess answers correctly
-    # or, with this guard, says it cannot.
-    w = np.linalg.eigvalsh(0.5 * (H[1:, 1:] + H[1:, 1:].T))
-    if w.min() <= 0.0:
+    # The BOUNDARY comes first: a neighbour the likelihood refuses (MA not
+    # invertible, AR not stationary, Q not PD) means the optimum rests on the
+    # edge of the admissible region, where no unconstrained Hessian exists
+    # (drvec INFERENCE.md §6). An indefinite Hessian built from admissible
+    # points is a different statement: the point is not a maximum.
+    #
+    # Either way the family does the same (BUG-56; drvarma-python
+    # docs/STUDY-standard-errors.md): the BFGS Hessian of the search is used,
+    # and `method` says why. BFGS is positive definite by construction and so
+    # always answers, but it is not the curvature at the optimum. It is only
+    # used if the search built it: raxopt starts from the identity, so a
+    # search that stopped at step 0 (a `.pre` that already is the optimum)
+    # has no BFGS matrix to fall back on. Then there are no standard errors.
+    Hs = 0.5 * (H[1:, 1:] + H[1:, 1:].T)
+    why = code = None
+    if rejected[0] or not np.all(np.isfinite(Hs)):
+        why, code = "the optimum is on the boundary of the admissible region", 3
+    elif np.linalg.eigvalsh(Hs).min() <= 0.0:
+        why, code = "the Hessian is not positive definite", 2
+
+    if why is None:
+        L, _detfac, ifa = _chol_lower(H, k)
+        if ifa:
+            why, code = "the Hessian is not positive definite", 2
+    if why is None:
+        method, fac, fval = "fdhess", L, fk
+    elif fit.bfac is not None and fit.nit and fit.nit > 0:
+        method, fac, fval = f"bfgs (fdhess: {why})", fit.bfac, fit.fk
+    else:
+        reason = ("the search did not move, so it built no BFGS Hessian"
+                  if fit.bfac is not None else "the fit carries no BFGS Hessian")
         return StdErrors(cov=np.zeros((k, k)), se=np.full(k, nan),
                          se_of_slot=np.full(nslot, nan), t=np.full(nslot, nan),
-                         p=np.full(nslot, nan), ifault=2)
-
-    L, _detfac, ifa = _chol_lower(H, k)
-    if ifa:
-        return empty
+                         p=np.full(nslot, nan), ifault=code,
+                         method=f"none (fdhess: {why}; {reason})")
 
     cov = np.zeros((k, k))
     for i in range(1, k + 1):
         e = np.zeros(k + 1)
         e[i] = 1.0
-        _qnewt.cholsol(L, k, e)
-        cov[:, i - 1] = (2.0 * fk * e[1:k + 1]) / n
+        _qnewt.cholsol(fac, k, e)
+        cov[:, i - 1] = (2.0 * fval * e[1:k + 1]) / n
 
     se = np.array([math.sqrt(cov[i, i]) if cov[i, i] > 0 else nan
                    for i in range(k)])
@@ -391,7 +431,8 @@ def standard_errors(fit, xitol=-1e-3):
             t[i] = xfull[i] / se_slot[i]
             p[i] = 2.0 * (1.0 - _normal_cdf(abs(t[i])))
 
-    return StdErrors(cov=cov, se=se, se_of_slot=se_slot, t=t, p=p, ifault=0)
+    return StdErrors(cov=cov, se=se, se_of_slot=se_slot, t=t, p=p, ifault=0,
+                     method=method)
 
 
 def unpack(fit_or_x, cast_spec=None):

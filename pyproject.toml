@@ -72,5 +72,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-  "slow: walks the whole ladder (art -> fue -> mtram); ~50 s",
+  "slow: walks the whole ladder (art -> fue -> mtram), or a full search to a ridge; ~60 s",
 ]

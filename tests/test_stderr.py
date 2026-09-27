@@ -239,7 +239,7 @@ def test_the_cli_prints_the_inference_columns_and_can_skip_them():
     assert "std.error" in out and "t-stat" in out
     assert "0.001703" in out and "***" in out
     assert "Signif. codes" in out
-    assert "not from the optimiser's BFGS matrix" in out
+    assert "Standard errors: fdhess" in out
 
     code, quiet = run(ES, WTI, "-b", "0", "-r", "0", "-s", "1", "-Q", "-o", "-")
     assert code == 0
@@ -287,3 +287,26 @@ def test_a_point_that_is_not_a_maximum_is_refused_not_patched():
     se = standard_errors(at_the_seeds)
     assert se.ifault == 2, "the seeds are not a maximum; this must be refused"
     assert not np.any(np.isfinite(se.se_of_slot))
+    # nit = 0: no BFGS Hessian to fall back on either, and that is said.
+    assert se.method.startswith("none (fdhess: the Hessian is not positive definite")
+
+
+@pytest.mark.slow
+def test_ridge_falls_back_to_bfgs_and_says_why(tmp_path):
+    """BUG-56, the port's side. At the omega0 / sigma12 ridge (b = 0 with a free
+    innovation covariance, battery §3d) the Hessian is not positive definite.
+    The port used to answer NaN with ifault = 2; now it does as the C and
+    drvarma do: the BFGS Hessian of the search, with the reason in `method`."""
+    if not (os.path.exists(ES) and os.path.exists(WTI)):
+        pytest.skip("the drtran cases are missing")
+    cs = build_cast_spec([drtran.load_pre(ES), drtran.load_pre(WTI)],
+                         links=[Link(0, 1, b=0, r=0, s=1)])
+    table = build_slots(cs)
+    cns = tmp_path / "q.cns"
+    cns.write_text("q[2,1] = free\n")
+    read_cns(str(cns), table)
+    f = fit(cs, slots=table, embed=False)     # the whole search: ~60 s
+    assert f.nit > 0 and f.bfac is not None
+    se = standard_errors(f)
+    assert se.method == "bfgs (fdhess: the Hessian is not positive definite)"
+    assert se.ifault == 0 and np.all(np.isfinite(se.se))
