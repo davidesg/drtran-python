@@ -50,6 +50,13 @@ class Fit:
     # with: `standard_errors` falls back to them when fdhess cannot be used.
     bfac: object = None
     fk: float = None
+    # Which likelihood (the C's -l) and, with "both", elf against Shea.
+    lik: str = "elf"
+    lik_check: dict = None
+    # MA inverse roots at modulus >= 1 at the stop: a stop on the invertibility
+    # wall, which the C reports as such (atsw-gui 6291763), not as convergence.
+    ma_boundary: int = 0
+    ma_nroots: int = 0
 
     # The optimizer's termcode (raxopt / qnewtopt.c), with the classification
     # drtran settled on at its M1 milestone: 1-2 convergence, 3 stopped WITHOUT
@@ -63,6 +70,8 @@ class Fit:
 
     @property
     def status(self):
+        if self.ma_boundary:
+            return "STOPPED AT THE MA INVERTIBILITY BOUNDARY"
         return self._STATUS.get(self.termcode, f"termcode={self.termcode}")
 
     @property
@@ -81,6 +90,10 @@ class Fit:
         about 3; that disagreement is recorded in its TODO and is not settled
         here.
         """
+        if self.ma_boundary:
+            return (f"MA boundary: {self.ma_boundary} of {self.ma_nroots} inverse "
+                    "roots at modulus >= 1. The stop is on the edge of the "
+                    "admissible region, not an interior maximum.")
         if self.termcode == 2:
             return ("stopped on steptol, NOT on the gradient: the step "
                     "collapsed while the gradient may still be appreciable. "
@@ -100,8 +113,13 @@ class Fit:
                 f"npar={len(self.x)})")
 
 
-def _f1f2(x, cast_spec, xitol, embed=False):
-    """(f1, f2, ifault) of the cast at x, through drvarma's `elf`.
+def _f1f2(x, cast_spec, xitol, embed=False, lik="elf", check=None):
+    """(f1, f2, ifault) of the cast at x, through drvarma's `elf` -- or Shea's.
+
+    `lik` (as the C's -l, atsw-gui lib/lik): "elf" (AS 311), "shea" (AS 242,
+    drvarma's compiled `marma_c`: always exact, elf's MA frontier), or "both":
+    elf's values, with Shea evaluated at the same point and the discrepancy
+    accumulated in `check` (points, max, last, one_only).
 
     `embed=True` uses the EMBEDDED cast (the default in the C), which puts the
     transfer inside the VARMA without subtracting anything, so there is no
@@ -118,14 +136,49 @@ def _f1f2(x, cast_spec, xitol, embed=False):
     # structure the cast builds, not to fit a free VARMA. Identical to the pure
     # Python one (1e-13) and ~100x faster.
     n, m = w.shape
-    _lg, f1, f2, _a, ifa = elf_c(m, n, phi.shape[0], theta.shape[0],
-                                 mu, phi, theta, sigma, w, 1.0, xitol, False)
+    p, q = phi.shape[0], theta.shape[0]
+    if lik == "shea":
+        from drvarma._engine import marma_c
+        _lg, f1, f2, ifa = marma_c(m, n, p, q, mu, phi, theta, sigma, w)
+        return float(f1), float(f2), int(ifa)
+    _lg, f1, f2, _a, ifa = elf_c(m, n, p, q, mu, phi, theta, sigma, w, 1.0, xitol, False)
+    if lik == "both" and check is not None:
+        from drvarma._engine import marma_c
+        _g, g1, g2, gfa = marma_c(m, n, p, q, mu, phi, theta, sigma, w)
+        if bool(ifa) != bool(gfa):
+            check["one_only"] = check.get("one_only", 0) + 1
+        elif not ifa and f1 > 0 and f2 > 0 and g1 > 0 and g2 > 0:
+            c = lambda a, b: -0.5 * n * (m * math.log(a) + math.log(b))  # noqa: E731
+            d = abs(c(f1, f2) - c(g1, g2))
+            check["points"] = check.get("points", 0) + 1
+            check["max"] = max(check.get("max", 0.0), d)
+            check["last"] = d
     return float(f1), float(f2), int(ifa)
 
 
-def loglik(x, cast_spec, xitol=-1e-3, embed=False):
+def _ma_boundary_at(x, cast_spec, embed):
+    """MA inverse roots at modulus >= 1 at x, and how many there are (the C's
+    est(): chekma's test; it refuses beyond 1.00005)."""
+    build = cast_embedded if effective_embed(cast_spec, embed) else cast_diagonal
+    try:
+        _phi, theta, _mu, _w, _s, ifa = build(np.asarray(x, float), cast_spec)
+    except Exception:                                   # pragma: no cover
+        return 0, 0
+    theta = np.asarray(theta, float)
+    if ifa or theta.ndim != 3 or theta.shape[0] == 0 or not np.any(theta):
+        return 0, 0
+    q, m, _ = theta.shape
+    A = np.zeros((m * q, m * q))
+    for k in range(q):
+        A[:m, k * m:(k + 1) * m] = theta[k]
+    for k in range(q - 1):
+        A[(k + 1) * m:(k + 2) * m, k * m:(k + 1) * m] = np.eye(m)
+    return int(np.sum(np.abs(np.linalg.eigvals(A)) >= 1.0)), m * q
+
+
+def loglik(x, cast_spec, xitol=-1e-3, embed=False, lik="elf"):
     """Exact concentrated log-likelihood at x (drvmlest.c:est [4])."""
-    f1, f2, ifa = _f1f2(x, cast_spec, xitol, embed)
+    f1, f2, ifa = _f1f2(x, cast_spec, xitol, embed, "shea" if lik == "shea" else "elf")
     if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
         return float("-inf"), int(ifa or 5)
     build = cast_embedded if effective_embed(cast_spec, embed) else cast_diagonal
@@ -154,7 +207,7 @@ def x0_full(cast_spec, slots):
 
 
 def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
-        sptol=1e-7, embed=True, slots=None):
+        sptol=1e-7, embed=True, slots=None, lik="elf"):
     """Estimate the joint model and return a `Fit`.
 
     `embed=True` (the default, as in the C) puts the transfer INSIDE the VARMA;
@@ -177,6 +230,8 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     of the diagonal rung, where the `.pre`'s seeds already are it. 4-5 is a real
     failure.
     """
+    if lik not in ("elf", "shea", "both"):
+        raise ValueError("lik must be 'elf', 'shea' or 'both'")
     from drvarma import _qnewt
 
     from .cast import x0_from_pre
@@ -197,24 +252,29 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
     # ran -- `standard_errors` reads it back, and a Fit that misreported its own
     # cast would be worse than no dispatch at all.
     embed = effective_embed(cast_spec, embed)
+    check = {"points": 0, "max": 0.0, "last": 0.0, "one_only": 0} if lik == "both" else None
 
     def _ll(v):
-        return loglik(expand(v), cast_spec, xitol, embed)
+        return loglik(expand(v), cast_spec, xitol, embed, lik)
 
     def _pack(v, ll, ifa, termcode, nit, bfac=None, fk=None):
-        return Fit(x=np.asarray(expand(v), float), loglik=ll, ifault=int(ifa),
+        full = np.asarray(expand(v), float)
+        nb, nr = _ma_boundary_at(full, cast_spec, embed) if termcode else (0, 0)
+        return Fit(x=full, loglik=ll, ifault=int(ifa),
                    termcode=int(termcode), nit=int(nit), cast_spec=cast_spec,
-                   converged=int(termcode) in (1, 2), slots=slots,
-                   xfree=np.asarray(v, float), embed=embed, bfac=bfac, fk=fk)
+                   converged=int(termcode) in (1, 2) and not nb, slots=slots,
+                   xfree=np.asarray(v, float), embed=embed, bfac=bfac, fk=fk,
+                   lik=lik, lik_check=check, ma_boundary=nb, ma_nroots=nr)
 
-    f1_0, f2_0, ifa0 = _f1f2(expand(x_ini), cast_spec, xitol, embed)
+    f1_0, f2_0, ifa0 = _f1f2(expand(x_ini), cast_spec, xitol, embed, lik, check)
     if ifa0 or f1_0 is None or not (f1_0 > 0.0 and f2_0 > 0.0):
         return _pack(x_ini, float("-inf"), ifa0 or 5, 0, 0)
 
     m = cast_spec.m
 
     def objective(xv):
-        f1, f2, ifa = _f1f2(expand(np.asarray(xv, float)), cast_spec, xitol, embed)
+        f1, f2, ifa = _f1f2(expand(np.asarray(xv, float)), cast_spec, xitol, embed,
+                            lik, check)
         if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
             return 1.0                       # rejected point: no improvement
         return (f1 / f1_0) ** m * (f2 / f2_0)
@@ -319,7 +379,8 @@ def standard_errors(fit, xitol=-1e-3):
     rejected = [0]
 
     def objective(v):
-        f1, f2, ifa = _f1f2(expand(np.asarray(v, float)), cast_spec, xitol, embed)
+        f1, f2, ifa = _f1f2(expand(np.asarray(v, float)), cast_spec, xitol, embed,
+                            "shea" if getattr(fit, "lik", "elf") == "shea" else "elf")
         if ifa or f1 is None or not (f1 > 0.0 and f2 > 0.0):
             rejected[0] += 1          # counted: 1.0 alone cannot be told apart
             return 1.0

@@ -61,6 +61,9 @@ TRANSFER FUNCTION  (one per input)
 THE CAST
   -V       EMBED the transfer in the VARMA.  THIS IS THE DEFAULT.
   -S       SUBTRACT the transfer instead (the old cast, which truncates).
+  -l LIK   exact likelihood: elf (Mauricio, AS 311; the default), shea (Shea,
+           AS 242, the independent benchmark), or both (elf, checked against
+           Shea at every point the optimizer visits).
 
 SHARED AND FIXED PARAMETERS
   -c FILE  constraints file, in the names the program prints:
@@ -151,7 +154,7 @@ AGGREGATES  (accounting identities)
            is c'Vc, with V the full forecast error covariance. Requires -f.
 """
 
-_OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:Lp0iXNDEMVSvho:QW"
+_OPTSTRING = "r:s:b:f:m:c:n:a:R:C:g:O:l:Lp0iXNDEMVSvho:QW"
 
 _NOT_PORTED = {}
 
@@ -276,6 +279,15 @@ def report_fit(fit, table, names, se=None):
            f"iterations={fit.nit})"]
     if fit.convergence_note:
         out += _wrap_note(fit.convergence_note)
+    if getattr(fit, "lik", "elf") != "elf":        # -l: the default is unchanged
+        label = {"shea": "exact, Shea (1989), AS 242",
+                 "both": "exact, Mauricio (1997), AS 311; checked against Shea (1989), AS 242"}
+        out.append(f"  likelihood    : {label[fit.lik]}")
+        c = fit.lik_check
+        if c:
+            out.append(f"  Shea check    : {c['points']} points; max |dlogL| = "
+                       f"{c['max']:.3e}, at the optimum {c['last']:.3e}"
+                       + (f"; {c['one_only']} admissible for one only" if c['one_only'] else ""))
     out += [""]
     if se is None or se.ifault:
         out += ["  parameter                 estimate", "  " + "-" * 42]
@@ -479,7 +491,7 @@ def main(argv=None):
              prewhiten_only=False, net_ident=False, no_transfer=False,
              no_stderr=False, estwin=0, rolling_csv=None, html_report=False,
              aggr=None, write_inp=False,
-             embed=True, verbose=False,
+             embed=True, verbose=False, lik="elf",
              fix_out_arma=False, fix_inp_arma=False, fix_out_det=False,
              fix_inp_det=False, fix_mu=False)
 
@@ -492,6 +504,11 @@ def main(argv=None):
                 f"drtran: {_NOT_PORTED[flag]} is not ported yet — the C binary "
                 f"has it.\n        Refusing rather than ignoring the option.\n")
             return 2
+        if flag == "-l":                        # the C's -l (atsw-gui lib/lik)
+            if arg not in ("elf", "shea", "both"):
+                raise CliError("-l takes elf, shea or both")
+            o["lik"] = arg
+            continue
         if flag == "-b":
             o["opt_b"] = arg
         elif flag == "-r":
@@ -635,7 +652,7 @@ def _run(o, files):
         sys.stderr.write(table.report() + "\n")
 
     # ── estimate ─────────────────────────────────────────────────────────────
-    f = estimar(cs, x0=seeds, embed=o["embed"], slots=table)
+    f = estimar(cs, x0=seeds, embed=o["embed"], slots=table, lik=o["lik"])
     if f.ifault:
         raise CliError(f"the likelihood could not be evaluated: ifault={f.ifault}")
 

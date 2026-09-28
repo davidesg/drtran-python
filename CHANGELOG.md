@@ -4,6 +4,18 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**Parity with the C: Shea's likelihood, and a stop on the MA wall said as
+such.** `-l elf|shea|both` (and `fit(..., lik=)`) as in drtran C (atsw-gui
+lib/lik): `shea` optimises Shea's exact likelihood (AS 242, drvarma's compiled
+`marma_c`), `both` optimises elf and checks it against Shea at every point,
+reported as `Shea check: N points; max |dlogL| = …, at the optimum …`. On the
+canonical pair (ES_CPI_m10 ← WTI) the port and the C agree:
+max ~5e-7 far from the optimum, ~1e-12 at it; `-0 -l shea` is still fue's
+-767.4243. A fit that stops with MA inverse roots at modulus >= 1 is no longer
+"CONVERGED": its status is `STOPPED AT THE MA INVERTIBILITY BOUNDARY` and the
+note says `MA boundary: k of n inverse roots at modulus >= 1` (`Fit.ma_boundary`,
+`Fit.ma_nroots`). Facts, no verdict, as in the C.
+
 **Standard errors: when fdhess cannot be used, the BFGS Hessian, said**
 (BUG-56). Until now a Hessian that was not positive definite gave NaN. It now
 gives the BFGS Hessian of the search, as the C engines and drvarma do. A
