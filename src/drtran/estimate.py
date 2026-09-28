@@ -53,8 +53,8 @@ class Fit:
     # Which likelihood (the C's -l) and, with "both", elf against Shea.
     lik: str = "elf"
     lik_check: dict = None
-    # MA inverse roots at modulus >= 1 at the stop: a stop on the invertibility
-    # wall, which the C reports as such (atsw-gui 6291763), not as convergence.
+    # MA inverse roots within MA_WALL_TOL of the unit circle at the stop: a
+    # stop on the invertibility wall, which the C reports as such (atsw-gui 6291763), not as convergence.
     ma_boundary: int = 0
     ma_nroots: int = 0
 
@@ -92,7 +92,7 @@ class Fit:
         """
         if self.ma_boundary:
             return (f"MA boundary: {self.ma_boundary} of {self.ma_nroots} inverse "
-                    "roots at modulus >= 1. The stop is on the edge of the "
+                    "roots within 5e-5 of the unit circle. The stop is on the edge of the "
                     "admissible region, not an interior maximum.")
         if self.termcode == 2:
             return ("stopped on steptol, NOT on the gradient: the step "
@@ -156,9 +156,16 @@ def _f1f2(x, cast_spec, xitol, embed=False, lik="elf", check=None):
     return float(f1), float(f2), int(ifa)
 
 
+# The MA invertibility wall, one tolerance for both sides (the C's MA_WALL_TOL,
+# atsw-gui lib/lik/lik.h): chekma refuses modulus >= 1 + 5e-5; a stop at
+# modulus >= 1 - 5e-5 is reported as on the wall.
+MA_WALL_TOL = 5e-5
+
+
 def _ma_boundary_at(x, cast_spec, embed):
-    """MA inverse roots at modulus >= 1 at x, and how many there are (the C's
-    est(): chekma's test; it refuses beyond 1.00005)."""
+    """MA inverse roots on the wall at x, and how many there are (the C's est():
+    chekma's companion eigenvalues; it refuses beyond 1 + MA_WALL_TOL, and a
+    root within MA_WALL_TOL of the unit circle is on the wall)."""
     build = cast_embedded if effective_embed(cast_spec, embed) else cast_diagonal
     try:
         _phi, theta, _mu, _w, _s, ifa = build(np.asarray(x, float), cast_spec)
@@ -173,7 +180,7 @@ def _ma_boundary_at(x, cast_spec, embed):
         A[:m, k * m:(k + 1) * m] = theta[k]
     for k in range(q - 1):
         A[(k + 1) * m:(k + 2) * m, k * m:(k + 1) * m] = np.eye(m)
-    return int(np.sum(np.abs(np.linalg.eigvals(A)) >= 1.0)), m * q
+    return int(np.sum(np.abs(np.linalg.eigvals(A)) >= 1.0 - MA_WALL_TOL)), m * q
 
 
 def loglik(x, cast_spec, xitol=-1e-3, embed=False, lik="elf"):

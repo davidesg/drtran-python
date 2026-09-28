@@ -4,6 +4,12 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**The MA wall: one tolerance for both sides.** A stop with an MA inverse root
+within 5e-5 of the unit circle is reported as on the wall, as in the C
+(atsw-gui lib/lik MA_WALL_TOL). chekma already accepted up to 1 + 5e-5, so a
+root at 1.000048 was reported and one at 0.99999999 was not, though both are
+the same fact. The note now reads "within 5e-5 of the unit circle".
+
 **Parity with the C: Shea's likelihood, and a stop on the MA wall said as
 such.** `-l elf|shea|both` (and `fit(..., lik=)`) as in drtran C (atsw-gui
 lib/lik): `shea` optimises Shea's exact likelihood (AS 242, drvarma's compiled

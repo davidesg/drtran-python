@@ -72,4 +72,16 @@ def test_a_stop_on_the_wall_is_not_convergence():
     f = Fit(x=np.zeros(1), loglik=0.0, ifault=0, termcode=1, nit=40,
             cast_spec=None, converged=False, ma_boundary=1, ma_nroots=3)
     assert f.status == "STOPPED AT THE MA INVERTIBILITY BOUNDARY"
-    assert f.convergence_note.startswith("MA boundary: 1 of 3 inverse roots at modulus >= 1")
+    assert f.convergence_note.startswith("MA boundary: 1 of 3 inverse roots within 5e-5 of the unit circle")
+
+
+def test_the_wall_has_one_tolerance_for_both_sides():
+    """m6 EP <- EC: the port ends with theta_1 = 0.9999999926, the C with
+    1.000048. Both are within 5e-5 of the unit circle, so both say so."""
+    P = "/home/david/Dropbox/SRC/atsw-gui/engines/drtran/tests/data/m6/"
+    if not os.path.exists(P + "M6_EP.pre"):
+        pytest.skip("the m6 .pre files are missing")
+    code, out, _ = run(P + "M6_EP.pre", P + "M6_EC.pre", "-b", "0", "-r", "0", "-s", "1", "-o", "-")
+    assert code == 0
+    assert "STOPPED AT THE MA INVERTIBILITY BOUNDARY" in out
+    assert "MA boundary: 1 of 2 inverse roots within 5e-5 of the unit circle" in out

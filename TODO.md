@@ -6,7 +6,7 @@ the non-negotiable principle and the validation criterion, and
 that are not translation, the homologation figures and the defects the port found
 in the original.
 
-## m6 EP <- EC: both on the MA wall, only the C says so (2026-09-28)
+## m6 EP <- EC: both on the MA wall (2026-09-28) — resolved
 
 `M6_EP.pre M6_EC.pre -b 0 -r 0 -s 1`. The C stops after 35 iterations with
 theta_1 = 1.000048 (chekma accepts up to 1.00005), so it reports
@@ -17,9 +17,10 @@ That point is on the wall too, but from below, so the shared rule (modulus
 the same in the C. Neither run has an interior maximum: the likelihood climbs
 along the wall, as in drvarma's c2 and its m6 (1,0) step.
 
-Open decision (C and port together): should the count use a tolerance, e.g.
-modulus >= 1 - 1e-6, so a stop a hair inside the wall is also reported?
-This changes what the C reports, so it is the user's call.
+**Decided (2026-09-28): one tolerance for both sides, 5e-5.** chekma still
+refuses a root at modulus >= 1 + 5e-5; a stop with a root at modulus
+>= 1 - 5e-5 is now reported as on the wall ("within 5e-5 of the unit
+circle"), in the C (lib/lik MA_WALL_TOL) and in the ports. Both now report the stop on the wall (tests/test_shea.py).
 
 ## PRIORIDAD — Separar el asistente del motor (mtram fuera de drtran)
 
