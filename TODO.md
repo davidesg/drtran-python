@@ -6,6 +6,21 @@ the non-negotiable principle and the validation criterion, and
 that are not translation, the homologation figures and the defects the port found
 in the original.
 
+## Port parity: a stop on the MA invertibility wall (C, 2026-09-28)
+
+The C (atsw-gui 6291763) no longer reports "CONVERGENCE OBTAINED" when the fit
+stops with MA inverse roots at modulus >= 1, the edge `chekma` enforces.
+Instead it writes `STOPPED AT THE MA INVERTIBILITY BOUNDARY` and
+`MA boundary: k of n inverse roots at modulus >= 1`. It states facts and gives
+no verdict: studying the situation is the assistant's job.
+
+- **Where it happens.** In the C battery, 10 runs do this, all on m6.
+- **What is missing here.** The port still says convergence. It should count
+  the MA roots at the stop, as `est()` does in the C, expose the count on
+  `Fit`, and use the same wording in the report.
+- **Also in the C now:** Shea's likelihood, `-l shea|both` (lib/lik). The
+  port does not have it yet.
+
 ## PRIORIDAD — Separar el asistente del motor (mtram fuera de drtran)
 
 **Plan maestro y justificación:** `art-python/TODO.md` §PRIORIDAD — Arquitectura
