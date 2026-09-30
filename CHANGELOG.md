@@ -4,6 +4,14 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**The CCF figure is GraphMaker's.** `plot_ccf` draws drvarma's CCF panel, now
+GraphMaker's — the one Treadway approved and the C GUI draws (atsw-gui
+lib/ccfplot): titled "input - output", Hosking's portmanteau below as P with
+its degrees of freedom (GraphMaker: "P, so as not to confuse it with
+Ljung-Box's Q"), dotted bands, a dashed vertical at lag 0, GraphMaker's lags
+(7 a year, 15 a quarter, 12 a month). The names now reach drvarma in the order
+of its (w1, w2), so the title is the right way round.
+
 **The MA wall: one tolerance for both sides.** A stop with an MA inverse root
 within 5e-5 of the unit circle is reported as on the wall, as in the C
 (atsw-gui lib/lik MA_WALL_TOL). chekma already accepted up to 1 + 5e-5, so a

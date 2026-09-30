@@ -1585,8 +1585,9 @@ def plot_ccf(name: str, input_index: int = 1, lags: int = 0,
     single-input transfer model assumes away. Bars on both sides mean the
     specification does not hold.
 
-    It is drvarma's canonical CCF drawing, so it looks the same as in `sima` and
-    as drvus drew it. Writes a PNG and returns its path.
+    It is drvarma's canonical CCF drawing — GraphMaker's, the one Treadway
+    approved and drtran's C GUI draws — so it looks the same as in `sima`.
+    Writes a PNG and returns its path.
     """
     from .plots import plot_ccf as _pc
     from .plots import prewhitened_pair, save
@@ -1602,13 +1603,14 @@ def plot_ccf(name: str, input_index: int = 1, lags: int = 0,
     return _fig_result(
         fig, _png(name, f"ccf{input_index}", path),
         f"CCF preblanqueada — {specs[0].name} ← {specs[input_index].name}\n"
-        "⚠ La Q del PIE DE LA FIGURA no es la del informe. La figura lleva la "
-        "Q de HOSKING bivariante sobre la serie apilada, que agrega las cuatro "
-        "entradas de la matriz de correlaciones cruzadas --las dos "
-        "autocorrelaciones incluidas-- en todos los retardos. El informe da "
-        "`chi_test` sobre UN lado de UNA correlación cruzada. Dos estadísticos "
-        "distintos con la misma letra: en el caso canónico 102.8 frente a "
-        "24.5, y esa razón es la esperable, no una discrepancia.")
+        "⚠ La P del PIE DE LA FIGURA no es la Q del informe. La figura lleva el "
+        "portmanteau de HOSKING bivariante sobre la serie apilada, que agrega las "
+        "cuatro entradas de la matriz de correlaciones cruzadas --las dos "
+        "autocorrelaciones incluidas-- en todos los retardos; GraphMaker lo "
+        "llamaba P para no confundirlo con la Q de Ljung-Box, y entre paréntesis "
+        "van sus grados de libertad. El informe da `chi_test` sobre UN lado de UNA "
+        "correlación cruzada. Dos estadísticos distintos: en el caso canónico "
+        "102.8 frente a 24.5, y esa razón es la esperable, no una discrepancia.")
 
 
 @mcp.tool()

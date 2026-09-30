@@ -43,10 +43,12 @@ def plot_ccf(a_input, beta_output, freq=12, names=("X", "Y"), lags=None,
     single-input transfer model assumes away. Bars on both sides mean the
     specification does not hold, and this plot is where that is seen first.
 
-    The drawing is `drvarma.plots.plot_ccf`: impulse bars, dashed +/-2/sqrt(N)
-    bands, seasonal dividers and the Hosking Q label, exactly as drvus drew it.
-    Reusing it means a CCF looks the same in `art`, `mtram` and `sima`, and an
-    analyst reads all three the same way.
+    The drawing is `drvarma.plots.plot_ccf`: GraphMaker's CCF, the one
+    Treadway approved and drtran's C GUI draws (atsw-gui `lib/ccfplot`) — bars,
+    dotted +/-2/sqrt(N) bands, a dashed vertical at lag 0, the title
+    "input - output" above and Hosking's portmanteau below as GraphMaker
+    labels it, P (not Ljung-Box's Q). Reusing it means a CCF looks the same in
+    `mtram` and `sima`, and an analyst reads both the same way.
 
     **The arguments are swapped on purpose.** drvarma and drtran use OPPOSITE
     lag-sign conventions: drvarma's k=+1 is drtran's k=-1. Passing
@@ -57,8 +59,10 @@ def plot_ccf(a_input, beta_output, freq=12, names=("X", "Y"), lags=None,
     """
     from drvarma.plots import plot_ccf as _dv_plot_ccf
 
+    # drvarma's names go with (w1, w2) = (output, input) and its title puts w2,
+    # the series leading at k > 0, first: "input - output", as GraphMaker.
     return _dv_plot_ccf(beta_output, a_input, lags=lags, freq=freq,
-                        names=(names[0], names[1]), ax=ax)
+                        names=(names[1], names[0]), ax=ax)
 
 
 def prewhitened_pair(cast_spec, link, x=None):

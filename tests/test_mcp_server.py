@@ -440,3 +440,17 @@ def test_the_tools_survive_a_round_trip_through_the_mcp_layer(caso):
             mtram.estimate(caso)
         r = asyncio.run(llamar(nombre, args))
         assert r is not None, f"{nombre} no devolvió nada por la capa MCP"
+
+
+def test_the_ccf_figure_is_graphmakers():
+    """The CCF is GraphMaker's (Treadway's): titled "input - output" — the
+    series leading at k > 0 first — and Hosking's portmanteau labelled P with
+    its degrees of freedom, not Q."""
+    pytest.importorskip("matplotlib")
+    import numpy as np
+    from drtran.plots import plot_ccf
+    rng = np.random.default_rng(1)
+    a, b = rng.standard_normal(120), rng.standard_normal(120)
+    ax = plot_ccf(a, b, freq=12, names=("WTI", "ES"), lags=12).axes[0]
+    assert ax.get_title() == "WTI - ES"
+    assert ax.get_xlabel().startswith("P ( 48 ) = ")

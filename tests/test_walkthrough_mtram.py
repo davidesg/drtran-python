@@ -940,4 +940,4 @@ def test_the_figures_Q_is_named_as_a_different_statistic():
     r = M.plot_ccf("QQ")
     texto = r[0].text if isinstance(r, list) else r
     assert "HOSKING" in texto
-    assert "no es la del informe" in texto
+    assert "no es la Q del informe" in texto          # the figure's is GraphMaker's P
