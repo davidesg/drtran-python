@@ -212,7 +212,7 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
    intervención y se calibra en `art`, no aquí: re-especificar la forma
    alrededor de un anómalo es como un modelo acaba con un retardo que nadie
    sabe interpretar.
-   plot_residuals      serie + ACF/PACF, el panel de fue (el mismo que ART)
+   plot_residuals      serie + ACF/PACF, la figura de pyfug (la misma que ART)
    calibrate           SI LA ADECUACIÓN FALLA, ANTES DE REVISAR NADA: ¿es la
                        forma o es UNA observación? Piden respuestas opuestas.
    plot_calibration    la VERIFICACIÓN: la CCF con y sin la anomalía. Un anómalo
@@ -1663,31 +1663,24 @@ def plot_impulse_response(name: str, link_index: int = 0, path: str = "") -> lis
 @mcp.tool()
 def plot_forecast(name: str, horizon: int = 12, series_index: int = 0,
                   path: str = "") -> list:
-    """PLOT the level forecast with its band, over the recent history.
-
-    The band is ASYMMETRIC under a log model — it is formed in the transformed
-    scale and mapped back — so it is drawn as it really is, not as a symmetric
-    ribbon. Writes a PNG and returns its path.
+    """PLOT fuf's forecast graph for one series — the figure fuf, art and sima
+    draw (pyfug): the recent history and the forecasts of the annual change
+    (a rate in % under a log model), with the error panel below. Writes a PNG
+    and returns its path.
     """
-    from .forecast import forecast as _fcast
-    from .forecast import level_band
     from .plots import plot_forecast as _pf
-    from .plots import save
 
     f = _require_fit(name)
     cs = f.cast_spec
-    fc = _fcast(f, L=horizon, embed=f.embed)
-    lvl, lo, hi = level_band(fc, cs, series=series_index)
-    hist = cs.series[series_index].spec.ts.data
-    fig = _pf(lvl, lo, hi, history=hist, name=cs.names[series_index])
+    fig = _pf(f, cs, series=series_index, horizon=horizon)
     return _fig_result(fig, _png(name, f"fcst{series_index}", path),
-                       f"Previsión de {cs.names[series_index]} — nivel con bandas")
+                       f"Previsión de {cs.names[series_index]} — el gráfico de fuf")
 
 
 @mcp.tool()
 def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
                    path: str = "") -> list:
-    """PLOT the residual series with its ACF and PACF — fue's own panel.
+    """PLOT the residual series with its ACF and PACF — pyfug's fug -c figure.
 
     The same drawing `art` shows after a univariate fit, so the analyst reads one
     instrument, not two. These are the STRUCTURAL residuals: with a
@@ -1703,7 +1696,8 @@ def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
     a, ifa = _res(f.x, cs, embed=f.embed, structural=True)
     if ifa:
         raise ValueError(f"no se pueden obtener los residuos: ifault={ifa}")
-    freq = int(getattr(cs.series[series_index].spec.model.series, "freq", 1) or 1)
+    _ser = cs.series[series_index].spec.model.series
+    freq = int(getattr(_ser, "freq", 1) or 1)
     # los parámetros de ESTA serie, no los del vector conjunto: la Q del panel
     # es un enunciado sobre el modelo de esta serie, y corregir por los 17
     # parámetros de un ajuste conjunto donde su modelo tiene 3 convierte
@@ -1711,7 +1705,11 @@ def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
     from .school import npar_for_series
     npar = npar_for_series(f, series_index)
     fig = _pr(a[:, series_index], npar=npar, freq=freq, lags=(lags or None),
-              title=f"residuals — {cs.names[series_index]}")
+              title=f"residuals — {cs.names[series_index]}",
+              start=tuple(getattr(_ser, "start", (1, 1))),
+              nobs=int(getattr(_ser, "nobs", 0) or len(_ser.data)),
+              refactor=float(getattr(cs.series[series_index].spec.model,
+                                     "refactor", 1.0) or 1.0))
     return _fig_result(fig, _png(name, f"res{series_index}", path),
                        f"Residuos de {cs.names[series_index]} — serie + ACF/PACF")
 
@@ -2498,7 +2496,7 @@ def _what_now(ad, name, link_index):
                       "quieres error fuera de muestra.",
                       "",
                       "      Antes de darlo por cerrado, dos miradas baratas: "
-                      "`plot_residuals` (serie + ACF/PACF, el panel de fue) "
+                      "`plot_residuals` (serie + ACF/PACF, la figura de pyfug) "
                       "para ver lo que un portmanteau agregado no ve, y "
                       "`calibrate` para saber si el veredicto de adecuación "
                       "descansa en una sola observación. Un modelo adecuado "

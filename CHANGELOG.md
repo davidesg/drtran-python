@@ -4,6 +4,17 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+
+**Figures drawn by pyfug, the one graphics engine of the ladder.**
+- `plot_residuals` is pyfug's fug -c figure. It is dated, with the observations
+  lost in `timeout` and the residuals in fractions. It used to be assembled
+  from pieces of `fue.plots`.
+- `plot_forecast(fit, cast_spec, series, horizon)` is fuf's forecast graph
+  (`pyfug.plot_forecast`) built from `build_forecast_result`. It used to draw
+  the level and its band over the horizon. **API change**: it takes the fit,
+  no longer level/lower/upper arrays.
+- pyfug joins the `mcp` extra.
+
 **BUG-53: reloading a case invalidates all its state.**
 - `load_pre` clears the six dicts.
 - The diagonal certificate carries the files it is of (path and content

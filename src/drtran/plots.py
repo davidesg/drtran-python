@@ -142,68 +142,58 @@ def plot_irf(ir, title=None):
     return fig
 
 
-def plot_forecast(level, lower, upper, history=None, name="", n_hist=24,
-                  title=None):
-    """History and forecast in LEVELS, with the band drawn as it really is.
+def plot_forecast(fit, cast_spec, series=0, horizon=12, origin=None):
+    """fuf's forecast graph for one series of the joint model, drawn by pyfug.
 
-    The band comes from `level_band`, which forms it in the transformed scale and
-    maps it back, so under a log model it is **asymmetric**. Drawing a symmetric
-    ribbon around the point forecast would be a different, wider and wrong
-    picture — on the canonical case ±0.47 where the truth is +0.39/−0.39 either
-    side of a level that is not the centre.
+    The same figure fuf, art and sima draw (`pyfug.plot_forecast`, fufplot.c):
+    the last `horizon` observations and the forecasts of the series' annual
+    change (a rate in % under a log model; the level with ±2σ bands when
+    λ < 0), and below, ERR, the residuals of those observations. The data come
+    from `build_forecast_result`, the one drtran's fuf report uses, through
+    `fue.forecast.forecast_graph_data`.
+
+    It used to be a figure of its own: the level and its band over the
+    horizon. pyfug is the one graphics engine of the ladder.
     """
-    plt = _mpl()
-    level = np.asarray(level, float)
-    L = len(level)
-    fig, ax = plt.subplots(figsize=(9, 4))
+    _mpl()
+    from fue.forecast import forecast_graph_data
+    from pyfug.graphics import plot_forecast as _pyfug_forecast
 
-    if history is not None and len(history):
-        h = np.asarray(history, float)[-n_hist:]
-        xh = np.arange(-len(h), 0)
-        ax.plot(xh, h, "-", lw=1.2, color="#374151", label="observed")
-        ax.plot([xh[-1], 0], [h[-1], level[0]], "-", lw=1.2, color="#374151")
+    from .report import build_forecast_result
 
-    xf = np.arange(L)
-    ax.fill_between(xf, lower, upper, color="#dbeafe", label="95 % band")
-    ax.plot(xf, level, "o-", ms=4, lw=1.4, color="#1d4ed8", label="forecast")
-    ax.axvline(-0.5, ls=":", lw=1.0, color="#6b7280")
-
-    ax.set_xlabel("horizon (0 = first forecast)")
-    ax.set_ylabel("level")
-    ax.set_title(title or f"Forecast — {name}")
-    ax.legend(frameon=False, fontsize=9)
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
-    fig.tight_layout()
-    return fig
+    fr, model = build_forecast_result(fit, cast_spec, series=series,
+                                      horizon=horizon, origin=origin)
+    return _pyfug_forecast(**forecast_graph_data(model, fr))
 
 
-def plot_residuals(residuals, npar=0, freq=1, lags=None, title=""):
-    """Residual series + ACF/PACF — **fue's panel**, not a second one.
+def plot_residuals(residuals, npar=0, freq=1, lags=None, title="",
+                   start=None, nobs=None, refactor=1.0):
+    """Residual series + ACF/PACF — the figure of fug -c, drawn by pyfug.
 
-    `fue.plots.plot_acf_pacf` in the Treadway-Jenkins design: impulse style,
-    shared y-range, +/-2/sqrt(n) bands, seasonal grid lines and the Ljung-Box Q
-    in the ACF's xlabel. Reused so that a residual panel looks the same after a
-    univariate fit in `art` and after a joint one here — the analyst is reading
-    the same instrument in both, and should not have to re-learn it.
+    The same figure art shows after a univariate fit (`pyfug.plot_combined`,
+    with fug C's geometry), so the analyst reads one instrument, not two. It
+    used to be assembled here from pieces of `fue.plots`; pyfug is the one
+    graphics engine.
 
     `npar` is the number of estimated parameters, which is what the Q's degrees
     of freedom are corrected by. Passing 0 overstates the fit's adequacy.
+    `start` is the (year, period) of the series' FIRST observation and `nobs`
+    its length: the residuals are its last len(residuals) observations, and
+    the rest go in `timeout`, so the year axis starts where fug C starts it.
+    `refactor` turns the residuals into fractions, so the statistics read in %.
     """
-    plt = _mpl()
-    from fue.plots import plot_acf_pacf, plot_residuals_ts
+    _mpl()
+    from pyfug.core import Tseries
+    from pyfug.graphics import plot_combined
 
-    import matplotlib.gridspec as gridspec
-    r = np.asarray(residuals, float)
-    fig = plt.figure(figsize=(12, 5.5), layout="constrained")
-    gs = gridspec.GridSpec(2, 2, figure=fig, width_ratios=[1.6, 1.0],
-                           hspace=0.06, wspace=0.05)
-    ax_ser = fig.add_subplot(gs[:, 0])
-    plot_residuals_ts(r, title=title or "residuals", ax=ax_ser)
-    plot_acf_pacf(r, npar=npar, freq=freq, lags=lags,
-                  ax_acf=fig.add_subplot(gs[0, 1]),
-                  ax_pacf=fig.add_subplot(gs[1, 1]))
-    return fig
+    r = np.asarray(residuals, float) / float(refactor or 1.0)
+    lost = max(0, int(nobs) - len(r)) if nobs else 0
+    y0, p0 = (start if start else (1, 1))
+    serie = Tseries(name=title or "residuals", freq=int(freq or 1), nobs=len(r),
+                    begyear=int(y0), begtime=int(p0), data=r)
+    return plot_combined(serie, npar=int(npar), timeout=lost,
+                         tsnobs=len(r) + lost, nlags=int(lags or 0),
+                         title=serie.name)
 
 
 def save(fig, path, dpi=130):

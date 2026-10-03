@@ -60,7 +60,9 @@ mtram = "drtran.mcp_server:main"   # transfer-model MCP (pip install "drtran[mcp
 # resolves to 2.x on any fresh install and mtram then fails to import at all.
 # Verified: 1.27.2 works, 2.0.0 raises ModuleNotFoundError. Lift the cap only
 # after porting the import.
-mcp = ["mcp>=1.2,<2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.1.3"]
+# pyfug draws the residual figure (the one graphics engine of the ladder).
+mcp = ["mcp>=1.2,<2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.1.3",
+       "pyfug>=2.0.1"]
 # pyfug>=2.0.1: la 2.0.0 lanza UnboundLocalError con TODA serie anual
 # (pyfug/BUG-0002), y drtran se usa con datos anuales.
 plots = ["matplotlib>=3.6", "pyfug>=2.0.1"]
