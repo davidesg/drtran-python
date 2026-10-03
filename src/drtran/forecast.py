@@ -85,24 +85,42 @@ def _differencing_poly(d, D, s):
     return delta
 
 
-def integrated_weights(psi, d, D, s):
+def integrated_weights(psi, d=0, D=0, s=1, deltas=None):
     """`psi*(B) = psi(B) / delta(B)` — the weights of the LEVEL.
 
         psi*_l = psi_l - sum_(k>=1) delta_k psi*_(l-k)
 
     Undoing the differencing is what turns the forecast error of `w` into that
     of the level, and why the level's variance grows without bound.
+
+    `deltas`: one FULL non-stationary operator per series (row of psi), from
+    `cast.differencing_poly` — regular, seasonal and the `ifadf` factors (BUG-10:
+    from `(d, D, s)` alone a factor like `1 - 2cos(pi/6)B + B^2` was missed, and
+    the bands came out at a quarter of their width; and every series was
+    integrated with the FIRST one's operator). A single polynomial is applied
+    to every row. Without `deltas`, the `(d, D, s)` triple, as before.
     """
     psi = np.asarray(psi, float)
     L = psi.shape[0] - 1
-    delta = _differencing_poly(d, D, s)
-    deg = len(delta) - 1
+    m = psi.shape[1] if psi.ndim == 3 else 1
+    if deltas is None:
+        rows = [_differencing_poly(d, D, s)] * m
+    elif np.ndim(deltas[0]) == 0:
+        rows = [np.asarray(deltas, float)] * m
+    else:
+        rows = [np.asarray(dl, float) for dl in deltas]
     out = np.zeros_like(psi)
-    for l in range(L + 1):
-        val = psi[l].copy()
-        for k in range(1, min(l, deg) + 1):
-            val -= delta[k] * out[l - k]
-        out[l] = val
+    for i in range(m):
+        delta = rows[i]
+        deg = len(delta) - 1
+        for l in range(L + 1):
+            val = psi[l, i].copy() if psi.ndim == 3 else psi[l].copy()
+            for k in range(1, min(l, deg) + 1):
+                val -= delta[k] * (out[l - k, i] if psi.ndim == 3 else out[l - k])
+            if psi.ndim == 3:
+                out[l, i] = val
+            else:
+                out[l] = val
     return out
 
 
@@ -320,14 +338,13 @@ def forecast(x, cast_spec=None, L=12, origin=None, embed=True, xitol=-1e-3):
 
     var_w = error_variance(psi, sigma, L)
 
-    # The level: EACH series' differencing is undone. d, D and s come from the
-    # `.pre`, not from the cast — the cast always works on the stationary series.
-    m0 = cast_spec.series[0].spec.model
-    d = int(getattr(m0, "d", 0))
-    D = int(getattr(m0, "D", 0))
-    s = int(getattr(m0.series, "freq", 1) or 1)
-
-    psis = integrated_weights(psi, d, D, s)
+    # The level: EACH series' differencing is undone, with ITS full operator
+    # (regular, seasonal and the ifadf factors) from the `.pre` — the single
+    # source of truth `to_level` and the common sample already use (BUG-10).
+    from .cast import differencing_poly
+    s = int(getattr(cast_spec.series[0].spec.model.series, "freq", 1) or 1)
+    psis = integrated_weights(
+        psi, deltas=[differencing_poly(sr.spec.model) for sr in cast_spec.series])
     var_level = error_variance(psis, sigma, L)
 
     dif = np.zeros_like(psis)

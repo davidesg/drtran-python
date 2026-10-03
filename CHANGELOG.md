@@ -4,6 +4,13 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**BUG-10: the level forecast's variance integrates each series with its full
+operator.**
+- Regular, seasonal and `ifadf`, from `cast.differencing_poly`, the source the
+  mean already used. Before, a frequency factor was missed and the bands were
+  far too narrow.
+- Each series uses its own operator, not the first one's.
+
 **The CCF figure is GraphMaker's.** `plot_ccf` draws drvarma's CCF panel, now
 GraphMaker's — the one Treadway approved and the C GUI draws (atsw-gui
 lib/ccfplot): titled "input - output", Hosking's portmanteau below as P with

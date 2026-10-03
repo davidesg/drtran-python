@@ -1581,7 +1581,7 @@ whose answer is known by construction. It belongs with the `CONVERGED (step)` /
 
 ---
 
-## BUG-10. The level forecast's VARIANCE integrates with `d + D·s` and ignores `ifadf` — **OPEN**
+## BUG-10. The level forecast's VARIANCE integrates with `d + D·s` and ignores `ifadf` — **FIXED 2026-10-02**
 
 Found 2026-08-15, reviewing whether BUG-9 was really closed. It was, where it was
 fixed: `mcp_server._muestra_comun` now counts the losses with
@@ -1636,6 +1636,25 @@ Have `integrated_weights` take the operator already built (or the model) instead
 of the `(d, D, s)` triple, from the same single source of truth as everything
 else. Not applied: reported and left open on 2026-08-15, with the efficiency
 study, in `docs/STUDY_efficiency_vs_c.md` §7.
+
+---
+
+### Fixed (2026-10-02)
+
+The fix the entry proposed, plus its two side notes:
+- `integrated_weights(psi, deltas=...)` takes one FULL operator per series
+  (`cast.differencing_poly`, from `fue._nonsop_coefs` with `ifadf`). That is
+  the single source of truth the mean and the common sample already use.
+- `forecast()` passes each series its own operator. Before, the first one's
+  `(d, D, s)` integrated every row.
+- The `(d, D, s)` signature still works.
+
+Measured on the reproduction's operator `(1 − B)(1 − 2cos(π/6)B + B²)`:
+- the level weights of white noise are the expansion of 1/Δ(B);
+- the level variance at l = 12 is 256.7 against 12 with Δ = 1 − B.
+
+(The ×19 of the table above depends on its σ² and indexing; the operator is
+the point.) Tests: `tests/test_bug10_level_variance_ifadf.py`.
 
 ---
 
