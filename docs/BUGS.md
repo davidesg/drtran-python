@@ -685,7 +685,7 @@ Tests (`tests/test_bug52_cns_by_name.py`):
 **The C** (`engines/drtran/src/drtran.c`, atsw-gui) still reads positions: it
 should call `series_index` in `read_constraints` too.
 
-## BUG-53. `load_pre` invalida la mitad del estado: el `logL` diagonal sobrevive a un cambio de series, y es la base del contraste LR
+## BUG-53. `load_pre` invalida la mitad del estado: el `logL` diagonal sobrevive a un cambio de series, y es la base del contraste LR — **FIXED 2026-10-02**
 
 Encontrado 2026-09-17, en el inventario de estado de la fase 3 del estudio de
 atsw.
@@ -760,6 +760,22 @@ imposible en vez de improbable.
 Cargar un caso `X` con dos series, pasar la puerta, recargar `X` con otras dos,
 y comprobar que el contraste LR o bien se recalcula o bien dice que no lo
 tiene — pero nunca usa el anterior.
+
+### Fixed (2026-10-02)
+
+`load_pre` now clears all six dicts of the case, `_DIAG_OF` among them. The
+diagonal certificate also carries the files it is of: their path and a SHA-1 of
+their contents (`_huella_specs`).
+
+`_diag_vigente(name)` gives the base only when it matches the files loaded
+now. Every use goes through it: the LR in `estimate`, the variance reduction,
+the diagonal forecast and the order of integration.
+
+A stale certificate is now absent, and `estimate` says so ("es de OTROS
+ficheros"). It is no longer a number. Tests:
+`tests/test_bug53_load_pre_invalidates_all.py`:
+- a reload with `check=False`;
+- a `.pre` edited after the gate.
 
 ---
 

@@ -4,6 +4,12 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**BUG-53: reloading a case invalidates all its state.**
+- `load_pre` clears the six dicts.
+- The diagonal certificate carries the files it is of (path and content
+  hash), so the LR in `estimate` never measures against a stale base. A
+  certificate of other files is said to be such, not used.
+
 **BUG-10: the level forecast's variance integrates each series with its full
 operator.**
 - Regular, seasonal and `ifadf`, from `cast.differencing_poly`, the source the
@@ -18,13 +24,6 @@ operator.**
 - The same `.cns` now means the same model whatever the order of the files or
   of the `.dag`'s lines. The C binary still reads positions.
 
-
-**BUG-10: the level forecast's variance integrates each series with its full
-operator.**
-- Regular, seasonal and `ifadf`, from `cast.differencing_poly`, the source the
-  mean already used. Before, a frequency factor was missed and the bands were
-  far too narrow.
-- Each series uses its own operator, not the first one's.
 
 **The CCF figure is GraphMaker's.** `plot_ccf` draws drvarma's CCF panel, now
 GraphMaker's — the one Treadway approved and the C GUI draws (atsw-gui

@@ -274,6 +274,32 @@ _FITS: dict[str, object] = {}      # name -> Fit
 _TABLES: dict[str, object] = {}    # name -> SlotTable
 _DIAG: dict[str, float] = {}       # name -> logL del escalón diagonal
 _DIAG_FIT: dict[str, object] = {}  # name -> Fit diagonal (para la varianza)
+_DIAG_OF: dict[str, tuple] = {}    # name -> huella de los .pre de ese certificado (BUG-53)
+
+
+def _huella_specs(specs):
+    """De qué ficheros es un certificado diagonal: ruta y contenido, en orden."""
+    import hashlib
+    out = []
+    for sp in specs:
+        try:
+            with open(sp.path, "rb") as fh:
+                h = hashlib.sha1(fh.read()).hexdigest()
+        except OSError:
+            h = ""
+        out.append((os.path.abspath(sp.path), h))
+    return tuple(out)
+
+
+def _diag_vigente(name):
+    """(logL, Fit) del escalón diagonal SI es de las series cargadas ahora, o
+    (None, None). BUG-53: un certificado de otras series (o de los mismos .pre
+    reeditados) no es una base: es un número rancio que no se distingue de uno
+    bueno. Ausente, `estimate` lo dice; rancio, mentía."""
+    specs = _SPECS.get(name)
+    if specs is None or _DIAG_OF.get(name) != _huella_specs(specs):
+        return None, None
+    return _DIAG.get(name), _DIAG_FIT.get(name)
 
 
 def _con_figura(texto, grafico):
@@ -654,6 +680,7 @@ def _diagonal_gate(specs):
     diff = float(f.loglik) - total
     _DIAG[_gate_name[0]] = float(f.loglik)     # lo usa `estimate` para el LR
     _DIAG_FIT[_gate_name[0]] = f
+    _DIAG_OF[_gate_name[0]] = _huella_specs(specs)
     lines.append(f"  Ajuste diagonal conjunto (drtran): **{f.loglik:.6f}**")
     lines.append(f"  Diferencia con la suma: **{diff:+.2e}**")
     lines.append("")
@@ -838,8 +865,9 @@ def load_pre(name: str, paths: str, check: bool = True) -> str:
         if w:
             warn.append(w)
     _SPECS[name] = specs
-    _LINKS.pop(name, None)
-    _FITS.pop(name, None)
+    # BUG-53: recargar un caso invalida TODO su estado, no la mitad
+    for _d in (_LINKS, _FITS, _TABLES, _DIAG, _DIAG_FIT, _DIAG_OF):
+        _d.pop(name, None)
 
     out = [f"# Caso {name!r} — {len(specs)} series", "",
            "## 1. Confirma los papeles",
@@ -1831,11 +1859,16 @@ def _what_the_transfer_bought(name, f, cs):
         lines.append("")
 
     # razon de verosimilitudes contra el escalon diagonal
-    diag = _DIAG.get(name)
+    diag, _fd_v = _diag_vigente(name)
     if diag is None:
-        lines += ["    (No hay verosimilitud diagonal guardada: se calculó con "
-                  "`load_pre(check=False)`. Vuelve a cargar con check=True para "
-                  "poder contrastar si la transferencia se gana su sitio.)"]
+        if name in _DIAG:          # hay certificado, pero de otros ficheros (BUG-53)
+            lines += ["    (El certificado diagonal guardado es de OTROS ficheros: los "
+                      "`.pre` del caso han cambiado desde que se certificó. No se usa "
+                      "como base. Vuelve a cargar el caso con check=True.)"]
+        else:
+            lines += ["    (No hay verosimilitud diagonal guardada: se calculó con "
+                      "`load_pre(check=False)`. Vuelve a cargar con check=True para "
+                      "poder contrastar si la transferencia se gana su sitio.)"]
         return lines
 
     npar_tr = sum(1 + lk.r + lk.s for lk in (cs.links or []))
@@ -1850,7 +1883,7 @@ def _what_the_transfer_bought(name, f, cs):
     # mismo que el LR en las unidades en que el analista piensa.
     try:
         from .school import r2_brajin, variance_reduction
-        red = variance_reduction(f, _DIAG_FIT.get(name), series_index=0)
+        red = variance_reduction(f, _diag_vigente(name)[1], series_index=0)
         if red == red:
             lines += [f"    Varianza residual de {nm[0]}: **{100 * red:.1f} % "
                       "menos** que con su modelo univariante.", ""]
@@ -1860,7 +1893,7 @@ def _what_the_transfer_bought(name, f, cs):
         # -- sobre el nivel de una I(1) saldría cerca de 1 y no diría nada --
         # y su denominador no lleva parámetros, que es lo que hace comparables
         # los dos ajustes: describen el MISMO w_t y sólo se mueve el residuo.
-        fd = _DIAG_FIT.get(name)
+        fd = _diag_vigente(name)[1]
         if fd is not None:
             r2u, sau = r2_brajin(fd, 0)
             r2t, sat = r2_brajin(f, 0)
@@ -2113,7 +2146,7 @@ def _flt_influence(name, f, table, se, umbral=1.0):
 
     from drtran.slots import build_slots
 
-    fd = _DIAG_FIT.get(name)
+    fd = _diag_vigente(name)[1]
     if fd is None or se is None or getattr(se, "ifault", 1):
         return []
     try:
@@ -2310,7 +2343,7 @@ def _integration_order(name, f):
     from .school import integration_order_moved, noise_ma_roots
 
     try:
-        moved, mj, md, kind = integration_order_moved(f, _DIAG_FIT.get(name), 0)
+        moved, mj, md, kind = integration_order_moved(f, _diag_vigente(name)[1], 0)
         roots = noise_ma_roots(f, 0)
     except Exception:                                      # noqa: BLE001
         return []
