@@ -268,7 +268,14 @@ def test_regression_the_univariate_likelihoods_are_unchanged(ladder):
     # con ω(B) de orden 2 (dice que se queda abajo, que es lo que pasó). Los dos
     # con MA(1) y 4 parámetros: ℓ +14.33, AIC 1519.9 -> 1491.3. El modelo de
     # agosto se reprodujo exacto con art-tseries 0.1.11 + fue 0.1.11.
-    assert _num(g, "| WTI |") == pytest.approx(-741.630405, abs=1e-3)
+    #
+    # Moved 2026-10-03: −741.630405 -> −741.469906. art's batch now picks an
+    # AR(1) for WTI's noise where it picked an MA(1), with the same
+    # deterministics. The two tie (ℓ +0.16, same parameter count), and the tie
+    # rule for prices goes to the AR(1): gradual adjustment, φ>0. See art's
+    # docs/STUDY-autonomous-lane-and-the-domain.md. The autonomous-lane model
+    # of WTI is pinned separately, in test_passthrough_fixtures.py.
+    assert _num(g, "| WTI |") == pytest.approx(-741.469906, abs=1e-3)
 
 
 def test_regression_the_diagonal_identity_holds_to_precision(ladder):
@@ -292,7 +299,8 @@ def test_regression_mtram_lands_on_the_same_transfer(ladder):
     assert "b=1 r=0 s=0  ->  b=0 r=0 s=1" in out, out
     assert _num(out, "adecuación p =") == pytest.approx(0.0, abs=1e-4)   # antes
     # Movido 2026-09-26 con el modelo nuevo de WTI: 0.90/0.91 -> 0.77.
-    assert "exogeneidad p = 0.76" in out or "exogeneidad p = 0.77" in out
+    # Moved 2026-10-03, WTI's noise MA(1) -> AR(1): 0.77 -> 0.78.
+    assert "exogeneidad p = 0.78" in out or "exogeneidad p = 0.77" in out
 
 
 def test_regression_the_gain_is_unchanged(ladder):
@@ -328,7 +336,8 @@ def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
     does. It re-estimates each series with fue on the way in, so the stored
     values are seeds and nothing more: fed art's `.inp` with every parameter at
     zero, the gate lands on the same likelihoods as with fue's `.pre`
-    (-748.927739 both ways; -763.255149 before the WTI model of art 0.2) and
+    (-748.767239 both ways; -748.927739 with WTI's MA(1) noise before
+    2026-10-03, -763.255149 before the WTI model of art 0.2) and
     closes the same way.
 
     Which sharpens what the ladder's contract actually is. mtram needs a
@@ -340,7 +349,7 @@ def test_the_gate_accepts_a_specification_as_readily_as_an_optimum(ladder):
     d = ladder["dir"]
     out = M.load_pre("SPEC", f"{d}/IPC_ES_auto.inp,{d}/WTI_auto.inp")
     assert "✅" in out, out
-    assert "-748.927739" in out
+    assert "-748.767239" in out
 
 
 def test_a_diagonal_fit_reproduces_the_univariate_optima_exactly(ladder):
