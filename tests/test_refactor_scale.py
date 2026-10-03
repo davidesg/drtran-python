@@ -98,8 +98,17 @@ def test_the_certificate_is_what_degrades(fits):
     termcode 2 normally means "suspect an ill-conditioned likelihood"; here it
     means nothing of the sort — it is an artefact of the parameter scale. That
     is the whole finding, and it is why the guidance is to rescale to 100.
+
+    What the raw scale does is fall through to the STEP test; the well-scaled
+    fit never does. Whether the well-scaled one then stops on the gradient (1)
+    or with a line search that finds no further improvement (3) is decided in
+    the 16th digit of the objective, and numpy 2 decides it the other way
+    (BUG-54): the scaled gradient is 1.42e-7 against a tolerance of 1e-7 at the
+    same iterate under both numpys, and only the last line search differs. So
+    the test pins what does not depend on that digit.
     """
-    assert fits["r100"].termcode == 1, "well scaled: certified by gradient"
+    assert fits["r100"].termcode in (1, 3), \
+        "well scaled: stops on the gradient, never on the step test"
     assert fits["r1"].termcode == 2, "raw scale: falls through to the step test"
 
 

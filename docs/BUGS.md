@@ -2318,7 +2318,7 @@ asistentes en Python 3.10, 3.11, 3.12 y 3.13: habría parado esta publicación.
 
 ---
 
-## BUG-54. Con numpy 2 el ajuste bien escalado llega al mismo óptimo pero ya no lo CERTIFICA el gradiente: `termcode` 3 en vez de 1 — **OPEN**
+## BUG-54. Con numpy 2 el ajuste bien escalado llega al mismo óptimo pero ya no lo CERTIFICA el gradiente: `termcode` 3 en vez de 1 — **FIXED 2026-10-03** (la prueba habla de lo que no depende de la última cifra)
 
 **Qué.** `tests/test_refactor_scale.py::test_the_certificate_is_what_degrades`
 afirma que el caso canónico, a escala 100, para con `termcode == 1` —«certificado
@@ -2350,6 +2350,39 @@ numpy. `test_network.py` ya lo dice del criterio: «what is required is the valu
 no dependa de la última cifra del gradiente, o si la prueba y la guía tienen que
 hablar del valor y no del motivo de parada. Hasta entonces la prueba se deja
 fallando en numpy 2: la diferencia es información.
+
+### Resolved (2026-10-03)
+
+**Measured cause.** The run was reproduced with numpy 2.5.3 (a venv over the
+same drvarma and fue) and the stopping test of `raxopt` (`umstop`) was traced
+iteration by iteration. Up to iteration 24 both numpys are identical:
+- scaled gradient 1.42e-7 against `gradtol` 1e-7;
+- objective 0.633124770034, the same to the twelfth digit.
+
+At iteration 25 they part:
+
+| | last line search | scaled gradient | termcode |
+|---|---|---|---|
+| numpy 1.26 | still finds an improvement in the 16th digit | 8.4e-9 | 1 |
+| numpy 2.5 | finds none (step 0) | stays at 1.42e-7, 1.4× the tolerance | 3 |
+
+Same optimum, same iterate. The difference is rounding noise in the
+objective, which numpy 2's summation order changes. The raw-scale fit gives
+termcode 2 under both.
+
+**Decision: option (b).** The test and the guidance speak of what does not
+depend on that digit.
+- The raw scale falls through to the STEP test (termcode 2), the scale
+  artefact the guidance is about.
+- The well-scaled fit never does: it stops on the gradient, or with a line
+  search that finds no further improvement at the gradient's floor
+  (termcode 1 or 3). The optimum is the same to six decimals.
+
+Option (a) was not taken. Loosening `gradtol`, or calling a 3 with a small
+gradient "certified", would change the engine's classification for every
+fit to fix one test. termcode 3 is already not flagged as a failure
+(`Fit.problem`). `tests/test_refactor_scale.py` passes under numpy 1.26 and
+numpy 2.5.3.
 
 ## BUG-55. The C engine forecasts the MA part with STANDARDISED residuals for every series but the first — **FIXED 2026-09-27**
 

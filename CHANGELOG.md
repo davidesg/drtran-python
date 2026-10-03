@@ -4,6 +4,13 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**BUG-54: the scale test no longer depends on the 16th digit.** Under
+numpy 2 the well-scaled fit stops with termcode 3 instead of 1, at the same
+optimum and the same iterate. Its scaled gradient is 1.4× the tolerance, and
+only the last line search differs, by rounding noise. The test now pins that
+the raw scale falls through to the step test (2) and the well-scaled fit
+never does (1 or 3).
+
 
 **Figures drawn by pyfug, the one graphics engine of the ladder.**
 - `plot_residuals` is pyfug's fug -c figure. It is dated, with the observations
