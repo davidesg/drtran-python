@@ -11,6 +11,21 @@ operator.**
   far too narrow.
 - Each series uses its own operator, not the first one's.
 
+**BUG-52 (the port): the `.cns` accepts names.**
+- `q[EA,EI]`, `omega[EP<-EI][k]`, `theta[EI][B^1]`, `theta_EI[B^1]` and
+  `mu[EA]`, wherever positions were. Positional files still read.
+- The guided mode writes names.
+- The same `.cns` now means the same model whatever the order of the files or
+  of the `.dag`'s lines. The C binary still reads positions.
+
+
+**BUG-10: the level forecast's variance integrates each series with its full
+operator.**
+- Regular, seasonal and `ifadf`, from `cast.differencing_poly`, the source the
+  mean already used. Before, a frequency factor was missed and the bands were
+  far too narrow.
+- Each series uses its own operator, not the first one's.
+
 **The CCF figure is GraphMaker's.** `plot_ccf` draws drvarma's CCF panel, now
 GraphMaker's — the one Treadway approved and the C GUI draws (atsw-gui
 lib/ccfplot): titled "input - output", Hosking's portmanteau below as P with

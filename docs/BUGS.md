@@ -485,7 +485,7 @@ failure through `mcp.call_tool`, and the inverted-branch check.
 
 ---
 
-## BUG-52. El `.cns` nombra por POSICIÓN —y por DOS posiciones distintas— y ninguna de las dos está en un fichero: otro orden, otro modelo, sin un aviso
+## BUG-52. El `.cns` nombra por POSICIÓN —y por DOS posiciones distintas— y ninguna de las dos está en un fichero: otro orden, otro modelo, sin un aviso — **FIXED 2026-10-02 in the port; OPEN in the C**
 
 Encontrado 2026-09-17 en la fase 3 del estudio de atsw, subiendo un escalón de
 la escalera a mano.
@@ -660,6 +660,30 @@ covarianzas se nombren por posición, el `.cns` no es un fichero: es media
 frase.
 
 ---
+
+### Fixed in the port (2026-10-02)
+
+Names are accepted wherever positions were, in both indices:
+- `q[EA,EI]` (either order);
+- `omega[EP<-EI][k]` and `delta[...]`, the link by its pair;
+- `theta[EI][B^1]` or `theta_EI[B^1]`, and `phi` likewise;
+- `mu[EA]`.
+
+`slots.resolve_names` rewrites them to the positional slot names, so existing
+`.cns` files still read. A name wins over a number, as the port's
+`_series_index` resolves the `.dag`; that settles the divergence the entry
+notes, on the port's side.
+
+The guided mode (`write_guided`, `-g`) now writes `q[NAME,NAME]`.
+
+Tests (`tests/test_bug52_cns_by_name.py`):
+- the named file is the positional one;
+- the report's two experiments: reordered files and reordered `.dag` lines.
+  The constraints keep their meaning by name, and the positional file is what
+  moves.
+
+**The C** (`engines/drtran/src/drtran.c`, atsw-gui) still reads positions: it
+should call `series_index` in `read_constraints` too.
 
 ## BUG-53. `load_pre` invalida la mitad del estado: el `logL` diagonal sobrevive a un cambio de series, y es la base del contraste LR
 

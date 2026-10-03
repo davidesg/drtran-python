@@ -342,10 +342,92 @@ def build_slots(cast_spec):
         for j in range(1, i):
             slots.append(Slot(f"q[{i},{j}]", FIXED, value=0.0))
 
-    return SlotTable(slots)
+    table = SlotTable(slots)
+    # BUG-52: what a NAME in the .cns refers to — the series in their order,
+    # and the links (out, inp) in the .dag's order.
+    table.series_names = [sc.name for sc in cast_spec.series]
+    table.link_pairs = [(l.out, l.inp) for l in cast_spec.links]
+    return table
 
 
 # ── the constraints file (.cns) ──────────────────────────────────────────────
+import re as _re
+
+_Q_REF = _re.compile(r"q\[\s*([^\],\[]+?)\s*,\s*([^\]\[]+?)\s*\]")
+_LINK_REF = _re.compile(r"\b(omega|delta)\[\s*([^\]<\[]+?)\s*<-\s*([^\]\[]+?)\s*\]")
+_OWN_BRACKET = _re.compile(r"\b(phi|theta)\[\s*([^\]\[]+?)\s*\](?=\[)")
+_OWN_UNDERSCORE = _re.compile(r"\b(phi|theta)_([A-Za-z][\w.]*)(?=\[)")
+_MU_REF = _re.compile(r"\bmu\[\s*([^\]\[]+?)\s*\]")
+
+
+def _series_pos(tok, names, ctx):
+    """1-based position of a series named `tok` — or `tok` itself if it is a
+    position. A NAME first: a series literally named "2" is that series, as
+    the port's `_series_index` already resolves the .dag (BUG-52)."""
+    tok = tok.strip()
+    if tok in names:
+        return names.index(tok) + 1
+    if tok.isdigit() and 1 <= int(tok) <= len(names):
+        return int(tok)
+    raise KeyError(f"no series {tok!r}{ctx}: the series are {', '.join(names)}")
+
+
+def resolve_names(text, table, ctx=""):
+    """BUG-52: the .cns named covariances by POSITION on the command line and
+    transfers by the ORDER OF THE .dag's LINES — neither written anywhere, so
+    reordering the files or the .dag silently constrained other parameters.
+    Names are now accepted wherever positions were, and rewritten to the
+    positional slot names the table uses:
+
+        q[EA,EI]                       -> q[5,2]   (either order)
+        omega[EP<-EI][1], delta[...]   -> omega1[1]  (the link by its pair)
+        theta[EI][B^1], theta_EI[B^1]  -> theta_2[B^1]  (and phi)
+        mu[EA]                         -> mu[5]
+
+    Positional forms are left as they are, so existing .cns files still read.
+    """
+    names = getattr(table, "series_names", None)
+    if not names:
+        return text
+    pairs = getattr(table, "link_pairs", [])
+
+    def q(m):
+        i = _series_pos(m.group(1), names, ctx)
+        j = _series_pos(m.group(2), names, ctx)
+        if i == j:
+            raise KeyError(f"q[{m.group(1)},{m.group(2)}] is not a covariance{ctx}")
+        return f"q[{max(i, j)},{min(i, j)}]"
+
+    def link(m):
+        o = _series_pos(m.group(2), names, ctx) - 1
+        i = _series_pos(m.group(3), names, ctx) - 1
+        if (o, i) not in pairs:
+            raise KeyError(f"no link {m.group(2).strip()} <- {m.group(3).strip()} in the "
+                           f".dag{ctx}")
+        return f"{m.group(1)}{pairs.index((o, i)) + 1}"
+
+    def own(m):
+        tok = m.group(2)
+        if tok.startswith(("B^", "f=")):
+            return m.group(0)
+        return f"{m.group(1)}_{_series_pos(tok, names, ctx)}"
+
+    def own_us(m):
+        tok = m.group(2)
+        if tok.isdigit():
+            return m.group(0)
+        return f"{m.group(1)}_{_series_pos(tok, names, ctx)}"
+
+    def mu(m):
+        return f"mu[{_series_pos(m.group(1), names, ctx)}]"
+
+    text = _Q_REF.sub(q, text)
+    text = _LINK_REF.sub(link, text)
+    text = _OWN_BRACKET.sub(own, text)
+    text = _OWN_UNDERSCORE.sub(own_us, text)
+    return _MU_REF.sub(mu, text)
+
+
 def _parse_term(tok):
     """One term of a linear combination: `slot` or `slot * slot`."""
     if "*" in tok:
@@ -365,6 +447,10 @@ def read_cns(path, table):
         NAME = [-]OTHER * OTHER  PRODUCT with a sign
         NAME = [+-]t1 [+-]t2 ...  LINEAR COMBINATION (ti = slot or slot*slot)
 
+    Series and links can be named instead of numbered (BUG-52): `q[EA,EI]`,
+    `omega[EP<-EI][1]`, `theta[EI][B^1]` or `theta_EI[B^1]`, `mu[EA]`. See
+    `resolve_names`.
+
     A linear combination is detected by an **internal** +/- separator: slot names
     carry no signs. It is the C's own heuristic.
     """
@@ -376,9 +462,10 @@ def read_cns(path, table):
                 continue
             if "=" not in line:
                 raise ValueError(f"{path}:{nline}: expected NAME = ...: {line!r}")
+            ctx = f" in {path}:{nline}"
+            line = resolve_names(line, table, ctx)      # BUG-52: names, not positions
             lhs, rhs = line.split("=", 1)
             lhs, rhs = lhs.strip(), rhs.strip()
-            ctx = f" in {path}:{nline}"
             if table.index(lhs) < 0:
                 raise KeyError(f"unknown parameter: {lhs!r}{ctx}")
 

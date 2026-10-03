@@ -189,7 +189,8 @@ def test_guided_mode_writes_the_DRAFT_cycle_included(tmp_path):
     n0 = t.n_free
     assert read_cns(cns2, t) == len(net.covariances)
     assert t.n_free == n0 + len(net.covariances)
-    assert "q[" in open(cns2).read() and "q[EI" not in open(cns2).read()
+    # BUG-52: the guided .cns names the series, so it survives a reordering
+    assert "q[" in open(cns2).read() and not re.search(r"q\[\d", open(cns2).read())
 
 
 def test_the_report_says_it_is_a_guide():

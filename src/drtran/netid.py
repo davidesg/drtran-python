@@ -313,9 +313,9 @@ def write_guided(net, name):
                     + body)
     with open(cns, "w") as f:
         f.write("# Contemporaneous covariances proposed by reading the residual\n"
-                "# CCFs of the diagonal model. Indices = position on the command\n"
-                "# line; the lower triangle, i > j.\n")
+                "# CCFs of the diagonal model. By NAME (BUG-52): the file means\n"
+                "# the same whatever the order of the files on the command line.\n")
         for i, j, r0 in net.covariances:
-            f.write(f"q[{j + 1},{i + 1}] = free      "
-                    f"# {net.names[i]} . {net.names[j]}, r(0) = {r0:+.3f}\n")
+            f.write(f"q[{net.names[j]},{net.names[i]}] = free      "
+                    f"# r(0) = {r0:+.3f}\n")
     return dag, cns
