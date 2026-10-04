@@ -3317,7 +3317,32 @@ def write_inp(name: str, outdir: str = ".") -> str:
               "\n  Vuelve a declarar la red con set_network.")
 
 
+def _cli_flags():
+    """-h/--help and --version answer and exit; without them `mtram` would
+    start the stdio server and seem to hang (drvarma BUG-0014)."""
+    import sys
+    args = sys.argv[1:]
+    if any(a in ("-h", "--help") for a in args):
+        print("usage: mtram [-h] [--version]\n\n"
+              "mtram: the MCP server for transfer-function models and networks (engine: drtran).\n"
+              "Speaks MCP over stdio: an MCP client (Claude Code, Claude Desktop)\n"
+              "starts it; run by hand it waits for a client on stdin.\n\n"
+              "options:\n"
+              "  -h, --help  show this message and exit\n"
+              "  --version   show the version and exit")
+        sys.exit(0)
+    if "--version" in args:
+        from importlib.metadata import PackageNotFoundError, version
+        try:
+            v = version("drtran")
+        except PackageNotFoundError:
+            v = "unknown"
+        print(f"mtram (drtran) {v}")
+        sys.exit(0)
+
+
 def main():                                                # pragma: no cover
+    _cli_flags()
     mcp.run()
 
 

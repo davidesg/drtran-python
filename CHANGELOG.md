@@ -4,6 +4,10 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**`mtram --help` and `--version` answer and exit** (drvarma BUG-0014). They
+used to start the stdio server, so the command seemed to hang. Test:
+`tests/test_cli_help.py`.
+
 **BUG-54: the scale test no longer depends on the 16th digit.** Under
 numpy 2 the well-scaled fit stops with termcode 3 instead of 1, at the same
 optimum and the same iterate. Its scaled gradient is 1.4× the tolerance, and
