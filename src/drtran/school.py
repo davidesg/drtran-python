@@ -322,30 +322,21 @@ def npar_for_series(fit, series_index=0):
     significance on every multivariate fit — on the canonical case it cut the
     degrees of freedom from 21 to 7 and turned p = 0.29 into p = 0.0017.
 
-    So: the series' own ARMA orders, plus the parameters of the links that FEED
-    it, because those are estimated from the same residual.
+    So: the FREE coefficients of the series' own noise, phi_i and theta_i,
+    counted on the slot table (the factors as estimated, not their expanded
+    product), rule L1 of drvec BUG-42 — the C's `diag_npar_ser`. A slot fixed,
+    shared or tied by the .cns is not a degree of freedom, and an ARMA the .pre
+    fixes has no slot. The weights of the links that feed the series do not
+    count: they are not coefficients on the residual's own lags. (Until
+    2026-10-11 they did, and the orders came expanded from `cast_us`.)
     """
-    from fue.cast_us import cast_us_py
+    from .slots import FREE, build_slots
 
-    cs = fit.cast_spec
-    x = np.asarray(fit.x, float)
-    idx = cs.npar_links
-    n = 0
-    for i, sc in enumerate(cs.series):
-        piece = x[idx:idx + sc.npar]
-        idx += sc.npar
-        if i != series_index:
-            continue
-        try:
-            p, q, *_rest, ifa = cast_us_py(piece, sc.est_spec)
-            if not ifa:
-                n = int(p) + int(q)
-        except Exception:                                  # noqa: BLE001
-            n = 0
-    for lk in (cs.links or []):
-        if lk.out == series_index:
-            n += (lk.s + 1) + lk.r
-    return n
+    slots = fit.slots if fit.slots is not None else build_slots(fit.cast_spec)
+    si = int(series_index) + 1
+    own = (f"phi_{si}[", f"theta_{si}[")
+    return sum(1 for s in slots.slots
+               if s.kind == FREE and s.name.startswith(own))
 
 
 def ccf_pairs(fit, link_index=0, lag=None, top=5, embed=None):

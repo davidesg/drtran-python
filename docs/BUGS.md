@@ -2510,3 +2510,35 @@ the C and drvarma do:
 
 `tests/test_stderr.py::test_ridge_falls_back_to_bfgs_and_says_why` (slow)
 runs the §3d ridge.
+
+---
+
+## BUG-57. The per-series Ljung-Box subtracted the links' weights and the expanded orders, not the free coefficients of the series' own noise — **FIXED 2026-10-11**
+
+**What was wrong.** `school.npar_for_series` corrected series i's Ljung-Box
+by two things that are not what the C uses:
+
+- the `cast_us` p + q, the orders after the factors are multiplied out,
+  not the coefficients estimated;
+- the weights (s + 1) + r of every link that feeds the series.
+
+The C's per-series Ljung-Box became rule L1 on 2026-10-11 (atsw-gui PR #22,
+drvec BUG-42, `diag_npar_ser` in `drtran.c`): only the free phi_i and
+theta_i of the series' own noise count, as estimated and read off the slot
+table. A slot that is fixed, shared or tied by the .cns does not count, and
+neither does an ARMA that the .pre fixes. The links' weights are not
+coefficients on the residual's own lags, which is why they are left out. The
+same rule applies in art and fue, which subtract p + q.
+
+**Fix.** `npar_for_series` counts the FREE slots named `phi_{i}[…]` and
+`theta_{i}[…]` in `fit.slots`, or in `build_slots(cast_spec)` when the fit is
+unconstrained. The fix reaches `noise_adequacy` and `plot_residuals` (MCP).
+
+**Also from that PR, with nothing to change here.** The line search's
+give-up branch now returns the objective at the point it returns (drvec
+BUG-41). drtran uses `drvarma._qnewt`, which drvarma-python fixes (its
+BUG-0016). The multivariate Hosking with k and Lütkepohl's JB do not apply:
+the port's `.out` has no multivariate residual block.
+
+Test: `tests/test_bank_mtram.py::test_the_noise_correction_uses_the_series_own_parameters`
+now requires the count to equal the free `phi_1`/`theta_1` slots.

@@ -4,6 +4,13 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**BUG-57: the per-series Ljung-Box subtracts what the C subtracts.**
+`npar_for_series` now counts the free phi_i and theta_i of the series' own
+noise on the slot table. That is rule L1 of the C's `diag_npar_ser` (atsw-gui
+PR #22, drvec BUG-42). It used to count the expanded `cast_us` orders plus
+the weights of the links that feed the series. The line-search fix of the
+same PR reaches drtran through `drvarma._qnewt` (drvarma BUG-0016).
+
 **`mtram --help` and `--version` answer and exit** (drvarma BUG-0014). They
 used to start the stdio server, so the command seemed to hang. Test:
 `tests/test_cli_help.py`.
