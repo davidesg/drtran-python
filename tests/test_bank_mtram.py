@@ -353,8 +353,12 @@ def test_the_noise_correction_uses_the_series_own_parameters(bank):
     n_series = npar_for_series(f, 0)
     n_joint = M._TABLES["b2s1"].n_free
     assert n_series < n_joint
-    # los 2 pesos del enlace entran, porque se estiman del mismo residuo
-    assert n_series >= 2
+    # Regla L1 (drvec BUG-42, el diag_npar_ser del C): solo el ARMA libre de
+    # la propia serie; los pesos del enlace no son coeficientes en sus retardos.
+    from drtran.slots import FREE
+    own = sum(1 for s in M._TABLES["b2s1"].slots
+              if s.kind == FREE and s.name.startswith(("phi_1[", "theta_1[")))
+    assert n_series == own
 
 
 def test_a_redundant_denominator_is_named_as_redundant(bank):
