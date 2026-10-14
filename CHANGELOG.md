@@ -2,7 +2,11 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
-## Unreleased
+## 0.2.6 — unreleased
+
+**drvarma >= 0.2.0.** The line-search fix below reaches drtran through
+`drvarma._qnewt` (drvarma BUG-0016), which is in drvarma 0.2.0: with the old
+bound `>=0.1.3`, `pip install -U drtran` would keep 0.1.7 and not get it.
 
 **BUG-57: the per-series Ljung-Box subtracts what the C subtracts.**
 `npar_for_series` now counts the free phi_i and theta_i of the series' own

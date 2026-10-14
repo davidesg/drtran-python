@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drtran"
-version = "0.2.5"
+version = "0.2.6"
 description = "Box-Jenkins transfer function models by exact maximum likelihood — the bridge from fue (univariate) to drvarma (exact VARMA likelihood). Ships `mtram`, an MCP server for LLM-driven transfer-model building"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,7 +35,9 @@ dependencies = [
     # extension silently degraded to the pure-Python fallback. Since drtran
     # scores every likelihood through drvarma's compiled `elf_c`, pinning lower
     # would let a user install the inert engine and never know.
-    "drvarma>=0.1.3",
+    # >=0.2.0: the line search of drvarma BUG-0016 reaches drtran through
+    # `drvarma._qnewt`, its optimizer; with >=0.1.3 an upgrade keeps 0.1.7.
+    "drvarma>=0.2.0",
 ]
 
 [project.urls]
@@ -61,7 +63,7 @@ mtram = "drtran.mcp_server:main"   # transfer-model MCP (pip install "drtran[mcp
 # Verified: 1.27.2 works, 2.0.0 raises ModuleNotFoundError. Lift the cap only
 # after porting the import.
 # pyfug draws the residual figure (the one graphics engine of the ladder).
-mcp = ["mcp>=1.2,<2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.1.3",
+mcp = ["mcp>=1.2,<2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.2.0",
        "pyfug>=2.0.1"]
 # pyfug>=2.0.1: la 2.0.0 lanza UnboundLocalError con TODA serie anual
 # (pyfug/BUG-0002), y drtran se usa con datos anuales.
