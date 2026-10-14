@@ -2,7 +2,7 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
-## Unreleased
+## 0.2.6 — unreleased
 
 **drvarma >= 0.2.0.** The line-search fix below reaches drtran through
 `drvarma._qnewt` (drvarma BUG-0016), which is in drvarma 0.2.0: with the old
