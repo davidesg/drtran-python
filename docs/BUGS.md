@@ -2543,7 +2543,7 @@ the port's `.out` has no multivariate residual block.
 Test: `tests/test_bank_mtram.py::test_the_noise_correction_uses_the_series_own_parameters`
 now requires the count to equal the free `phi_1`/`theta_1` slots.
 
-## BUG-65. Three CLI tests read the canonical `.pre` files without `needs_cases`, and fail wherever those files are missing — **OPEN**
+## BUG-65. Three CLI tests read the canonical `.pre` files without `needs_cases`, and fail wherever those files are missing — **FIXED 2026-11-13**
 
 **What is wrong.** `tests/test_cli.py` points `CASES` at
 `/home/david/Dropbox/SRC/drtran/tests/cases`, and eight of its tests carry the
@@ -2564,7 +2564,8 @@ with `drtran: cannot open /home/david/Dropbox/SRC/drtran/tests/cases/ES_CPI_m10.
 But the suite is red on every machine but one, which hides a real failure
 among three known ones.
 
-**Fix (proposed).** `@needs_cases` on the three. The `.pre` files are not in
-the repo, so they cannot ship with the tests.
+**Fix.** `@needs_cases` on the three. The `.pre` files are not in the repo,
+so they cannot ship with the tests: where they are missing the three skip, as
+the other eight do.
 
 Repro: `scripts/repro_test_cli_sin_needs_cases.py` (exits 1 while open).

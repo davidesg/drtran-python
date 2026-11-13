@@ -120,6 +120,7 @@ def test_every_option_of_the_C_is_now_implemented():
     assert _NOT_PORTED == {}
 
 
+@needs_cases
 def test_estwin_is_the_same_option_as_R():
     """The C rewrites the token before getopt; so does this, or a command line
     written for one would silently mean something else in the other. Checked on
@@ -130,6 +131,7 @@ def test_estwin_is_the_same_option_as_R():
     assert "needs a horizon" in a[2] and "needs a horizon" in b[2]
 
 
+@needs_cases
 def test_prewhiten_only_reports_and_does_not_estimate():
     """-p is the cheap look before committing to a model. It is also the only
     path that reaches `identify.report`, and it broke once when that function's
@@ -260,6 +262,7 @@ def test_a_cycle_in_the_network_is_refused():
         os.unlink(ruta)
 
 
+@needs_cases
 def test_the_report_carries_the_variation_columns_and_the_decomposition():
     """The two sections the CLI was missing against the C: the PERIOD/ANNUAL
     variation columns with their standard errors, and the forecast error
