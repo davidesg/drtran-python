@@ -47,3 +47,10 @@ def test_the_norm_is_not_warned_of(tmp_path):
     assert "refactor=100 " in check_scale(specs[1.0])
     assert mixed_factors([specs[100.0], specs[100.0]]) is None
     assert "do not share" in mixed_factors([specs[100.0], specs[1.0]])
+
+
+def test_the_engine_warns_of_different_factors_in_the_cs_words():
+    from drtran.cast import mixed_refactors_warning
+    assert mixed_refactors_warning(["Y", "X"], [100.0, 100.0]) is None
+    assert mixed_refactors_warning(["Y", "X"], [100.0, 1.0]).startswith(
+        "the files do not share one refactor (Y 100, X 1).")

@@ -25,6 +25,8 @@ From the scale study and the audit of the whole ladder (atsw-gui,
   next to the engine's figure (44.96 for an elasticity of 0.4496); and the
   dead-time check tests the weight in those units. The engine's tables stay
   as the C prints them.
+- **The engine warns of files with different factors, as the C.** The cast
+  raises a `RuntimeWarning` with the words of the C's `fuepre_warn_refactors`.
 
 ## 0.2.6 — 2026-10-15
 

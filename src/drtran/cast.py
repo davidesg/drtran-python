@@ -212,6 +212,23 @@ def common_window(specs):
             max(fin - ini + 1, 0), spare)
 
 
+def mixed_refactors_warning(names, refactors):
+    """The C's words (lib/fuepre, ``fuepre_warn_refactors``) when the files of
+    one model do not share a rescaling factor, or None. The joint model is
+    built in w = refactor*BoxCox(z): a coefficient between two series then
+    carries the ratio of their factors, and standard errors lose precision
+    (atsw-gui docs/ESTUDIO-escala.md)."""
+    rs = [float(r) if r else 1.0 for r in refactors]
+    if all(abs(r - rs[0]) <= 1.0e-9 * abs(rs[0]) for r in rs[1:]):
+        return None
+    return ("the files do not share one refactor ("
+            + ", ".join(f"{n} {r:g}" for n, r in zip(names, rs))
+            + ").  The model is built in w = refactor*BoxCox(z) units, so a "
+            "coefficient of series j in the equation of series i is its z-unit "
+            "value times refactor_i / refactor_j, and the standard errors lose "
+            "precision.  A common factor avoids both.")
+
+
 def check_alignment(specs):
     """The premise the alignment states and never checked (BUG-2).
 
@@ -510,6 +527,12 @@ def build_cast_spec(specs, links=None):
         raise ValueError("the joint fit needs at least 2 series")
 
     check_alignment(specs)
+    _w = mixed_refactors_warning(
+        [sp.name for sp in specs],
+        [getattr(sp.model, "refactor", 1.0) for sp in specs])
+    if _w:                                      # as the C, on stderr there
+        import warnings
+        warnings.warn(_w, RuntimeWarning, stacklevel=2)
 
     cs = CastSpec(links=list(links or []))
     for s in specs:
