@@ -2572,7 +2572,7 @@ Repro: `scripts/repro_test_cli_sin_needs_cases.py` (exits 1 while open).
 
 ---
 
-## BUG-68. `check_scale` measures the LEVEL of the stationary series, not its spread: with d = 0 it calls a fine scale "huge" and advises a factor that would ruin it — **OPEN**
+## BUG-68. `check_scale` measures the LEVEL of the stationary series, not its spread: with d = 0 it calls a fine scale "huge" and advises a factor that would ruin it — **FIXED 2026-11-15** (0.2.7)
 
 > Numbers 68 and 69 continue the series shared with `drvec` (its last is
 > BUG-67, in atsw-gui `engines/drvec/docs/BUGS.md`).
@@ -2606,7 +2606,7 @@ art's convention, so the analyst gets two programs telling them opposite
 things about the same file. Where it matters — lambda < 0, high levels — it
 points the right way but by the wrong amount.
 
-**Fix (agreed 2026-11-15, after the scale study).** Two measurements, on
+**Fixed (2026-11-15).** `check_scale` is `fue.scale.check_scale`: two measurements, on
 fue's transform: the spread of `w` (safe band 0.1 to 1000; failures start a
 decade beyond on each side) and, with d = 0, the level-to-spread ratio (marginal
 at 10⁶, fails at 10⁸ whatever the factor: the advice there is to change the
@@ -2624,7 +2624,7 @@ Repro: `scripts/repro_check_scale_mide_el_nivel.py` (exits 1 while open).
 
 ---
 
-## BUG-69. `school.stationary_series` transforms with y^lambda and fue with (y^lambda − 1)/lambda: for lambda not 0 or 1 Brajín's R² comes out negative — **OPEN**
+## BUG-69. `school.stationary_series` transforms with y^lambda and fue with (y^lambda − 1)/lambda: for lambda not 0 or 1 Brajín's R² comes out negative — **FIXED 2026-11-15** (0.2.7)
 
 **What is wrong.** `r2_brajin` (A.28) is 1 − SS(a)/SS(w). The residuals are in
 fue's scale, `refactor·(y^λ − 1)/λ`; `w` comes from `stationary_series`, which
@@ -2649,14 +2649,15 @@ its own Box-Cox: art BUG-0259 is the same mistake in art's mu seed.
 negative numbers for any lambda outside {0, 1}; and `check_scale` (BUG-68)
 measures on this series.
 
-**Fix (proposed).** Use fue's transform (`fue.forecast._boxcox`, the C's),
-not a local one.
+**Fixed (2026-11-15).** `stationary_series` is `fue.scale.stationary`: fue's
+transform (the C's), not a local one. The R² with lambda = 0.5 is 0.5008 →
+0.6564, the 0.4999 → 0.6558 of lambda = 1.
 
 Repro: `scripts/repro_stationary_series_boxcox.py` (exits 1 while open).
 
 ---
 
-## BUG-70. mtram presents in the engine's units: the forecast's "s.e.(%)" is a percentage only at `refactor = 100` with logs, and a gain between two series carries the ratio of their factors — **OPEN**
+## BUG-70. mtram presents in the engine's units: the forecast's "s.e.(%)" is a percentage only at `refactor = 100` with logs, and a gain between two series carries the ratio of their factors — **FIXED 2026-11-15** (0.2.7)
 
 **What is wrong.** Each `.pre` carries its own rescaling factor, and the joint
 model is built in w = factor·BoxCox(z). What mtram prints is in those units,
@@ -2688,9 +2689,13 @@ result. atsw-gui's `gui/drtran` already converts (`pagina.c:27-30`: a transfer
 omega by factor_X/factor_Y, deterministics and the mean by 1/factor_Y, sigma in
 % only with logs, `log(var_i/var_j)` shifted); mtram is the one that does not.
 
-**Fix (agreed 2026-11-15).** The GUI's rule, through the function fue will
-export for the whole suite: everything presented goes in each series' units,
-labelled; restrictions and tests against fixed numbers are converted; and
-`load_pre` says when the files do not share a factor (BUG-68).
+**Fixed (2026-11-15).** Through `fue.scale`: the forecast's s.e. is a
+percentage with logs whatever the factor, and in the transformed series' units
+otherwise, and says which; when the two series of a link do not share factor
+and lambda the gain is also given in each series' units, with what it is (an
+elasticity, % per unit, ...), next to the engine's figure; `dead_time_suspect`
+tests the weight in those units; and `load_pre` says that the files do not
+share a factor. The engine's tables stay in the engine's units: they mirror
+the C's `.out`.
 
 Repro: `scripts/repro_presentacion_en_unidades_del_motor.py` (exits 1 while open).

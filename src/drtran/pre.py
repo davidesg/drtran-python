@@ -107,66 +107,60 @@ def load_pre(path):
     return PreSpec(ts=ts, model=model, path=str(path))
 
 
-def check_scale(spec, minimum=10.0):
-    """Return a warning if the `.pre`'s scale is the one that degrades the fit.
+def check_scale(spec, minimum=None):
+    """A warning if the optimiser cannot work well on this `.pre` as it comes,
+    or None.
 
-    Mauricio recommends always rescaling (`refactor=100`) because the optimizer
-    works better. Measured in drtran against the C: the same model on the same
-    data with `refactor=1` (Delta-log ~0.002) hangs for over 2 minutes without
-    converging, and with `refactor=100` (Delta-log ~0.2) converges in 23
-    iterations and one second. The cause is `cdgrad`'s finite-difference step,
-    ~6e-6 absolute: at raw scale the signal-to-step ratio is terrible.
+    The rule is `fue.scale.check_scale`, one for the whole suite (the study is
+    in atsw-gui, docs/ESTUDIO-escala.md). The optimiser's typical parameter
+    size is fixed at 1 and only the mean, the deterministic coefficients and
+    the coefficients between series depend on the scale. Two conditions,
+    measured on fue, drtran and drvarma with the C engines and the Python ones:
 
-    **The advice must follow the DATA, not `refactor` alone.** The rule used to
-    be `refactor < 10` with an unconditional "regenerate with refactor=100",
-    and that is right for a log model — it puts the series in percent — and
-    backwards for an UNTRANSFORMED one: rainfall at ~900 mm becomes ~90000, and
-    the poor ratio becomes a different poor ratio. What matters is the size of
-    the STATIONARY series the optimiser actually sees, after lambda, refactor
-    and the differencing, so that is what is measured here. `refactor` is only
-    the lever.
+    * the SPREAD of the stationary series between 0.1 and 1000 (trouble starts
+      a decade beyond on either side). The factor mends it, and the warning
+      names the one to write: 100, the convention, whenever that does;
+    * with d = D = 0, its LEVEL no more than a million times that spread. No
+      factor mends this one: the series has to be differenced or expressed in
+      other units.
 
-    The target band comes from the measurement above: Delta-log ~0.002 hangs
-    and ~0.2 converges, so a typical |w| between 0.01 and 100 is comfortable
-    and the recommendation aims at ~1.
-
-    Returns None if there is no problem, or the text of the warning.
+    It used to measure the median of |w| (BUG-68), which with d = 0 is the
+    LEVEL: two log series at refactor = 100 -- the norm -- were called "huge",
+    and the same at refactor = 1 passed. `minimum` is kept for callers and no
+    longer used.
     """
-    import math as _math
+    import numpy as _np
+    from fue.scale import check_scale as _check
 
-    r = float(getattr(spec.model, "refactor", 1.0) or 1.0)
+    m = spec.model
     try:
-        from .school import stationary_series
-        import numpy as _np
-        w = _np.abs(_np.asarray(stationary_series(spec), float))
-        w = w[_np.isfinite(w) & (w > 0)]
-        escala = float(_np.median(w)) if len(w) else float("nan")
+        c = _check(_np.asarray(spec.ts.data, float),
+                   float(getattr(m, "boxlam", 0.0) or 0.0),
+                   int(getattr(m, "d", 0) or 0), int(getattr(m, "D", 0) or 0),
+                   int(getattr(spec.ts, "freq", 1) or 1),
+                   float(getattr(m, "refactor", 1.0) or 1.0))
     except Exception:                                      # noqa: BLE001
-        escala = float("nan")
-
-    if not (escala == escala):                             # no medible
-        if r < minimum:
-            return (f"{spec.name}: refactor={r:g}, and the stationary series "
-                    f"could not be measured. At small scales the "
-                    f"finite-difference gradient (step ~6e-6) has a poor "
-                    f"signal-to-step ratio; check the scale by hand.")
         return None
-
-    if 0.01 <= escala <= 100.0:
+    if c.ok:
         return None
+    return f"{spec.name}: " + "; ".join(texto for _clase, texto in c.problems) + "."
 
-    # el refactor que llevaría |w| tipico a ~1, redondeado a potencia de 10
-    sugerido = 10.0 ** round(_math.log10(max(r, 1e-12) / escala))
-    if escala < 0.01:
-        return (f"{spec.name}: the stationary series is tiny (typical |w| = "
-                f"{escala:.2e} with refactor={r:g}). The finite-difference "
-                f"gradient (step ~6e-6) has a poor signal-to-step ratio and "
-                f"the optimizer may not converge. Regenerate the .pre with "
-                f"refactor={sugerido:g} — MULTIPLYING.")
-    return (f"{spec.name}: the stationary series is huge (typical |w| = "
-            f"{escala:.3g} with refactor={r:g}). Rescaling UP would make it "
-            f"worse, which the old advice did unconditionally. Regenerate the "
-            f".pre with refactor={sugerido:g} — DIVIDING.")
+
+def mixed_factors(specs):
+    """A note when the files of one model do not share a rescaling factor or a
+    lambda, or None. The joint model is built in w = refactor*BoxCox(z), so a
+    coefficient between two series then carries the ratio of their factors
+    (BUG-70; drvec C warns of the same)."""
+    fs = [float(getattr(s.model, "refactor", 1.0) or 1.0) for s in specs]
+    ls = [float(getattr(s.model, "boxlam", 0.0) or 0.0) for s in specs]
+    if len(set(fs)) <= 1 and len(set(ls)) <= 1:
+        return None
+    cada = ", ".join(f"{s.name} (lambda={l:g}, refactor={f:g})"
+                     for s, l, f in zip(specs, ls, fs))
+    return ("the files do not share one rescaling factor or one lambda: " + cada
+            + ". The engine works in w = refactor*BoxCox(z), so in its tables a "
+            "coefficient between two series carries the ratio of their factors. "
+            "The gain and the forecast below are given in each series' units.")
 
 
 def fitted_model(fit, series=0, std_errors=None):

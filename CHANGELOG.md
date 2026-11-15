@@ -2,6 +2,30 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## 0.2.7 — unreleased
+
+**The rescaling factor, by the suite's one rule (`fue.scale`; fue >= 0.1.22).**
+From the scale study and the audit of the whole ladder (atsw-gui,
+`docs/ESTUDIO-escala.md`). No estimate changes.
+
+- **BUG-68: `check_scale` measures what the optimiser needs.** It took the
+  median of |w|, which with d = 0 is the level: two log series at
+  `refactor = 100` — the norm — were called "huge, regenerate with 0.1", and
+  the same at `refactor = 1` passed. It is now `fue.scale.check_scale`: the
+  spread of the stationary series (0.1 to 1000) and, with d = 0, its
+  level-to-spread ratio, which no factor mends. `load_pre` also says when the
+  files do not share a factor or a lambda (`pre.mixed_factors`).
+- **BUG-69: Brajín's R² with any lambda.** `school.stationary_series` used
+  y^lambda, not fue's (y^lambda − 1)/lambda: with lambda = ±0.5 the R² came out
+  negative (−0.997 → −0.374 for 0.50 → 0.66).
+- **BUG-70: mtram presents in each series' units.** The forecast's "s.e.(%)"
+  was a percentage only at `refactor = 100` (0.0055 for 0.55 at factor 1, 54.6
+  for 0.55 units in levels). With two series that do not share factor and
+  lambda the gain is now also given in each series' units, saying what it is,
+  next to the engine's figure (44.96 for an elasticity of 0.4496); and the
+  dead-time check tests the weight in those units. The engine's tables stay
+  as the C prints them.
+
 ## 0.2.6 — 2026-10-15
 
 **drvarma >= 0.2.0.** The line-search fix below reaches drtran through

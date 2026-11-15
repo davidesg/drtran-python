@@ -101,13 +101,14 @@ def test_it_rejects_what_is_no_use_for_the_joint_fit():
 
 
 def test_it_warns_when_the_scale_degrades_the_optimizer():
-    """refactor=100 must not warn; a raw scale must."""
+    """refactor=100 must not warn; the same model at a raw scale must, and
+    name the factor to write (BUG-68: the rule is fue.scale's)."""
+    import copy
+
     s = drtran.load_pre(ES_CPI)
     assert drtran.check_scale(s) is None
 
-    class _Fake:
-        model = type("M", (), {"refactor": 1.0})()
-        name = "raw"
-
-    warning = drtran.check_scale(_Fake())
-    assert warning is not None and "refactor=1" in warning
+    raw = copy.deepcopy(s)
+    raw.model.refactor = 1.0
+    warning = drtran.check_scale(raw)
+    assert warning is not None and "refactor=1 " in warning and "refactor=100 " in warning

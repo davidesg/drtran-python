@@ -14,8 +14,9 @@ The fit is the same in the three (the likelihood in the units of y agrees).
 mtram prints the forecast's "s.e.(%)" as 0.5457 in A and 0.0055 in B, and the
 gain as 0.4496 in A and B and 44.96 in C, "en la escala transformada".
 
-Exits 1 while the s.e.(%) of A and B differ, or the gain of C is not A's; 0
-when the three say the same.
+Exits 1 while the s.e.(%) of A and B differ, or the gain of C -- in the
+series' units, which mtram gives next to the engine's figure when the files
+do not share a factor -- is not A's; 0 when the three say the same.
 """
 import os
 import re
@@ -59,9 +60,13 @@ def corre(fy, fx, tag):
     M.set_network(tag, '[{"out":0,"inp":1,"b":1,"r":0,"s":0}]')
     est = M.estimate(tag)
     g = float(re.search(r"omega\(1\) = ([-+0-9.]+)", est).group(1))
+    u = re.search(r"EN LAS UNIDADES DE CADA SERIE: ([-+0-9.]+)", est)
+    if u:                       # the engine's figure stays; the reading is this one
+        g = float(u.group(1))
     fc = M.forecast(tag, 3)
     se = float(re.search(r"\n\s+1\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+\s+([0-9.]+)", fc).group(1))
-    print(f"{tag}: refactor Y={fy:g}, X={fx:g}:  gain = {g:+.6f}   forecast s.e.(%) at h=1 = {se}")
+    print(f"{tag}: refactor Y={fy:g}, X={fx:g}:  gain (series' units) = {g:+.6f}"
+          f"   forecast s.e.(%) at h=1 = {se}")
     return g, se
 
 
