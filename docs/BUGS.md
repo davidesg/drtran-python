@@ -2569,3 +2569,128 @@ so they cannot ship with the tests: where they are missing the three skip, as
 the other eight do.
 
 Repro: `scripts/repro_test_cli_sin_needs_cases.py` (exits 1 while open).
+
+---
+
+## BUG-68. `check_scale` measures the LEVEL of the stationary series, not its spread: with d = 0 it calls a fine scale "huge" and advises a factor that would ruin it — **OPEN**
+
+> Numbers 68 and 69 continue the series shared with `drvec` (its last is
+> BUG-67, in atsw-gui `engines/drvec/docs/BUGS.md`).
+
+**What is wrong.** `pre.check_scale` takes the median of |w|, `w` the
+stationary series. With d = D = 0, `w` is the transformed level itself, so the
+median is the level, not how much the series moves — and the docstring's own
+argument (the finite-difference step against the size of the signal) is about
+how much it moves. A series about 1000 in levels with `refactor = 1` moves by
+~1 per period, the comfortable scale the docstring aims at, and gets:
+
+```
+NIVELES: the stationary series is huge (typical |w| = 1e+03 with refactor=1).
+Rescaling UP would make it worse, which the old advice did unconditionally.
+Regenerate the .pre with refactor=0.001 — DIVIDING.
+```
+
+`refactor = 0.001` would make it move by ~0.001, where the gradient stops
+seeing it. The same with art's `refactor = 100` (art BUG-0257): a series about
+100 in levels gets "huge, regenerate with refactor=0.01", and the diagonal fit
+on the same files matches fue to −6.6e-08 in 2 iterations. With lambda = −1
+and a level of 10 000 the measure says 0.01 and advises 10 000, when the
+spread is 1.2e-4 and the factor that brings it to ~1 is 10⁶. And it measures
+on `stationary_series`, which is not fue's Box-Cox (BUG-69).
+
+**How it was found.** The suite review of 2026-11-15: a model built by art in
+levels (lambda = 1) and loaded into mtram.
+
+**What it costs.** The advice is wrong in both directions, and contradicts
+art's convention, so the analyst gets two programs telling them opposite
+things about the same file. Where it matters — lambda < 0, high levels — it
+points the right way but by the wrong amount.
+
+**Fix (agreed 2026-11-15, after the scale study).** Two measurements, on
+fue's transform: the spread of `w` (safe band 0.1 to 1000; failures start a
+decade beyond on each side) and, with d = 0, the level-to-spread ratio (marginal
+at 10⁶, fails at 10⁸ whatever the factor: the advice there is to change the
+series' units or to difference, not a factor). The recommended factor comes
+from the same function art uses to write it (art BUG-0257), restricted to what
+the file format can hold. And a third check when a system is loaded: series
+that carry different factors (see the note below).
+
+**Measured on the standard case.** Two log series with `refactor = 100`,
+d = 0 and a mean — the suite's norm — get "huge (typical |w| = 461) ...
+regenerate with refactor=0.1", and the same series at `refactor = 1` get no
+warning: the check has it backwards on the case it was written for.
+
+Repro: `scripts/repro_check_scale_mide_el_nivel.py` (exits 1 while open).
+
+---
+
+## BUG-69. `school.stationary_series` transforms with y^lambda and fue with (y^lambda − 1)/lambda: for lambda not 0 or 1 Brajín's R² comes out negative — **OPEN**
+
+**What is wrong.** `r2_brajin` (A.28) is 1 − SS(a)/SS(w). The residuals are in
+fue's scale, `refactor·(y^λ − 1)/λ`; `w` comes from `stationary_series`, which
+uses `refactor·y^λ`. The two differ by a factor 1/λ² in variance, so with
+λ = ±0.5 the denominator is four times too small and R² = 1 − 4(1 − R²):
+
+```
+lambda = 1  : R2 from 0.4999 to 0.6558
+lambda = 0.5: R2 from -0.9968 to -0.3745
+```
+
+Same data, same network (Yₜ = 0.5Yₜ₋₁ + 0.4Xₜ₋₁ + aₜ in logs, about 100), same
+fit otherwise: the gain, the likelihood ratio and the variance test agree
+between the two runs; only the R² is wrong. With λ = 0 and λ = 1 the two
+transforms differ by a constant (λ = 1: fue uses y, not y − 1), which the
+differencing or the mean removes, and that is why it was never seen.
+
+**How it was found.** The same review, looking for every place that applies
+its own Box-Cox: art BUG-0259 is the same mistake in art's mu seed.
+
+**What it costs.** mtram prints a negative R² and a "transition" between two
+negative numbers for any lambda outside {0, 1}; and `check_scale` (BUG-68)
+measures on this series.
+
+**Fix (proposed).** Use fue's transform (`fue.forecast._boxcox`, the C's),
+not a local one.
+
+Repro: `scripts/repro_stationary_series_boxcox.py` (exits 1 while open).
+
+---
+
+## BUG-70. mtram presents in the engine's units: the forecast's "s.e.(%)" is a percentage only at `refactor = 100` with logs, and a gain between two series carries the ratio of their factors — **OPEN**
+
+**What is wrong.** Each `.pre` carries its own rescaling factor, and the joint
+model is built in w = factor·BoxCox(z). What mtram prints is in those units,
+whatever the factors are:
+
+```
+A: refactor Y=100, X=100:  gain = +0.449556   forecast s.e.(%) at h=1 = 0.5457
+B: refactor Y=1,   X=1:    gain = +0.449556   forecast s.e.(%) at h=1 = 0.0055
+C: refactor Y=100, X=1:    gain = +44.955568  forecast s.e.(%) at h=1 = 0.5457
+```
+
+The three are the same data and the same fit (the likelihood in the units of
+y agrees to the third decimal). Also in engine units, with nothing saying so:
+the transfer omegas and the impulse weights ("en la escala transformada"), the
+mean in the equation (`Nₜ − 460.619`, and 10010.721 for a series about 100 in
+levels: art BUG-0258), the "s.e.(%)" of a series in levels (54.6 for a
+standard error of 0.55 units), and `school.dead_time_suspect`, which tests the
+leading weight against −1 when the value the long-run restriction leaves is
+−factor_Y/factor_X.
+
+**How it was found.** The audit of the whole ladder, 2026-11-15: seven scale
+scenarios through fue, mtram and sima, with the wheels' C engines and with the
+pure-Python ones (the two agree).
+
+**What it costs.** It needs no odd input: atsw-gui's GUI writes factor 1 for
+every new series and art writes 100, so files of both kinds meet. An
+elasticity read 100 times off, with its t-statistic intact, looks like a
+result. atsw-gui's `gui/drtran` already converts (`pagina.c:27-30`: a transfer
+omega by factor_X/factor_Y, deterministics and the mean by 1/factor_Y, sigma in
+% only with logs, `log(var_i/var_j)` shifted); mtram is the one that does not.
+
+**Fix (agreed 2026-11-15).** The GUI's rule, through the function fue will
+export for the whole suite: everything presented goes in each series' units,
+labelled; restrictions and tests against fixed numbers are converted; and
+`load_pre` says when the files do not share a factor (BUG-68).
+
+Repro: `scripts/repro_presentacion_en_unidades_del_motor.py` (exits 1 while open).
