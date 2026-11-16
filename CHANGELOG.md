@@ -2,7 +2,7 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
-## 0.2.7 — unreleased
+## 0.2.7 — 2026-11-16
 
 **The rescaling factor, by the suite's one rule (`fue.scale`; fue >= 0.1.22).**
 From the scale study and the audit of the whole ladder (atsw-gui,
