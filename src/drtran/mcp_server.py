@@ -864,6 +864,10 @@ def load_pre(name: str, paths: str, check: bool = True) -> str:
         w = drtran.check_scale(s)
         if w:
             warn.append(w)
+    from drtran.pre import mixed_factors as _mixtos
+    _mx = _mixtos(specs)
+    if _mx:
+        warn.append(_mx)
     _SPECS[name] = specs
     # BUG-53: recargar un caso invalida TODO su estado, no la mitad
     for _d in (_LINKS, _FITS, _TABLES, _DIAG, _DIAG_FIT, _DIAG_OF):
@@ -1746,7 +1750,8 @@ def _estimation_situation(f, cs, name):
                     "salen grandes y con errores típicos que los dejan sin "
                     "significación. Suele indicar que la cola se está "
                     "modelando con un factor que el dato no sostiene."]
-        sus, w0, w0e, tt = dead_time_suspect(f, t, se, link_index=li)
+        sus, w0, w0e, tt = dead_time_suspect(
+            f, t, se, link_index=li, scale=_cruce(f.cast_spec, lk.out, lk.inp)[0])
         if sus:
             out += ["", f"    ⚠ omega{li + 1}[0] = {w0:+.4f} no se distingue "
                     f"de −1 (t = {tt:.2f}). En la parametrización en que la "
@@ -1822,6 +1827,17 @@ def _what_the_transfer_bought(name, f, cs):
         lines.append("      El efecto ACUMULADO sobre "
                      f"{nm[lk.out]} de un cambio PERMANENTE de una unidad en "
                      f"{nm[lk.inp]}, en la escala transformada.")
+        # BUG-70: la escala transformada es la del MOTOR, refactor·BoxCox. Si
+        # las dos series no comparten factor y lambda=0, o van en lambdas
+        # distintos, la cifra de arriba lleva el cociente: se da también en
+        # las unidades de cada serie.
+        _k, _que = _cruce(f.cast_spec, lk.out, lk.inp)
+        if abs(_k - 1.0) > 1e-12:
+            lines.append(f"      EN LAS UNIDADES DE CADA SERIE: {g * _k:+.6f}"
+                         + (f"  (e.t. {gse * abs(_k):.6f})"
+                            if gse is not None and np.isfinite(gse) and gse > 0 else "")
+                         + f" — {_que}. La cifra de arriba va en las del motor "
+                         "(los ficheros no comparten factor de reescala o lambda).")
 
         # La ganancia dice CUÁNTO y el retardo medio dice CUÁNDO. La escuela
         # reporta los dos en todos sus casos ("la ganancia es 3.1 y el retardo
@@ -3031,6 +3047,24 @@ def variance_decomposition(name: str, series_index: int = 0, horizon: int = 12) 
 
 
 # ── 6. forecasting ─────────────────────────────────────────────────────────
+
+def _cruce(cast_spec, i_out, i_inp):
+    """(k, qué es): el factor que lleva un coeficiente de la serie `i_inp` en
+    la ecuación de `i_out` de las unidades del motor a las de cada serie, y en
+    qué queda. La regla es `fue.scale.display_cross` (BUG-70)."""
+    from fue.scale import display_cross, display_scale
+    mo = cast_spec.series[i_out].spec.model
+    mi = cast_spec.series[i_inp].spec.model
+    lo, li = float(mo.boxlam), float(mi.boxlam)
+    fo = float(getattr(mo, "refactor", 1.0) or 1.0)
+    fi = float(getattr(mi, "refactor", 1.0) or 1.0)
+    po, pi = display_scale(lo, fo).percent, display_scale(li, fi).percent
+    que = ("una elasticidad: % de la salida por 1 % de la entrada" if po and pi else
+           "% de la salida por unidad de la entrada" if po else
+           "unidades de la salida por 1 % de la entrada" if pi else
+           "unidades de la salida por unidad de la entrada")
+    return display_cross(lo, fo, li, fi), que
+
 @mcp.tool()
 def forecast(name: str, horizon: int = 12, series_index: int = 0) -> str:
     """Forecast the LEVEL with its band, plus the period and annual variations.
@@ -3051,17 +3085,26 @@ def forecast(name: str, horizon: int = 12, series_index: int = 0) -> str:
     cs = f.cast_spec
     fc = _fcast(f, L=horizon, embed=f.embed)
     lvl, lo, hi = level_band(fc, cs, series=series_index)
-    se = fc.se("level", series_index)
+    # BUG-70: el s.e. sale del motor en refactor·BoxCox; es un porcentaje
+    # solo con logaritmos, y entonces 100/factor veces lo que da el motor.
+    from fue.scale import display_scale as _ds
+    _m = cs.series[series_index].spec.model
+    _d = _ds(float(_m.boxlam), float(getattr(_m, "refactor", 1.0) or 1.0))
+    se = np.asarray(fc.se("level", series_index), float) * _d.k
     out = [f"  PREVISIÓN — {cs.names[series_index]}  (nivel, banda al 95 %)",
            "",
-           "   h        nivel      inferior     superior    s.e.(%)",
+           "   h        nivel      inferior     superior    "
+           + ("s.e.(%)" if _d.percent else "   s.e."),
            "  " + "-" * 52]
     for l in range(horizon):
         out.append(f"  {l+1:3d}  {lvl[l]:11.4f}  {lo[l]:11.4f}  {hi[l]:11.4f}"
                    f"  {se[l]:8.4f}")
     out.append("")
     out.append("  La banda NO es simétrica: se forma en la escala transformada")
-    out.append("  y se deshace la Box-Cox. El s.e. es RELATIVO (un porcentaje).")
+    out.append("  y se deshace la Box-Cox. El s.e. es "
+               + ("RELATIVO (un porcentaje)." if _d.percent else
+                  "el de la serie transformada, en sus unidades"
+                  + (" (las de la serie)." if _d.unit == "series" else ".")))
     return "\n".join(out)
 
 

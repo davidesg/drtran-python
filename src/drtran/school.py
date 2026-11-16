@@ -59,7 +59,7 @@ def variance_reduction(fit_transfer, fit_diagonal, series_index=0,
     return 1.0 - v1 / v0
 
 
-def dead_time_suspect(fit, table, se=None, link_index=0, tol=1.96):
+def dead_time_suspect(fit, table, se=None, link_index=0, tol=1.96, scale=1.0):
     """Is the leading numerator weight indistinguishable from -1?
 
     THE reading of the Muñoz cases, and the least obvious one. Twice, an
@@ -107,7 +107,11 @@ def dead_time_suspect(fit, table, se=None, link_index=0, tol=1.96):
     if val is None:
         return False, float("nan"), float("nan"), float("nan")
     if err is None or not np.isfinite(err) or err <= 0:
-        return (abs(val + 1.0) < 0.05, val, float("nan"), float("nan"))
+        return (abs(val * scale + 1.0) < 0.05, val, float("nan"), float("nan"))
+    # BUG-70: the -1 is in the series' units. With files of different
+    # rescaling factors the weight carries their ratio; `scale` takes it back
+    # (fue.scale.cross_scale(factor_out, factor_in), 1 when they agree).
+    val, err = val * scale, err * abs(scale)
     t = (val + 1.0) / err
     return bool(abs(t) < tol), val, err, float(t)
 
@@ -682,14 +686,13 @@ def stationary_series(spec):
     carries no parameters, so it is identical across the two fits and the two
     R² are comparable — which is the whole point of reporting the transition.
     """
+    # BUG-69: fue's transformation, not one of our own. `y**lambda` agrees
+    # with it only for lambda in {0, 1}: with +-0.5 the variance was 4 times
+    # too small and the R2 came out negative.
+    from fue.scale import stationary
     m = spec.model
-    z = np.asarray(spec.ts.data, float)
-    lam = float(getattr(m, "boxlam", 0.0) or 0.0)
-    z = np.log(z) if lam == 0.0 else (z ** lam)
-    z = z * float(getattr(m, "refactor", 1.0) or 1.0)
-    freq = int(getattr(spec.ts, "freq", 1) or 1)
-    for _ in range(int(getattr(m, "d", 0) or 0)):
-        z = np.diff(z)
-    for _ in range(int(getattr(m, "D", 0) or 0)):
-        z = z[freq:] - z[:-freq]
-    return z
+    return stationary(np.asarray(spec.ts.data, float),
+                      float(getattr(m, "boxlam", 0.0) or 0.0),
+                      int(getattr(m, "d", 0) or 0), int(getattr(m, "D", 0) or 0),
+                      int(getattr(spec.ts, "freq", 1) or 1),
+                      float(getattr(m, "refactor", 1.0) or 1.0))

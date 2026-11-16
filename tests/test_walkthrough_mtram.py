@@ -915,19 +915,20 @@ def test_the_scale_advice_follows_the_data_not_just_refactor():
     chico = copy.deepcopy(sp)
     chico.model.refactor = 1.0
     aviso = check_scale(chico)
-    assert aviso and "MULTIPLYING" in aviso and "refactor=100" in aviso
+    assert aviso and "too small" in aviso and "refactor=100 " in aviso
 
     # una serie en NIVELES con diferencias grandes: hay que DIVIDIR
     rng = np.random.default_rng(0)
     grande = copy.deepcopy(sp)
     grande.model.refactor = 1.0
     grande.model.boxlam = 1.0
-    grande.ts.data = list(900 + rng.normal(0, 400, int(sp.ts.nobs)))
+    grande.ts.data = list(9000 + rng.normal(0, 4000, int(sp.ts.nobs)))
     grande.model.series = grande.ts
-    assert np.median(np.abs(stationary_series(grande))) > 100
+    assert np.std(stationary_series(grande)) > 1000      # fuera de la banda
     aviso = check_scale(grande)
-    assert aviso and "DIVIDING" in aviso, aviso
-    assert "refactor=100" not in aviso, "seguiría dando el consejo al revés"
+    assert aviso and "too large" in aviso, aviso
+    assert "refactor=100 " not in aviso, "seguiría dando el consejo al revés"
+    assert "refactor=0.1 " in aviso or "refactor=0.01 " in aviso, aviso
 
 
 def test_the_figures_Q_is_named_as_a_different_statistic():
