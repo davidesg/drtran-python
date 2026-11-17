@@ -1,5 +1,5 @@
 """BUG-65: three tests of tests/test_cli.py read the canonical .pre files of
-/home/david/Dropbox/SRC/drtran/tests/cases without the `needs_cases` marker the
+drtran/tests/cases (the C repository's) without the `needs_cases` marker the
 other eight carry, so wherever those files are missing they FAIL instead of
 skipping:
 
@@ -9,7 +9,7 @@ skipping:
 
 Found 2026-10-30 by the clean-install test of atsw 2.1.0 in ten distributions
 (podman, drtran 0.2.6 from PyPI): the three fail in all ten with "drtran:
-cannot open /home/david/Dropbox/SRC/drtran/tests/cases/ES_CPI_m10.pre".
+cannot open …/drtran/tests/cases/ES_CPI_m10.pre".
 
 The repro reads the test file and checks that those three carry the marker
 (the other two that name ES without it only exercise paths where the file is

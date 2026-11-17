@@ -20,6 +20,7 @@ tests below are what makes that claim checkable rather than a comment.
 """
 
 import os
+from _rutas import src  # noqa: E402
 import re
 import subprocess
 
@@ -31,7 +32,7 @@ from drtran.cast import Link, build_cast_spec  # noqa: E402
 from drtran.estimate import fit, standard_errors  # noqa: E402
 from drtran.slots import build_slots, read_cns  # noqa: E402
 
-C_REPO = "/home/david/Dropbox/SRC/drtran"
+C_REPO = src("drtran")
 CASES = os.path.join(C_REPO, "tests", "cases")
 BIN = os.path.join(C_REPO, "bin", "drtran")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")

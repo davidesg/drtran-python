@@ -7,6 +7,7 @@ files it is of (path and content): used against anything else, it is absent.
 """
 import json
 import os
+from _rutas import src  # noqa: E402
 import shutil
 
 import pytest
@@ -14,7 +15,7 @@ import pytest
 pytest.importorskip("mcp")
 import drtran.mcp_server as mtram  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

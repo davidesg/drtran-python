@@ -15,6 +15,7 @@ model condemned by its own transfer.
 
 import pytest
 import os
+from _rutas import src  # noqa: E402
 import re
 import subprocess
 
@@ -27,7 +28,7 @@ from drtran.diagnose import (chi_test, report_adequacy,  # noqa: E402
                              transfer_adequacy)
 from drtran.estimate import fit  # noqa: E402
 
-REPO = "/home/david/Dropbox/SRC/drtran"
+REPO = src("drtran")
 CASES = os.path.join(REPO, "tests/cases")
 BIN = os.path.join(REPO, "bin/drtran")
 

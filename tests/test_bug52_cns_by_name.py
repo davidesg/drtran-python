@@ -4,6 +4,7 @@ by the .dag's LINE ORDER, neither written anywhere: the same .dag, .cns and
 accepted where positions were (positional files still read), and the guided
 mode writes names."""
 import os
+from _rutas import src  # noqa: E402
 
 import pytest
 
@@ -12,7 +13,7 @@ from drtran.cast import build_cast_spec  # noqa: E402
 from drtran.network import read_dag  # noqa: E402
 from drtran.slots import build_slots, read_cns, resolve_names  # noqa: E402
 
-DATA = "/home/david/Dropbox/SRC/drtran/tests/data/m6"
+DATA = src("drtran/tests/data/m6")
 pytestmark = pytest.mark.skipif(not os.path.exists(os.path.join(DATA, "M6_EP.pre")),
                                 reason="the m6 .pre files from the C repo are missing")
 

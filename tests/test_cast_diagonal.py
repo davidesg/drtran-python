@@ -8,6 +8,7 @@ If it fails, the cast is wrong — **never** `elf`, which is used as it comes.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -16,7 +17,7 @@ drtran = pytest.importorskip("drtran")
 from drtran.cast import (build_cast_spec, cast_diagonal,  # noqa: E402
                          loglik_diagonal, x0_from_pre)
 
-C = "/home/david/Dropbox/SRC/drtran/examples/work"
+C = src("drtran/examples/work")
 ES_CPI = os.path.join(C, "ES_CPI_m10.pre")
 WTI = os.path.join(C, "WTI_ar1.pre")
 TARGET = -767.424341

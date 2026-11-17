@@ -17,6 +17,7 @@ combination.
 """
 
 import os
+from _rutas import src  # noqa: E402
 import subprocess
 
 import numpy as np
@@ -29,7 +30,7 @@ from drtran.network import find_cycle, read_dag, write_dag  # noqa: E402
 from drtran.slots import (ALIAS, FIXED, FREE, LINCOMB, PRODUCT,  # noqa: E402
                           build_slots, read_cns)
 
-REPO = "/home/david/Dropbox/SRC/drtran"
+REPO = src("drtran")
 DATA = os.path.join(REPO, "tests/data/m6")
 BIN = os.path.join(REPO, "bin/drtran")
 CLEAN = ["EP", "EU", "EC", "EA", "P"]        # m6 without EI (see the docstring)

@@ -13,6 +13,7 @@ point — re-estimating at every origin measures a procedure, not a model.
 
 import csv
 import os
+from _rutas import src  # noqa: E402
 import subprocess
 
 import numpy as np
@@ -24,7 +25,7 @@ from drtran.evaluate import (fixed_window_fit, report_rolling,  # noqa: E402
                              rolling_evaluation, truncate,
                              write_rolling_csv)
 
-C_REPO = "/home/david/Dropbox/SRC/drtran"
+C_REPO = src("drtran")
 CASES = os.path.join(C_REPO, "tests", "cases")
 BIN = os.path.join(C_REPO, "bin", "drtran")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")

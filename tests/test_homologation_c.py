@@ -15,6 +15,7 @@ pass-through with Y=X, the m6 network and the guided driver's round trip.
 """
 
 import os
+from _rutas import src  # noqa: E402
 import subprocess
 
 import pytest
@@ -23,7 +24,7 @@ drtran = pytest.importorskip("drtran")
 from drtran.cast import Link, build_cast_spec  # noqa: E402
 from drtran.estimate import fit, unpack  # noqa: E402
 
-C_REPO = "/home/david/Dropbox/SRC/drtran"
+C_REPO = src("drtran")
 CASES = os.path.join(C_REPO, "tests", "cases")
 BIN = os.path.join(C_REPO, "bin", "drtran")
 Y_PRE = os.path.join(CASES, "ES_CPI_m10.pre")

@@ -8,6 +8,7 @@ are at, and that is the failure this design exists to prevent.
 
 import json
 import os
+from _rutas import src  # noqa: E402
 
 import pytest
 
@@ -15,8 +16,8 @@ pytest.importorskip("mcp")
 drtran = pytest.importorskip("drtran")
 import drtran.mcp_server as mtram  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
-DATA = "/home/david/Dropbox/SRC/drtran/tests/data"
+CASES = src("drtran/tests/cases")
+DATA = src("drtran/tests/data")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

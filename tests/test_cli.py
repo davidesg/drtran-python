@@ -13,6 +13,7 @@ order.
 
 import io
 import os
+from _rutas import src  # noqa: E402
 import sys
 
 import pytest
@@ -21,7 +22,7 @@ drtran = pytest.importorskip("drtran")
 from drtran.cli import (CliError, _dates, _orders,  # noqa: E402
                         _series_of, main)
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

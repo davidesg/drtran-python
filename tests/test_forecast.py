@@ -13,6 +13,7 @@ than to the model.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -23,7 +24,7 @@ from drtran.estimate import fit  # noqa: E402
 from drtran.forecast import (error_variance, forecast,  # noqa: E402
                              forecast_mean, integrated_weights, psi_weights)
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 
 pytestmark = pytest.mark.skipif(
     not os.path.exists(os.path.join(CASES, "ES_CPI_m10.pre")),

@@ -34,7 +34,8 @@ import fue
 
 warnings.filterwarnings("ignore")
 
-BIN = "/home/david/Dropbox/SRC/drtran/bin/drtran"
+# drtran C, the repository next to this one (or under ATSW_SRC)
+BIN = os.path.join(os.environ.get("ATSW_SRC") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "drtran", "bin", "drtran")
 N = 120
 
 

@@ -12,6 +12,7 @@ below is what keeps it from being believed again.
 """
 
 import os
+from _rutas import src  # noqa: E402
 import shutil
 
 import pytest
@@ -22,7 +23,7 @@ from drtran.cast import (Link, build_cast_spec, loglik_diagonal,  # noqa: E402
 from drtran.estimate import fit, loglik, standard_errors  # noqa: E402
 from drtran.pre import next_inp_path, write_inp  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 LINK = [Link(0, 1, b=0, r=0, s=1)]

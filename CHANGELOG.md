@@ -2,6 +2,17 @@
 
 Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`.
 
+## Unreleased
+
+**No personal paths in what ships.** Thirty test files of the 0.2.7 sdist
+named folders of the author's machine. The C repositories they read (drtran,
+atws, atsw-gui) are found next to this one, or under `ATSW_SRC`
+(`tests/_rutas.py`); the private data come in `DRTRAN_SF_MEG` and
+`ART_PASSTHROUGH_CSV`, with no default, and their tests skip without them.
+`docs/BUGS.md` and the `scripts/` no longer name them either;
+`tests/test_sin_rutas_personales.py` keeps them out. Nothing a user runs
+changes.
+
 ## 0.2.7 — 2026-11-16
 
 **The rescaling factor, by the suite's one rule (`fue.scale`; fue >= 0.1.22).**
