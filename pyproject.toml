@@ -64,10 +64,11 @@ mtram = "drtran.mcp_server:main"   # transfer-model MCP (pip install "drtran[mcp
 # after porting the import.
 # pyfug draws the residual figure (the one graphics engine of the ladder).
 mcp = ["mcp>=1.2,<2", "matplotlib>=3.6", "jinja2>=3.0", "drvarma>=0.2.0",
-       "pyfug>=2.0.1"]
+       "pyfug>=2.1.0"]
 # pyfug>=2.0.1: la 2.0.0 lanza UnboundLocalError con TODA serie anual
 # (pyfug/BUG-0002), y drtran se usa con datos anuales.
-plots = ["matplotlib>=3.6", "pyfug>=2.0.1"]
+# pyfug>=2.1.0: the CCF is drawn there (pyfug.graphics.ccf), the suite's one.
+plots = ["matplotlib>=3.6", "pyfug>=2.1.0"]
 test = ["pytest>=7"]
 
 [tool.setuptools.packages.find]

@@ -4,6 +4,14 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**The CCF is drawn by pyfug** (`pyfug.graphics.ccf`, pyfug >= 2.1.0), the
+suite's one CCF; it went through `drvarma.plots.plot_ccf` before. The numbers
+are still drvarma's `ccf` and `qccf`, with the same swap of the arguments for
+the opposite lag-sign convention: the figure is identical (title, P, bars and
+ticks checked at monthly, quarterly and annual frequency). The `plot_ccf`
+tool also writes it in SVG and PDF, the high definition the C draws in EPS,
+and names the three paths (the PNG's stays last).
+
 **No personal paths in what ships.** Thirty test files of the 0.2.7 sdist
 named folders of the author's machine. The C repositories they read (drtran,
 atws, atsw-gui) are found next to this one, or under `ATSW_SRC`

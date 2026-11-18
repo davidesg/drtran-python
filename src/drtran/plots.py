@@ -43,7 +43,8 @@ def plot_ccf(a_input, beta_output, freq=12, names=("X", "Y"), lags=None,
     single-input transfer model assumes away. Bars on both sides mean the
     specification does not hold, and this plot is where that is seen first.
 
-    The drawing is `drvarma.plots.plot_ccf`: GraphMaker's CCF, the one
+    The drawing is pyfug's (`pyfug.graphics.ccf`, the suite's one CCF; the
+    numbers are drvarma's `ccf` and `qccf`): GraphMaker's CCF, the one
     Treadway approved and drtran's C GUI draws (atsw-gui `lib/ccfplot`) — bars,
     dotted +/-2/sqrt(N) bands, a dashed vertical at lag 0, the title
     "input - output" above and Hosking's portmanteau below as GraphMaker
@@ -57,12 +58,21 @@ def plot_ccf(a_input, beta_output, freq=12, names=("X", "Y"), lags=None,
     of the truth. Verified on the canonical case: swapped, the two agree to six
     decimals on both sides (k=0..3 and k=-1..-3).
     """
-    from drvarma.plots import plot_ccf as _dv_plot_ccf
+    import numpy as _np
+    from drvarma.diagnostics import ccf as _ccf, qccf as _qccf
+    from pyfug.graphics.ccf import ccf_default_lags, p_label, plot_ccf as _plot
 
-    # drvarma's names go with (w1, w2) = (output, input) and its title puts w2,
-    # the series leading at k > 0, first: "input - output", as GraphMaker.
-    return _dv_plot_ccf(beta_output, a_input, lags=lags, freq=freq,
-                        names=(names[1], names[0]), ax=ax)
+    # (w1, w2) = (output, input) in drvarma's convention, so that w2 -- the
+    # series leading at k > 0 -- is the input: "input - output", as GraphMaker.
+    w1 = _np.asarray(beta_output, float).ravel()
+    w2 = _np.asarray(a_input, float).ravel()
+    n = w1.shape[0]
+    if lags is None:
+        lags = min(ccf_default_lags(freq), n // 4)
+    rho = _ccf(w1, w2, lags)
+    Q, df, _ = _qccf(w1, w2, lags)
+    return _plot(rho, lags, n, freq, "%s - %s" % (names[0], names[1]),
+                 p_label(Q, df), ax=ax)
 
 
 def prewhitened_pair(cast_spec, link, x=None):
@@ -196,9 +206,16 @@ def plot_residuals(residuals, npar=0, freq=1, lags=None, title="",
                          title=serie.name)
 
 
-def save(fig, path, dpi=130):
-    """Write the figure and close it. Returns the path."""
+def save(fig, path, dpi=130, vectors=False):
+    """Write the figure and close it. Returns the path (the PNG's).
+
+    ``vectors=True`` also writes it in SVG and PDF next to the PNG -- the high
+    definition the C draws in EPS (pyfug.graphics.ccf.save_ccf)."""
     plt = _mpl()
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    if vectors:
+        from pyfug.graphics.ccf import save_ccf
+        path = save_ccf(fig, path, dpi=dpi)[0]
+    else:
+        fig.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     return path

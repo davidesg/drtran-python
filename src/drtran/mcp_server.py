@@ -319,7 +319,7 @@ def _con_figura(texto, grafico):
         return texto
 
 
-def _fig_result(fig, path, nota=""):
+def _fig_result(fig, path, nota="", vectors=False):
     """Devuelve la figura DENTRO de la respuesta, y además la deja en disco.
 
     art entrega sus graficos como `ImageContent` en la lista de contenidos, de
@@ -338,8 +338,13 @@ def _fig_result(fig, path, nota=""):
     """
     from .plots import save
 
-    p = save(fig, path)
-    texto = (nota + "\n" if nota else "") + f"PNG: {p}"
+    p = save(fig, path, vectors=vectors)
+    texto = nota + "\n" if nota else ""
+    if vectors:                       # the vectors first: "PNG: <path>" stays last
+        import os as _os
+        base = _os.path.splitext(p)[0]
+        texto += f"SVG: {base}.svg\nPDF: {base}.pdf\n"
+    texto += f"PNG: {p}"
     try:
         import base64
 
@@ -1642,7 +1647,8 @@ def plot_ccf(name: str, input_index: int = 1, lags: int = 0,
         "llamaba P para no confundirlo con la Q de Ljung-Box, y entre paréntesis "
         "van sus grados de libertad. El informe da `chi_test` sobre UN lado de UNA "
         "correlación cruzada. Dos estadísticos distintos: en el caso canónico "
-        "102.8 frente a 24.5, y esa razón es la esperable, no una discrepancia.")
+        "102.8 frente a 24.5, y esa razón es la esperable, no una discrepancia.",
+        vectors=True)
 
 
 @mcp.tool()
