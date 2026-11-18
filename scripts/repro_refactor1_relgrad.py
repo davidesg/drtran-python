@@ -1,5 +1,6 @@
 """Mide el test de parada de umstop en el optimo, a las dos escalas."""
 import copy
+import os
 import numpy as np
 import drtran
 from drtran.cast import build_cast_spec, Link
@@ -8,7 +9,8 @@ from drtran.slots import build_slots
 from drtran.estimate import _f1f2
 from drvarma import _qnewt
 
-C = '/home/david/Dropbox/SRC/drtran/tests/cases/'
+# drtran C's cases, the repository next to this one (or under ATSW_SRC)
+C = os.path.join(os.environ.get("ATSW_SRC") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "drtran", "tests", "cases") + os.sep
 
 
 def at_scale(path, factor):

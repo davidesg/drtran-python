@@ -1,6 +1,7 @@
 """Transfers: the nu weights, the identity with omega=0, and the joint fit."""
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -10,7 +11,7 @@ from drtran.cast import (Link, build_cast_spec, compute_irf,  # noqa: E402
                          loglik_diagonal, x0_from_pre)
 from drtran.estimate import fit, unpack  # noqa: E402
 
-C = "/home/david/Dropbox/SRC/drtran/examples/work"
+C = src("drtran/examples/work")
 ES_CPI = os.path.join(C, "ES_CPI_m10.pre")
 WTI = os.path.join(C, "WTI_ar1.pre")
 TARGET = -767.424341
@@ -164,7 +165,7 @@ def test_the_mean_is_the_mean_not_an_intercept():
     """
     from drtran.embed import cast_embedded
 
-    C = "/home/david/Dropbox/SRC/drtran/tests/cases"
+    C = src("drtran/tests/cases")
     # output with mu FIXED at 0, input with mu free: the discriminating case
     Y = drtran.load_pre(os.path.join(C, "WTI_ar1.pre"))
     X = drtran.load_pre(os.path.join(C, "ES_CPI_m10.pre"))
@@ -184,7 +185,7 @@ def test_with_the_output_mean_free_the_parametrisation_does_not_matter(two):
     """Proof that adjusting the mean or not is a REPARAMETRISATION: with mu_Y
     free, either one reaches the same optimum. It only matters when mu_Y is
     fixed, and there the deviations convention rules."""
-    C = "/home/david/Dropbox/SRC/drtran/tests/cases"
+    C = src("drtran/tests/cases")
     Y = drtran.load_pre(os.path.join(C, "ES_CPI_m10.pre"))   # mu free
     X = drtran.load_pre(os.path.join(C, "WTI_ar1.pre"))
     cs = build_cast_spec([Y, X], links=[Link(0, 1, b=0, r=0, s=1)])

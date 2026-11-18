@@ -12,6 +12,7 @@ follows the Python side; that is what "the same format for both ports" means.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -25,7 +26,7 @@ from drtran.estimate import fit  # noqa: E402
 from drtran.report import (build_forecast_result,  # noqa: E402
                            write_forecast_report)
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

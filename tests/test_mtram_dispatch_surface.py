@@ -7,6 +7,7 @@ quiet when there is nothing to say.
 
 import asyncio
 import os
+from _rutas import src  # noqa: E402
 
 import pytest
 
@@ -14,7 +15,7 @@ pytest.importorskip("mcp")
 drtran = pytest.importorskip("drtran")
 from drtran import mcp_server as m  # noqa: E402
 
-PT8 = "/home/david/Dropbox/SRC/atws/Taste/oracle/data/passthrough8"
+PT8 = src("atws/Taste/oracle/data/passthrough8")
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::RuntimeWarning"),

@@ -7,6 +7,7 @@ BUG-8 as arithmetic. The measurements these pin are in
 
 import copy
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -15,7 +16,7 @@ drtran = pytest.importorskip("drtran")
 from drtran.cast import (delta_operator, differencing_poly,  # noqa: E402
                          operators_agree)
 
-M6 = "/home/david/Dropbox/SRC/drtran/tests/data/m6"
+M6 = src("drtran/tests/data/m6")
 
 pytestmark = pytest.mark.skipif(
     not os.path.exists(M6), reason="the m6 .pre files from the C repo are missing")
@@ -135,7 +136,7 @@ def test_partial_overlap_is_not_nested_either(ec):
 
 
 # ── the guard, and it is verified by making it fire ──────────────────────────
-WORK = "/home/david/Dropbox/SRC/drtran/examples/work"
+WORK = src("drtran/examples/work")
 
 guarda = pytest.mark.skipif(
     not os.path.exists(os.path.join(WORK, "WTI_ar1.pre")),

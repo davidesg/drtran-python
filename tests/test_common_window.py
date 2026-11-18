@@ -8,6 +8,7 @@ of the sample being fitted. See `docs/PASSTHROUGH_MEG_BANK.md`.
 """
 
 import os
+from _rutas import src, private  # noqa: E402
 import warnings
 
 import pytest
@@ -15,11 +16,11 @@ import pytest
 drtran = pytest.importorskip("drtran")
 from drtran.cast import build_cast_spec, common_window  # noqa: E402
 
-SF = "/home/david/Dropbox/SF_MEG/empirical"
-PT8 = "/home/david/Dropbox/SRC/atws/Taste/oracle/data/passthrough8"
+SF = private("DRTRAN_SF_MEG")   # the SF_MEG bank (private)
+PT8 = src("atws/Taste/oracle/data/passthrough8")
 
 pytestmark = pytest.mark.skipif(
-    not os.path.exists(SF), reason="the SF_MEG bank is missing")
+    not (SF and os.path.exists(SF)), reason="DRTRAN_SF_MEG (the SF_MEG bank) not given")
 
 
 @pytest.fixture(scope="module")

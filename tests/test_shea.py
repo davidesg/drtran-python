@@ -4,6 +4,7 @@ battery's section 18 pins the same numbers)."""
 
 import io
 import os
+from _rutas import src  # noqa: E402
 import sys
 
 import numpy as np
@@ -14,7 +15,7 @@ pytest.importorskip("drvarma._engine").marma_c                     # noqa: B018
 from drtran.cli import CliError, main  # noqa: E402
 from drtran.estimate import Fit, _ma_boundary_at, fit  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 pytestmark = pytest.mark.skipif(not os.path.exists(ES),
@@ -78,7 +79,7 @@ def test_a_stop_on_the_wall_is_not_convergence():
 def test_the_wall_has_one_tolerance_for_both_sides():
     """m6 EP <- EC: the port ends with theta_1 = 0.9999999926, the C with
     1.000048. Both are within 5e-5 of the unit circle, so both say so."""
-    P = "/home/david/Dropbox/SRC/atsw-gui/engines/drtran/tests/data/m6/"
+    P = src("atsw-gui/engines/drtran/tests/data/m6/")
     if not os.path.exists(P + "M6_EP.pre"):
         pytest.skip("the m6 .pre files are missing")
     code, out, _ = run(P + "M6_EP.pre", P + "M6_EC.pre", "-b", "0", "-r", "0", "-s", "1", "-o", "-")

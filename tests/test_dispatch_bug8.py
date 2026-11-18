@@ -7,6 +7,7 @@ land on the oracle.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import pytest
 
@@ -14,8 +15,8 @@ drtran = pytest.importorskip("drtran")
 from drtran.cast import Link, build_cast_spec, effective_embed  # noqa: E402
 from drtran.estimate import fit, unpack  # noqa: E402
 
-PT8 = "/home/david/Dropbox/SRC/atws/Taste/oracle/data/passthrough8"
-WORK = "/home/david/Dropbox/SRC/drtran/examples/work"
+PT8 = src("atws/Taste/oracle/data/passthrough8")
+WORK = src("drtran/examples/work")
 
 pytestmark = pytest.mark.filterwarnings("ignore::RuntimeWarning")
 

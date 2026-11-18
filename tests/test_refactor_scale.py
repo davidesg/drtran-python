@@ -27,6 +27,7 @@ guidance anyway (see M0.2 in `drtran/TODO.md`) and what fue now emits.
 """
 import copy
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -35,7 +36,7 @@ drtran = pytest.importorskip("drtran")
 from drtran.cast import Link, build_cast_spec  # noqa: E402
 from drtran.pre import PreSpec  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

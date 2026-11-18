@@ -8,6 +8,7 @@ lives in levels, the covariance has to be carried across by the delta method.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -19,7 +20,7 @@ from drtran.cast import Link, build_cast_spec  # noqa: E402
 from drtran.estimate import fit  # noqa: E402
 from drtran.forecast import forecast, to_level  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

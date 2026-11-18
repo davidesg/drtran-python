@@ -13,6 +13,7 @@ bug in the port.
 """
 
 import os
+from _rutas import src  # noqa: E402
 import re
 import subprocess
 
@@ -25,7 +26,7 @@ from drtran.netid import (_bs_from_side, identify_network,  # noqa: E402
                           report_network, residuals, write_guided)
 from drtran.slots import build_slots, read_cns  # noqa: E402
 
-REPO = "/home/david/Dropbox/SRC/drtran"
+REPO = src("drtran")
 DATA = os.path.join(REPO, "tests/data/m6")
 BIN = os.path.join(REPO, "bin/drtran")
 M6 = ["EP", "EI", "EU", "EC", "EA", "P"]

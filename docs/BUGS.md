@@ -2546,7 +2546,7 @@ now requires the count to equal the free `phi_1`/`theta_1` slots.
 ## BUG-65. Three CLI tests read the canonical `.pre` files without `needs_cases`, and fail wherever those files are missing — **FIXED 2026-11-13**
 
 **What is wrong.** `tests/test_cli.py` points `CASES` at
-`/home/david/Dropbox/SRC/drtran/tests/cases`, and eight of its tests carry the
+`drtran/tests/cases` (the C repository's, next to this one), and eight of its tests carry the
 `needs_cases` marker that skips them when the files are not there. Three do
 not, and need the files all the same:
 
@@ -2558,7 +2558,7 @@ not, and need the files all the same:
 
 **How it was found.** The clean-install test of atsw 2.1.0 (2026-10-30, ten
 distributions in podman, drtran 0.2.6 from PyPI): the three fail in all ten
-with `drtran: cannot open /home/david/Dropbox/SRC/drtran/tests/cases/ES_CPI_m10.pre`.
+with `drtran: cannot open …/drtran/tests/cases/ES_CPI_m10.pre`.
 
 **What it costs.** Nothing to a user: it is the test suite, not the package.
 But the suite is red on every machine but one, which hides a real failure

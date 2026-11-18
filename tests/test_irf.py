@@ -13,6 +13,7 @@ including on a case with a denominator, where the recursion is not trivial.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -23,7 +24,7 @@ from drtran.estimate import fit  # noqa: E402
 from drtran.irf import impulse_response, report_irf  # noqa: E402
 from drtran.slots import build_slots  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

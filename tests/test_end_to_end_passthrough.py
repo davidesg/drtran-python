@@ -34,6 +34,7 @@ satisfy yourself the new answer is better, and move the number here with the
 reason. A tripwire nobody is allowed to move is just an obstacle.
 """
 import os
+from _rutas import private  # noqa: E402
 import subprocess
 import sys
 
@@ -46,12 +47,11 @@ pytest.importorskip("fue")
 
 from drtran import mcp_server as M  # noqa: E402
 
-CSV = ("/home/david/Dropbox/Nivel de Precios y Energia/passthrough_multiart"
-       "/data/levels_2002_2019.csv")
+CSV = private("ART_PASSTHROUGH_CSV")   # levels_2002_2019.csv (private)
 
 pytestmark = [
-    pytest.mark.skipif(not os.path.exists(CSV),
-                       reason="the passthrough level series are missing"),
+    pytest.mark.skipif(not (CSV and os.path.exists(CSV)),
+                       reason="ART_PASSTHROUGH_CSV (the passthrough level series) not given"),
     pytest.mark.slow,
 ]
 

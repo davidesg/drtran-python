@@ -9,6 +9,7 @@ Reference, from `./bin/drtran tests/cases/ES_CPI_m10.pre tests/cases/WTI_ar1.pre
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -18,7 +19,7 @@ from drtran.cast import Link, build_cast_spec  # noqa: E402
 from drtran.identify import (identify, prewhiten,  # noqa: E402
                              report_identification)
 
-C = "/home/david/Dropbox/SRC/drtran/tests/cases"
+C = src("drtran/tests/cases")
 ES_CPI = os.path.join(C, "ES_CPI_m10.pre")
 WTI = os.path.join(C, "WTI_ar1.pre")
 

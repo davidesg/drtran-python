@@ -8,6 +8,7 @@ the transfer has to be put back and the inputs forecast too.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -17,7 +18,7 @@ from drtran.cast import Link, build_cast_spec, cast_diagonal, x0_from_pre  # noq
 from drtran.estimate import fit  # noqa: E402
 from drtran.forecast import forecast, forecast_by_parts, to_level  # noqa: E402
 
-PT8 = "/home/david/Dropbox/SRC/atws/Taste/oracle/data/passthrough8"
+PT8 = src("atws/Taste/oracle/data/passthrough8")
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::RuntimeWarning"),

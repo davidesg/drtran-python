@@ -23,6 +23,7 @@ the C, not with a second implementation of the truth.
 """
 import importlib.util
 import os
+from _rutas import src  # noqa: E402
 import tempfile
 
 import numpy as np
@@ -33,7 +34,7 @@ pytest.importorskip("mcp", reason="needs the MCP extra: pip install 'drtran[mcp]
 
 from drtran import mcp_server as M  # noqa: E402
 
-GEN = "/home/david/Dropbox/SRC/drtran/tests/gen_synthetic.py"
+GEN = src("drtran/tests/gen_synthetic.py")
 
 pytestmark = pytest.mark.skipif(
     not os.path.exists(GEN),

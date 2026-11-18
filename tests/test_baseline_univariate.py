@@ -17,13 +17,14 @@ ES_CPI_m10 (Y) <- WTI_ar1 (X), verified there on 2026-07-12 against the C.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
 
 drtran = pytest.importorskip("drtran")
 
-C_EXAMPLES = "/home/david/Dropbox/SRC/drtran/examples/work"
+C_EXAMPLES = src("drtran/examples/work")
 ES_CPI = os.path.join(C_EXAMPLES, "ES_CPI_m10.pre")
 WTI = os.path.join(C_EXAMPLES, "WTI_ar1.pre")
 

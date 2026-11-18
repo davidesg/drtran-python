@@ -8,6 +8,7 @@ pre-sample reproduces real data when real data is what it should reproduce.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import numpy as np
 import pytest
@@ -16,7 +17,7 @@ drtran = pytest.importorskip("drtran")
 from drtran.cast import (Link, backcast, build_cast_spec,  # noqa: E402
                          compute_irf, x0_from_pre, _pre_sample)
 
-PT8 = "/home/david/Dropbox/SRC/atws/Taste/oracle/data/passthrough8"
+PT8 = src("atws/Taste/oracle/data/passthrough8")
 
 
 # ── the backcast, against closed forms ───────────────────────────────────────

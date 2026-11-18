@@ -10,6 +10,7 @@ names the step that broke instead of the first one, and the later steps still
 report.
 """
 import os
+from _rutas import src  # noqa: E402
 
 import pytest
 
@@ -18,7 +19,7 @@ pytest.importorskip("mcp", reason="needs the MCP extra: pip install 'drtran[mcp]
 
 from drtran import mcp_server as M  # noqa: E402
 
-CASES = "/home/david/Dropbox/SRC/drtran/tests/cases"
+CASES = src("drtran/tests/cases")
 ES = os.path.join(CASES, "ES_CPI_m10.pre")
 WTI = os.path.join(CASES, "WTI_ar1.pre")
 

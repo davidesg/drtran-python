@@ -11,6 +11,7 @@ internally.
 """
 
 import os
+from _rutas import src  # noqa: E402
 
 import pytest
 
@@ -18,7 +19,7 @@ drtran = pytest.importorskip("drtran")
 
 # The canonical .pre files live in the C repo; they are used from there while
 # they are not copied into the Python one (they are the reference, not a copy).
-C_EXAMPLES = "/home/david/Dropbox/SRC/drtran/examples"
+C_EXAMPLES = src("drtran/examples")
 ES_CPI = os.path.join(C_EXAMPLES, "work", "ES_CPI_m10.pre")
 WTI = os.path.join(C_EXAMPLES, "work", "WTI_ar1.pre")
 
