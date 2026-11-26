@@ -21,6 +21,9 @@ El puerto en Python (`drtran.load_pre`) usa la convencion de fue y homologa en
 los tres casos: el defecto es solo del C.
 
 Ejecutar:  python3 scripts/repro_boxcox_lambda1_c.py
+Sale con 1 mientras el defecto exista (la diagonal con la media fija no
+homologa, o el C rechaza la serie que cruza el cero), con 0 arreglado y con 2
+si no puede correr (sin el binario).
 """
 import os
 import re
@@ -60,6 +63,9 @@ def _drtran(d, y_pre, x_pre, tag):
 
 
 def main():
+    if not os.path.exists(BIN):
+        print(f"No encuentro el binario de drtran en {BIN} (ATSW_SRC).")
+        return 2
     d = tempfile.mkdtemp()
     rng = np.random.default_rng(5)
     X = _ar(rng, 0.5) + 50.0 / 7
@@ -78,6 +84,7 @@ def main():
         "mu_Y fija en 0": dict(mu=0.0, estimate_mu=False),
         "mu_Y fija en 10/3": dict(mu=10.0 / 3, estimate_mu=False),
     }
+    peor = 0.0
     print(f"{'caso':20s} {'fue (suma)':>14s} {'drtran C':>14s} {'dif':>10s}  medias del C")
     for tag, kw in casos.items():
         my = fue.Model(ty, ar=[[0.5]], **kw).fit()
@@ -86,6 +93,7 @@ def main():
         s = mx._result.loglik + my._result.loglik
         ll, mu = _drtran(d, y_pre, x_pre, "o")
         print(f"{tag:20s} {s:14.6f} {ll:14.6f} {ll - s:+10.6f}  {mu}")
+        peor = max(peor, abs(ll - s))
 
     # 2. datos que cruzan el cero, lambda=1
     rng = np.random.default_rng(1)
@@ -97,7 +105,11 @@ def main():
     _, err = _drtran(d, z_pre, x_pre, "z")
     print(f"\nserie que cruza el cero, lambda=1: fue estima (loglik "
           f"{mz._result.loglik:.6f}); drtran C: {err}")
+    bug = peor > 1e-4 or err is not None
+    print("BUG PRESENTE" if bug else "ARREGLADO")
+    return 1 if bug else 0
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())
