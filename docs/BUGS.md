@@ -2229,7 +2229,7 @@ El puerto en Python homologa: usa la convención de fue.
 ### Reproducción
 
 ```sh
-python3 scripts/repro_boxcox_lambda1_c.py
+python3 scripts/repro_boxcox_lambda1_c.py   # sale con 1 mientras esté abierto, 2 sin el binario
 ```
 
 ```
@@ -2699,3 +2699,306 @@ share a factor. The engine's tables stay in the engine's units: they mirror
 the C's `.out`.
 
 Repro: `scripts/repro_presentacion_en_unidades_del_motor.py` (exits 1 while open).
+
+---
+
+# Rodaje de la práctica 7 (noviembre 2026): BUG-71 a BUG-88
+
+Encontrados en el uso de un curso: once grupos de alumnos construyeron funciones de transferencia del WTI sobre el IPC de varios países, con mtram 0.2.7 y con el motor en C del taller ATSW. Todos los datos están en `tests/data/p07/`. Los casos de clase son copias de `ES_CPI_m10.1.pre` y `WTI_ar1.1.pre` de la raíz (`es_cpi_m10_clase.pre`, `wti_ar1_clase.pre`), porque en la raíz `*.1.pre` está ignorado y en un clon limpio no existen. Los demás son `.pre` de las entregas, copiados como datos con un nombre neutro. Los grupos se citan por número. Cada repro está en `scripts/repro_p07_*.py`, corre desde cualquier directorio y sale con 1 mientras el defecto exista, con 0 cuando está arreglado y con 2 si no puede ni correr (un fichero o el binario que faltan): un 1 por esa razón parecería un defecto abierto. Lo común va en `scripts/_p07.py`, que también busca el binario del C (`DRTRAN_C`, o `$ATSW_SRC/atsw-gui/engines/drtran/bin/drtran`, o `$ATSW_SRC/drtran/bin/drtran`).
+
+| BUG | Paquete | Qué | Gravedad |
+|---|---|---|---|
+| 71 | mtram | La puerta N0 no cuadra con ifadf: `_en_muestra_comun` cuenta las pérdidas como d + D·s | alta |
+| 72 | mtram | `overfit` arranca de las semillas y sin el `.cns`: LR negativos y g.l. falsos | alta |
+| 73 | drtran, C y mtram | Los pesos fijados cuentan como g.l. en la adecuación y en el LR contra el modelo sin enlace | alta |
+| 74 | drtran C | La cabecera del `.out` rotula salida y entrada por el orden de los ficheros, no por la red | alta |
+| 75 | drtran C (y Python) | Un `q[i,j]` fijado que deja Q no definida positiva da logL = 0, una tabla «normal» y un segfault | alta |
+| 76 | mtram | `evaluate` no admite restricciones y no escribe fichero | media |
+| 77 | drtran y mtram | `evaluate` recorta por posición, no por fecha, y reestima las entradas sin decirlo | media |
+| 78 | mtram | BUG-70 no llegó a `impulse_response`: la ganancia sale en las unidades del motor | media |
+| 79 | mtram | `write_inp` pisa su propio fichero y del modelo conjunto no queda `.out` | media |
+| 80 | mtram | Aviso falso «revisa el signo» con denominador, y la ganancia rotulada «omega(1)» | media |
+| 81 | mtram | `estimate` devuelve una orden dirigida a un modelo concreto («[Claude: …]») | media |
+| 82 | mtram (school) | `refine_link` dice «se cortan» de pesos que no se cortan | media |
+| 83 | mtram (school) | «SARIMA multiplicativo, NO ESTACIONARIA» con un AR estacional estacionario y D = 0 | baja |
+| 84 | mtram | La CCF de `identify_link` llega a ±12 y el texto cita retardos hasta 24; sin `path` | baja |
+| 85 | mtram | `diagnose` da una sola Q del ruido, la Q(24); la figura da otra, sin p | baja |
+| 86 | drtran C | Las fechas de los residuos del `.out` son relativas (1/1) | baja |
+| 87 | drtran (C y Python) | Con μ fijada a 0 en el `.pre`, ningún aviso aunque la media residual tenga t = 4,8 | baja |
+| 88 | mtram | El convenio de signo de ω (Box y Jenkins) no se dice ni en las instrucciones ni en la salida: la tabla y la ecuación parecen contradecirse | media |
+
+**No son defectos (comprobado):**
+- **Los números del signo de ω.** La tabla da `omega1[1] = −0,0107` y la ecuación `+0,0107·B`, y son coherentes: drtran usa el convenio de Box y Jenkins, ω(B) = ω0 − ω1B − …, y la ecuación es el mismo polinomio desarrollado. Lo que sí es un defecto es que mtram no lo diga en ningún sitio visible: BUG-88.
+- **El LR = 0 de España en `overfit` s+1 y r+1.** Con ese WTI, δ ≈ −0,01 desde cualquier semilla y con la misma ℓ: es el óptimo.
+- **El «ℓ = −714 frente a 276» de un grupo.** Sale de dos sesiones con otra escala: 990,1 = 215·ln 100.
+- **El cambio de la ℓ del WTI según el IPC que lo acompaña.** Es la muestra común, recortada a propósito.
+
+**Sin reproducir:**
+- **Los tiempos de espera:** `load_pre(check)` de más de 10 minutos, y `refine_link(smax=6)` y `evaluate` por encima de 60 s. En Linux todo tarda menos de 6 s, también con el `.pre` que se colgó (`scripts/repro_p07_tiempos.py`). Se sospecha la plataforma de los alumnos, Windows con las ruedas sin el motor compilado. Para confirmarlo hay que ejecutar en esa máquina `python -c "import drvarma._engine as e; print(e.engine_backend())"`. Propuesta: que `load_pre` informe del backend de fue y drvarma, y que cada herramienta diga cuánto ha tardado.
+- **El +11,4 de N0 con D = 1 y la entrada sin D (un grupo).** Tres variantes de D = 1 cuadran a 1e-7.
+
+## BUG-71. La puerta N0 no cuadra con factores ifadf: `_en_muestra_comun` cuenta las pérdidas como d + D·s
+
+**Qué es.** Desde 963c335, `_muestra_comun` cuenta bien la muestra común por el grado del polinomio de diferenciación. Pero `_en_muestra_comun` (`mcp_server.py:604-606`) sigue calculando las pérdidas como `d + D·freq`. Con ∇·(1−√3B+B²)·(1−B+B²), que tiene grado 5, cree que se pierde una observación. Recorta así la salida a 212 observaciones (207 útiles), cuando ya estaba en la muestra común de 211. Es BUG-5 reabierto por una tercera puerta.
+
+Hay un defecto asociado en la misma salida. Cuando hay recorte, se reestima una copia (`deepcopy`), y `_certificado` compara los coeficientes del fichero consigo mismos. Por eso el bloque dice a la vez «Aquí no lo eran» (el hueco) y «reestimarlos no movió nada».
+
+**Reproducción.** `python3 scripts/repro_p07_puerta_ifadf.py`
+```
+grado de diferenciación  salida=5  entrada=1
+muestra común = 211;  la salida queda con 212 obs -> 207 útiles   (esperado: 211)
+puerta: Diferencia con la suma: **+1.87e+00**
+con la salida entera: suma fue = -737.592196  diagonal = -737.592197  dif = -3.51e-07
+certificado contradictorio (hueco > 0 y 'no movió nada'): True
+```
+
+**Qué cuesta.** Todo IPC con raíces estacionales sueltas recibe un «No sigas» en N0, y hay que cambiar el univariante contra lo que dice el MEG. Pasó en tres grupos, con Italia, Portugal y Alemania; el +1,87 es exactamente la cifra de uno de ellos. El residuo de +0,524 que dejó anotado el arreglo de agosto (la ficha BUG-0017 de art) es probablemente esto mismo.
+
+**Arreglo propuesto.**
+- `perdidas = len(differencing_poly(m)) - 1` en `_en_muestra_comun`.
+- Que `_certificado` compare contra el modelo reestimado.
+- Ampliar `test_common_sample_counts_ifadf.py` con la identidad completa sobre `tests/data/p07/ipc_ifadf_f1f2.pre` y `WTI_ar1.1.pre`.
+
+## BUG-72. `overfit` arranca de las semillas por defecto y sin las restricciones: LR negativos, veredictos cambiados y g.l. falsos
+
+**Qué es.** `_fit_variant` (`mcp_server.py:2737-2754`) tiene dos fallos:
+- construye la tabla con `build_slots(cs)`, sin las restricciones que `estimate` guardó en `_TABLES`;
+- siembra con `x0_full`, que son las semillas univariantes con la transferencia a cero, y no con el óptimo actual más el parámetro nuevo a cero.
+
+Las consecuencias son tres. Un modelo ampliado que anida al actual puede quedarse en un óptimo peor, y dar un LR negativo. Ese LR negativo se presenta como «EXPERIMENTO FALLIDO». Y con pesos fijados, la ampliación los libera todos y lee el LR con 1 g.l.
+
+**Reproducción.** `python3 scripts/repro_p07_overfit.py`, con los datos de `tests/data/p07/`.
+```
+(0,1,1) logL actual = -643.064562
+  overfit: logL = -644.981986   LR = -3.835  (1 g.l.)  p = 1.0000
+  r+1 desde el óptimo actual: logL = -641.097219  LR = 3.935
+(0,4,0) con omega1[2] = omega1[3] = 0: 19 libres
+  variante s+1 de overfit: 22 libres   (overfit dice 1 g.l.)
+```
+Arrancando bien, r+1 da p ≈ 0,047 («aporta»), donde la herramienta dijo «fallido».
+
+**Qué cuesta.** Formas confirmadas o rechazadas por un óptimo local, en dos grupos. Uno de ellos hizo el sobreajuste a mano al ver que no se respetaba el `.cns`.
+
+**Arreglo propuesto.**
+- Copiar las restricciones de la sesión a la tabla ampliada; los nombres de las ranuras coinciden.
+- Sembrar con `f0.x` por nombre y el parámetro nuevo a 0, de modo que logL(ampliado) ≥ logL(actual) por construcción.
+- Contar los g.l. como `t1.n_free − t0.n_free`.
+- Si aun así sale LR < 0, decir que ha fallado el optimizador.
+
+## BUG-73. Los pesos fijados cuentan como grados de libertad en la Q de adecuación y en el LR contra el modelo sin enlace
+
+**Qué es.** Los g.l. del enlace salen de la forma nominal, (s + 1) + r, y no de las ranuras libres. Los parámetros FIXED, ALIAS, PRODUCT y LINCOMB se descuentan como si fueran libres.
+
+**Reproducción.** `python3 scripts/repro_p07_gl_pesos_fijados.py`, con s = 3 y `omega1[2] = omega1[3] = 0`.
+```
+parámetros LIBRES del enlace: 2
+Q de adecuación: 25 retardos, descuenta 4 (esperado 2) -> Q(21) = 28.523, p = 0.1259
+LR contra el diagonal (mtram): 4 g.l. (esperado 2)
+```
+El C da lo mismo: «Q(21) = 28.5233 [25 lags - 4 parameters of nu(B)]».
+
+**Código.** `src/drtran/diagnose.py:142`, `src/drtran/mcp_server.py:1894` (el LR) y `drtran.c:910` (en los dos repos de C).
+
+**Qué cuesta.** Un rechazo falso de la adecuación con p = 0,048 en Francia, porque la Q quedó con 13 g.l. habiendo 3 pesos libres de 12. También g.l. mal contados en Irlanda y en Italia, en dos grupos. Cuanto más se poda el numerador, que es lo que se pide, más conservador sale el LR y más liberal la adecuación.
+
+**Arreglo propuesto.** Contar las ranuras `omega<k>[*]`/`delta<k>[*]` con `kind == FREE`, en Python, en el C y en el LR de mtram. Añadir un test con un `.cns` que fije pesos.
+
+## BUG-74. La cabecera del `.out` del C rotula «Output (Y)» al primer fichero, no a la salida de la red
+
+**Qué es.** `Output (Y)` es `argv[optind]`, es decir, el primer `.pre`, y no mira el `-n .dag`. La línea `Series : 2 (1 output + 1 input(s))` tampoco tiene sentido en una red. La estimación del mismo `.out` sí es la correcta.
+
+**Reproducción.** `python3 scripts/repro_p07_cabecera_out.py`
+```
+cabecera: Output (Y) = WTI_ar1.1.pre
+red     : ES_CPI <- WTI
+```
+
+**Código.** `atsw-gui/engines/drtran/src/drtran.c:3962-3965` (el `.out`) y `:3820` (la consola). En el repo `drtran`, `src/drtran.c:4386` y `:4266`. El puerto Python no escribe esta cabecera.
+
+**Qué cuesta.** Un grupo dio su caso de España por «invertido» y lo sacó de la comparación, cuando era su mejor fila (g = 0,027).
+
+**Arreglo propuesto.** Con `-n`, que la cabecera liste la red («Network: ES_CPI <- WTI»); sin `-n`, que diga «Output (Y) = first file».
+
+## BUG-75. Un `q[i,j]` fijado en el `.cns` que deja Q no definida positiva no se rechaza: logL = 0, una tabla entera y segfault
+
+**Qué es.** Q va relativa a la serie 1: Q[1,1] = 1 y Q[2,2] = var2/var1. Con el WTI como serie 1 y el IPC como serie 2, Q[2,2] ≈ 0,001, así que cualquier |q[2,1]| > 0,03 es imposible. `read_constraints` no lo comprueba. El `.out` escribe «NO CONVERGENCE AFTER 0 ITERATIONS / unknown / ifault = 1», `Log-likelihood = 0.000000` y una tabla con errores típicos 0, sigue con la IRF y muere en `File_PlotSer` (`diagnose.c:504`). El puerto Python devuelve `loglik = -inf` sin mensaje. El significado de un `q` fijado depende del orden y de la escala de los ficheros, y no está escrito.
+
+**Reproducción.** `python3 scripts/repro_p07_q_fijada_no_definida.py`
+```
+q[2,1] = 1      rc =  -11  logL = 0.000000  *** NO CONVERGENCE *** AFTER 0 ITERATIONS
+q[2,1] = 0.01   rc =    0  logL = -730.270862  CONVERGENCE OBTAINED AFTER 37 ITERATIONS
+```
+
+**Qué cuesta.** Tres corridas perdidas de un grupo, que el taller archivó como normales.
+
+**Arreglo propuesto.**
+- Al leer el `.cns`, comprobar que la Q inicial es definida positiva y, si no, rechazarla diciendo el rango admisible y que q es relativa a var1.
+- Si la verosimilitud inicial no se puede evaluar, salir con rc ≠ 0, sin tabla.
+- En el taller, tratar como fallida una corrida con `ifault` o rc ≠ 0.
+- En Python, un mensaje en lugar de `-inf`.
+
+## BUG-76. `evaluate` reestima con todos los pesos libres (no admite el `.cns`) y no escribe nada
+
+**Qué es.** `evaluate` (`mcp_server.py:3117-3133`) llama a `fixed_window_fit` y a `rolling_evaluation` sin `slots`, sin la tabla de `_TABLES` y sin un `cns_path`. Evalúa otro modelo que el adoptado y no lo dice. Tampoco escribe fichero, aunque `evaluate.write_rolling_csv` existe. La librería ya admite las restricciones (`slots_of=`, `slots=`).
+
+**Reproducción.** `python3 scripts/repro_p07_evaluate_cns.py`
+```
+adoptado: omega1[2] = omega1[3] = 0, 19 libres
+evaluate estimó: 21 libres, omega1[2] = -0.000739, omega1[3] = -0.002068
+evaluate admite cns_path: False      ficheros escritos por evaluate: ninguno
+```
+
+**Qué cuesta.** La parte 3 de un grupo evaluó otro modelo para Irlanda, y ninguna evaluación de ningún grupo se puede verificar.
+
+**Arreglo propuesto.** Usar `_TABLES[name]` por defecto, o un `cns_path`, y añadir un `path=` que escriba `write_rolling_csv` y devuelva la ruta.
+
+## BUG-77. `evaluate` recorta cada serie por posición, no por fecha, y reestima las entradas sin decirlo
+
+**Qué es.** `truncate(specs, n)` (`evaluate.py:37-60`) se queda con `ts.data[:n]` de cada `.pre`. Si las series empiezan en fechas distintas y acaban en la misma, como Portugal desde 2010:01 y el WTI desde 2002:01, `estimate` funciona, porque el cast alinea por el final. En cambio, las ventanas de `evaluate` terminan en fechas distintas y el cast las rechaza: «ES_CPI ends 12/2017 and WTI ends 12/2009». Dentro de `rolling_evaluation` el error se traga en cada origen (`evaluate.py:124-130`). Además, `fixed_window_fit` reestima también el modelo de la entrada en la ventana, y el informe no lo dice.
+
+**Reproducción.** `python3 scripts/repro_p07_evaluate_ventana.py`, con ES de 2010:01 a 2019:12 frente al WTI completo: `estimate` da ℓ = −388,42 y `evaluate(window=96)` da ValueError.
+
+**Qué cuesta.** Un grupo tuvo que escribir un CSV desde 2010 para evaluar Portugal, que es justo el caso que pide el curso.
+
+**Arreglo propuesto.** Contar `window` sobre la salida, o sobre la muestra común, y recortar cada serie hasta esa fecha final. Que el informe diga que se reestiman las entradas y que la entrada futura se prevé.
+
+## BUG-78. BUG-70 no llegó a `impulse_response`: la ganancia sale ×100 sin aviso cuando los factores difieren
+
+**Qué es.** `estimate` da la ganancia en las unidades de cada serie desde la 0.2.7. Pero `impulse_response` (`mcp_server.py:3004-3022`) y `plot_impulse_response` (`:1655-1670`) no pasan por `fue.scale`. La propia herramienta provoca el escenario: el aviso de `load_pre` pide factor 100 para la serie pequeña, y el taller escribe factor 1. `overfit` también imprime ω en las unidades del motor.
+
+**Reproducción.** `python3 scripts/repro_p07_escala_irf.py`
+```
+estimate, en las unidades de cada serie: +0.027146
+impulse_response, ganancia:              +2.714640   ¿dice en qué unidades? False
+```
+El repro de BUG-70 no lo ve, porque solo mira `estimate` y `forecast`.
+
+**Qué cuesta.** Lecturas ×100 en dos grupos, justo en la herramienta donde se busca la respuesta.
+
+**Arreglo propuesto.** La misma conversión ω·factor_X/factor_Y en `report_irf` y `plot_irf`. Ampliar `repro_presentacion_en_unidades_del_motor.py`.
+
+## BUG-79. `write_inp` pisa el fichero que escribió antes, y del modelo conjunto no queda `.out`
+
+**Qué es.**
+- **El defecto:** `next_inp_path` (`pre.py:296-314`) pone siempre el sufijo `.1`, sin mirar si el fichero existe. Dos formas candidatas, o dos países que comparten el WTI, escriben el mismo `X.1.inp`, y el segundo borra el primero.
+- **La carencia:** ninguna herramienta de mtram escribe el `.out` del modelo conjunto, aunque la CLI sí lo hace (`-m NAME`, `cli.py:794`). `write_inp` tampoco guarda la red.
+
+**Reproducción.** `python3 scripts/repro_p07_ficheros_conjunto.py`
+```
+escritos dos veces con contenido distinto (el segundo pisó al primero):
+   ES_CPI_m10.1.1.inp   WTI_ar1.1.1.inp
+¿algún fichero lleva la transferencia? False      .out del modelo conjunto: ninguno
+```
+
+**Qué cuesta.** Trabajo perdido en un grupo, y transferencias que no se pueden verificar en tres. Las cifras solo quedaron copiadas en los registros.
+
+**Arreglo propuesto.** Buscar el primer sufijo libre, como hace fue. Añadir un `path=` en `estimate` y `diagnose`, o una herramienta `write_out`, que escriba NAME.out en el formato de la CLI. Guardar la red (`.dag` o `.json`) junto a los `.inp`.
+
+## BUG-80. Con denominador, `estimate` avisa «revisa el signo» sin motivo y rotula la ganancia «omega(1)»
+
+**Qué es.** `_splice_transfer` (`mcp_server.py:2118-2125`) compara ω(1) con la ganancia sin mirar `lk.r`. Con r ≥ 1 la ganancia es ω(1)/δ(1), y la diferencia es la que debe haber. `_what_the_transfer_bought` (`:1829`, `:1832`) escribe «GANANCIA = omega(1)» también en ese caso.
+
+**Reproducción.** `python3 scripts/repro_p07_aviso_denominador.py`, con España en la forma (0,0,1): ω0 = 0,0168, δ = 0,456 y una ganancia de 0,0309. Sale «⚠ la suma de los coeficientes (0.016795) no es la ganancia (0.030856): revisa el signo».
+
+**Qué cuesta.** Dos grupos se pusieron a buscar un error de signo inexistente, en la forma que el enunciado pide comparar.
+
+**Arreglo propuesto.** Comparar con ω(1)/δ(1), o no comprobar nada con r > 0, y rotular «omega(1)/delta(1)».
+
+## BUG-81. `estimate` devuelve una orden dirigida a un modelo concreto: «[Claude: muestra el bloque … TAL CUAL]»
+
+**Qué es.** La primera línea del valor que devuelve `estimate` (`mcp_server.py:2444-2445`, la variable `head`) es una instrucción al asistente, con su nombre, dentro del resultado de la herramienta.
+
+**Reproducción.** `python3 scripts/repro_p07_instruccion_al_modelo.py`
+
+**Qué cuesta.** Los asistentes guardan la salida, y la orden acaba en las entregas (tres ficheros de un grupo). Además, nombra a un asistente cuando se usan otros, y es texto dirigido al modelo dentro de un resultado, un patrón que conviene no normalizar.
+
+**Arreglo propuesto.** Quitarla. Si hace falta, ponerla en las instrucciones del servidor sin nombrar ningún modelo.
+
+## BUG-82. `refine_link` dice «se cortan» de pesos que no se cortan
+
+**Qué es.** `school.decay_pattern` (`school.py:304-314`) solo propone denominador si los |pesos| significativos bajan estrictamente. En cualquier otro caso, `refine_link` (`mcp_server.py:1523-1531`) escribe «se cortan. Eso es un numerador finito, sin denominador». Falta el tercer caso, una cola larga con ruido.
+
+**Reproducción.** `python3 scripts/repro_p07_refine_se_cortan.py`
+- Con los pesos de Irlanda de un grupo (significativos en 0, 1, 2, 3 y 6, todos positivos), sale «se cortan», mientras `overfit` da r + 1 con t = 9,15.
+- Con una cola geométrica 0,01·0,7^k y un peso movido 1,7 errores típicos, también sale «se cortan».
+
+**Qué cuesta.** Propone r = 0 justo donde la forma está en duda.
+
+**Arreglo propuesto.** Tres salidas: «decaen», «se cortan» (solo si no hay significativos después y el tramo es corto) y «no se lee: compara r = 0 y r = 1 con `overfit`». La regla de decaimiento tiene que tolerar el ruido, por ejemplo con la pendiente de log|ν| contra k o una monotonía dentro de un error típico.
+
+## BUG-83. «EL OUTPUT LLEVA SARIMA MULTIPLICATIVO… NO ESTACIONARIA» con un AR estacional estacionario y D = 0
+
+**Qué es.** `school.seasonality_mismatch` (`school.py:591-594`) clasifica como «sarima» todo modelo con D > 0, con `ar_s` o con `ma_s`. Un (1 − 0,3B¹²) con D = 0 y armónicos no tiene raíz unitaria estacional, y aun así el aviso (`mcp_server.py:1204-1208`) dice «es el caso peor».
+
+**Reproducción.** `python3 scripts/repro_p07_aviso_sarima.py`
+
+**Qué cuesta.** Avisos falsos en dos grupos. Uno tuvo que demostrar que la CCF no cambiaba.
+
+**Arreglo propuesto.** Dejar «sarima» para D > 0 o para factores estacionales con raíz unitaria, y dar un aviso suave en el caso estacionario.
+
+## BUG-84. La CCF de `identify_link` llega a ±12 y el texto cita retardos hasta 24; `identify_link` no acepta `path`
+
+**Qué es.** La identificación usa max(10, min(n // 4, 24)) retardos y cita k = 24 («míralo en el gráfico»), pero la figura usa `ccf_default_lags(12)` = 12 (`plots.py:66-67`, llamada en `mcp_server.py:1143`). `identify_link` no tiene `path` (`mcp_server.py:1098`). La «R² (Brajín A.28)» de `mcp_server.py:1925` aparece sin decir qué mide.
+
+**Reproducción.** `python3 scripts/repro_p07_ccf_12_frente_a_24.py`, que da «citados [0, 1, 24]; la figura llega a ±12; acepta path: False».
+
+**Qué cuesta.** No se ven las barras de 14, −16, −22 y 24 que el texto manda mirar, y la figura de la CCF no queda guardada en la entrega.
+
+**Arreglo propuesto.** Los mismos retardos en el texto y en la figura, un `path=`, y una línea que explique la R² y la P del pie.
+
+## BUG-85. `diagnose` da una sola Q del ruido, a 24 retardos; la figura de `plot_residuals` da otra, sin p
+
+**Qué es.** Es una carencia. `diagnose(name, link_index)` no tiene argumento de retardos, y `school.noise_adequacy` (`school.py:255`) usa k = min(24, max(4, n // 5)). El pie de `plot_residuals` pone «Q(38) = 29.9» sin p-valor (`plots.py:179-205`). Los g.l. de la Q(24) son correctos (BUG-57).
+
+**Reproducción.** `python3 scripts/repro_p07_q_del_ruido.py`
+
+**Qué cuesta.** La escuela lee la Q a s, 2s y 3s + 3: un MA estacional que falta se ve a 12 y a 36. Un grupo acabó programando la Q en Python.
+
+**Arreglo propuesto.** Un argumento `lags`, por defecto (s, 2s, 3s + 3), con una p para cada Q, y la p también en el pie de la figura.
+
+## BUG-86. Las fechas de los residuos en el `.out` del C son relativas («from 1/1 to 11/18»)
+
+**Qué es.** `diagnose.c:367-368` rellena el `Tseries` de los residuos con `begtime = 1; begyear = 1`. Lo mismo pasa en las líneas 303-304 y 412. El `_res.txt` y mtram fechan bien.
+
+**Reproducción.** `python3 scripts/repro_p07_fechas_residuos.py`
+```
+215 observations: from 1/1 to 11/18   (esperado: from 2/2002 to 12/2019)
+minimo at 9/7 (observation 81)       <- 10/2008
+```
+
+**Qué cuesta.** Un grupo no pudo situar los atípicos.
+
+**Arreglo propuesto.** Pasar a `diagnose()` el inicio de la muestra estacionaria, que es el inicio en bruto más lo que se pierde al diferenciar.
+
+## BUG-87. Con μ fijada a 0 en el `.pre`, ni drtran ni mtram avisan aunque la media residual sea significativa
+
+**Qué es.** Es una cuestión de política: respetar lo fijado es correcto, pero falta un aviso. El diagnóstico de residuos (`diagnose.c`, `File_StatSer`) imprime la media y su error típico, y no los compara.
+
+**Reproducción.** `python3 scripts/repro_p07_media_fijada_sin_aviso.py`
+```
+mu[1]  (fixed by .pre  0.000000)
+residuos del IPC: media = 0.0669, e.t. = 0.0139, t = 4.80      aviso: NINGUNO
+```
+
+**Qué cuesta.** Un grupo estimó España con un IPC sin deriva.
+
+**Arreglo propuesto.** Con μ fijada, o sin μ, y d + D > 0, si |media/e.t.| > 2: «WARNING: mu fixed at 0 by the .pre, residual mean t = 4.8: the drift is missing». El mismo aviso en el `diagnose` de mtram.
+
+## BUG-88. mtram no dice en ningún sitio visible que ω va en el convenio de Box y Jenkins: la tabla y la ecuación parecen contradecirse
+
+**Qué es.** En la misma salida de `estimate`, la tabla del motor da `omega1[1] = −0.010747` (se almacena ω(B) = ω0 − ω1B − …, como en fue y en el C) y la ecuación da `+ 0.0107·B` (el polinomio tal como multiplica, `_omega_poly`, `mcp_server.py:1951`). Las dos cifras son correctas. Pero el convenio solo está en comentarios del código (`_omega_poly`, `cast.py:72`): ni las instrucciones del servidor, ni la tabla, ni la ecuación, ni `impulse_response` lo dicen. Un agente que ve dos signos opuestos para el mismo coeficiente concluye que hay un error y se lo traslada al analista. Que el usuario tenga que recordárselo es, en sí mismo, el defecto.
+
+**Reproducción.** `python3 scripts/repro_p07_convenio_no_dicho.py`
+```
+tabla: omega1[1] = -0.010747; la ecuacion escribe +0.0107·B
+convenio dicho en la salida de estimate: False
+convenio dicho en las instrucciones del servidor: False
+```
+
+**Qué cuesta.** Cinco grupos leyeron mal el segundo peso (un ω1 negativo es un peso positivo al mes siguiente). Hubo ecuaciones con el signo cambiado y ganancias calculadas como diferencia en lugar de suma, y el asistente de un grupo lo llamó «inconsistencia de mtram». Revisando el rodaje, el propio revisor (un agente) lo propuso como defecto de cálculo hasta que se le recordó el convenio.
+
+**Arreglo propuesto.**
+- En las instrucciones del servidor, un párrafo: «ω(B) = ω0 − ω1B − … − ωsB^s (Box y Jenkins, como fue y el C). La tabla del motor da los ωk almacenados; la ecuación, el polinomio desarrollado. Un ω1 negativo en la tabla es un peso POSITIVO en el retardo 1. La ganancia es ω0 − ω1 − … (dividida por δ(1) si hay denominador).»
+- Bajo la tabla de `estimate`, una línea: «omega en convenio Box-Jenkins: ω(B) = ω0 − ω1B − …; el peso del retardo k ≥ 1 es −omega[k]».
+- En la ecuación, el rótulo «(coeficientes tal como multiplican)».
+- Lo mismo en `overfit` y `refine_link` cuando impriman ω, y en `impulse_response`, cuyos ν ya van con el signo de la ecuación.
