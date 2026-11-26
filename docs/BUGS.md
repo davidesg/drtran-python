@@ -2708,8 +2708,8 @@ Encontrados en el uso de un curso: once grupos de alumnos construyeron funciones
 
 | BUG | Paquete | Qué | Gravedad |
 |---|---|---|---|
-| 71 | mtram | La puerta N0 no cuadra con ifadf: `_en_muestra_comun` cuenta las pérdidas como d + D·s | alta |
-| 72 | mtram | `overfit` arranca de las semillas y sin el `.cns`: LR negativos y g.l. falsos | alta |
+| 71 | mtram | La puerta N0 no cuadra con ifadf: `_en_muestra_comun` cuenta las pérdidas como d + D·s | alta — **FIXED** |
+| 72 | mtram | `overfit` arranca de las semillas y sin el `.cns`: LR negativos y g.l. falsos | alta — **FIXED** |
 | 73 | drtran, C y mtram | Los pesos fijados cuentan como g.l. en la adecuación y en el LR contra el modelo sin enlace | alta |
 | 74 | drtran C | La cabecera del `.out` rotula salida y entrada por el orden de los ficheros, no por la red | alta |
 | 75 | drtran C (y Python) | Un `q[i,j]` fijado que deja Q no definida positiva da logL = 0, una tabla «normal» y un segfault | alta |
@@ -2737,7 +2737,7 @@ Encontrados en el uso de un curso: once grupos de alumnos construyeron funciones
 - **Los tiempos de espera:** `load_pre(check)` de más de 10 minutos, y `refine_link(smax=6)` y `evaluate` por encima de 60 s. En Linux todo tarda menos de 6 s, también con el `.pre` que se colgó (`scripts/repro_p07_tiempos.py`). Se sospecha la plataforma de los alumnos, Windows con las ruedas sin el motor compilado. Para confirmarlo hay que ejecutar en esa máquina `python -c "import drvarma._engine as e; print(e.engine_backend())"`. Propuesta: que `load_pre` informe del backend de fue y drvarma, y que cada herramienta diga cuánto ha tardado.
 - **El +11,4 de N0 con D = 1 y la entrada sin D (un grupo).** Tres variantes de D = 1 cuadran a 1e-7.
 
-## BUG-71. La puerta N0 no cuadra con factores ifadf: `_en_muestra_comun` cuenta las pérdidas como d + D·s
+## BUG-71. La puerta N0 no cuadra con factores ifadf: `_en_muestra_comun` cuenta las pérdidas como d + D·s — **FIXED 2026-11-27**
 
 **Qué es.** Desde 963c335, `_muestra_comun` cuenta bien la muestra común por el grado del polinomio de diferenciación. Pero `_en_muestra_comun` (`mcp_server.py:604-606`) sigue calculando las pérdidas como `d + D·freq`. Con ∇·(1−√3B+B²)·(1−B+B²), que tiene grado 5, cree que se pierde una observación. Recorta así la salida a 212 observaciones (207 útiles), cuando ya estaba en la muestra común de 211. Es BUG-5 reabierto por una tercera puerta.
 
@@ -2759,7 +2759,18 @@ certificado contradictorio (hueco > 0 y 'no movió nada'): True
 - Que `_certificado` compare contra el modelo reestimado.
 - Ampliar `test_common_sample_counts_ifadf.py` con la identidad completa sobre `tests/data/p07/ipc_ifadf_f1f2.pre` y `WTI_ar1.1.pre`.
 
-## BUG-72. `overfit` arranca de las semillas por defecto y sin las restricciones: LR negativos, veredictos cambiados y g.l. falsos
+### Fixed (2026-11-27)
+
+- `_en_muestra_comun` cuenta las pérdidas por el grado del polinomio de
+  diferenciación (`differencing_poly`), como `_muestra_comun`. Sobre
+  `ipc_ifadf_f1f2.pre` y el WTI de clase la salida queda con 216 obs (211
+  útiles, la muestra común) y la puerta cuadra a −3,5e−07.
+- `_certificado` compara los coeficientes del fichero con los del modelo que
+  la puerta REESTIMÓ (la copia recortada, cuando la hay), no con los del
+  fichero otra vez.
+- `scripts/repro_p07_puerta_ifadf.py` sale con 0; `tests/test_bug71_72_p07.py`.
+
+## BUG-72. `overfit` arranca de las semillas por defecto y sin las restricciones: LR negativos, veredictos cambiados y g.l. falsos — **FIXED 2026-11-27**
 
 **Qué es.** `_fit_variant` (`mcp_server.py:2737-2754`) tiene dos fallos:
 - construye la tabla con `build_slots(cs)`, sin las restricciones que `estimate` guardó en `_TABLES`;
@@ -2784,6 +2795,20 @@ Arrancando bien, r+1 da p ≈ 0,047 («aporta»), donde la herramienta dijo «fa
 - Sembrar con `f0.x` por nombre y el parámetro nuevo a 0, de modo que logL(ampliado) ≥ logL(actual) por construcción.
 - Contar los g.l. como `t1.n_free − t0.n_free`.
 - Si aun así sale LR < 0, decir que ha fallado el optimizador.
+
+### Fixed (2026-11-27)
+
+- `_fit_variant` hereda del modelo de la sesión sus restricciones (la tabla
+  que `estimate` guardó en `_TABLES`, copiada por nombre: fijados,
+  compartidos, productos y combinaciones) y su óptimo como semilla, con el
+  parámetro nuevo a cero. El ampliado arranca en el modelo actual, así que
+  logL(ampliado) >= logL(actual) por construcción.
+- Los g.l. del LR son `t1.n_free − t0.n_free`, y un LR < 0 se dice como fallo
+  del optimizador («EXPERIMENTO FALLIDO»), sin leerlo.
+- En el repro, Italia (0,1,1): r+1 da LR = 3,935 (p = 0,047, «aporta»), donde
+  daba −3,835; con `omega1[2] = omega1[3] = 0`, la variante s+1 conserva los
+  dos ceros y tiene un parámetro libre más, leído con 1 g.l.
+- `scripts/repro_p07_overfit.py` sale con 0; `tests/test_bug71_72_p07.py`.
 
 ## BUG-73. Los pesos fijados cuentan como grados de libertad en la Q de adecuación y en el LR contra el modelo sin enlace
 

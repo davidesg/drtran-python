@@ -405,10 +405,11 @@ _gate_name = [""]
 
 
 def _coefs(sp):
-    """Los coeficientes que un fichero trae escritos, en un vector plano."""
+    """Los coeficientes que un fichero trae escritos, en un vector plano. Vale
+    también con el MODELO (el reestimado de la puerta, BUG-71)."""
     import numpy as np
 
-    m = sp.model
+    m = getattr(sp, "model", sp)
     v = [o for it in m.interventions for o in it.omega]
     v += [d for it in m.interventions for d in it.delta]
     for fam in (m.ar, m.ar_s, m.ma, m.ma_s):
@@ -441,7 +442,7 @@ def _loglik_traida(specs):
         return None
 
 
-def _certificado(specs, antes, ll_traido, ll_diag):
+def _certificado(specs, antes, ll_traido, ll_diag, despues=None):
     """¿Lo que nos dieron eran ÓPTIMOS o ESPECIFICACIONES? Gratis, y hasta
     ahora nadie lo reclamaba.
 
@@ -472,8 +473,12 @@ def _certificado(specs, antes, ll_traido, ll_diag):
     # hay zona gris, y 1e-3 cae holgadamente en medio.
     UMBRAL = 1e-3
     filas, movidos = [], 0
-    for sp, a in zip(specs, antes):
-        b = _coefs(sp)
+    # `despues`: los modelos que la puerta REESTIMÓ. Con recorte a la muestra
+    # común se estima una copia, y comparar el fichero consigo mismo decía
+    # «no movió nada» al lado de un hueco > 0 (BUG-71).
+    despues = despues or [sp.model for sp in specs]
+    for sp, a, md in zip(specs, antes, despues):
+        b = _coefs(md)
         if a.shape != b.shape:                             # no comparable
             filas.append((sp.name, float("nan")))
             continue
@@ -599,10 +604,14 @@ def _en_muestra_comun(sp, n_comun):
     """
     import copy
 
+    from .cast import differencing_poly
+
     m = sp.model
     freq = int(getattr(m.series, "freq", 1) or 1)
-    perdidas = int(getattr(m, "d", 0) or 0) + \
-        int(getattr(m, "D", 0) or 0) * freq
+    # Por el GRADO del polinomio de diferenciación, como `_muestra_comun`: con
+    # `d + D·s` los factores ifadf no se descontaban y la salida se recortaba
+    # a una muestra que no era la común (BUG-71, BUG-5 por una tercera puerta).
+    perdidas = len(differencing_poly(m)) - 1
     quiere = n_comun + perdidas
     tiene = int(getattr(m.series, "nobs", 0) or 0)
     if quiere >= tiene or quiere < 2:
@@ -649,11 +658,12 @@ def _diagonal_gate(specs):
     ll_traido = _loglik_traida(specs)
 
     n_comun = _muestra_comun(specs)
-    uni, failed = [], []
+    uni, failed, reest = [], [], []
     for sp in specs:
         try:
             m = _en_muestra_comun(sp, n_comun)
             m.fit()
+            reest.append(m)
             uni.append((sp.name, float(m.loglik)))
         except Exception as exc:                           # noqa: BLE001
             failed.append((sp.name, str(exc)[:120]))
@@ -689,7 +699,7 @@ def _diagonal_gate(specs):
     lines.append(f"  Ajuste diagonal conjunto (drtran): **{f.loglik:.6f}**")
     lines.append(f"  Diferencia con la suma: **{diff:+.2e}**")
     lines.append("")
-    lines += _certificado(specs, antes, ll_traido, float(f.loglik))
+    lines += _certificado(specs, antes, ll_traido, float(f.loglik), reest)
 
     # 1e-4 en la log-verosimilitud es el margen con que se fijo la identidad en
     # tests/test_baseline_univariate.py; por debajo es ruido de optimizacion.
@@ -2740,18 +2750,77 @@ def _fit_variant(name, links, embed=None):
     Un experimento de sobreajuste que deja el caso estimado en el modelo
     ampliado es una trampa: el analista lo rechaza, sigue trabajando, y todo
     lo que hace después sale del modelo que acaba de rechazar.
+
+    La variante hereda del modelo actual (BUG-72) sus RESTRICCIONES (el `.cns`
+    que `estimate` guardó en la tabla de la sesión: fijados, compartidos,
+    productos, combinaciones) y su ÓPTIMO como punto de partida, con el
+    parámetro nuevo a cero. Así el ampliado arranca exactamente en el modelo
+    actual y su logL no puede quedar por debajo: antes arrancaba de las
+    semillas univariantes con la transferencia a cero y sin el `.cns`, y daba
+    LR negativos (un óptimo local peor) y liberaba los pesos fijados.
+
+    Devuelve (fit, tabla, errores típicos); (None, None, None) si no converge.
     """
     from drtran.estimate import standard_errors
     from drtran.slots import build_slots
 
     cs = build_cast_spec(_require(name), links=links)
     table = build_slots(cs)
-    f = drtran.fit(cs, x0=drtran.x0_full(cs, table),
+    x0 = drtran.x0_full(cs, table)
+    f0, t0 = _FITS.get(name), _TABLES.get(name)
+    if f0 is not None and t0 is not None:
+        _hereda_restricciones(t0, table)
+        x0 = _hereda_optimo(t0, np.asarray(f0.x, float), table, x0)
+    f = drtran.fit(cs, x0=x0,
                    embed=(f_embed(name) if embed is None else embed),
                    slots=table)
     if f.ifault:
         return None, None, None
     return f, table, standard_errors(f)
+
+
+def _ocurrencias(names):
+    """Cada nombre con su número de aparición: los nombres pueden repetirse
+    (dos factores AR regulares dan dos `phi_i[B^1]`, como en el C)."""
+    vistos, out = {}, []
+    for nm in names:
+        k = vistos.get(nm, 0)
+        vistos[nm] = k + 1
+        out.append((nm, k))
+    return out
+
+
+def _hereda_optimo(t0, x0_full_actual, t1, x0_semillas):
+    """El punto de partida de la variante: el óptimo actual por nombre; lo que
+    la variante tiene de más (el parámetro nuevo) se queda en su semilla, que
+    para un peso o un denominador nuevo es cero."""
+    actual = dict(zip(_ocurrencias(t0.names), x0_full_actual))
+    return np.asarray([actual.get(k, x0_semillas[i])
+                       for i, k in enumerate(_ocurrencias(t1.names))], float)
+
+
+def _hereda_restricciones(t0, t1):
+    """Copia a `t1` las restricciones de `t0`, por nombre. Una restricción que
+    nombra un parámetro que la variante no tiene se omite (no puede pasar al
+    AMPLIAR: la variante tiene todos los del modelo actual)."""
+    from drtran.slots import ALIAS, FIXED, LINCOMB, PRODUCT
+
+    nm = t0.names
+    for s in t0.slots:
+        if t1.index(s.name) < 0:
+            continue
+        try:
+            if s.kind == FIXED:
+                t1.set_fixed(s.name, s.value)
+            elif s.kind == ALIAS:
+                t1.set_shared(s.name, nm[s.pa])
+            elif s.kind == PRODUCT:
+                t1.set_product(s.name, nm[s.pa], nm[s.pb], sign=s.value)
+            elif s.kind == LINCOMB:
+                t1.set_lincomb(s.name, [(sg, nm[a], nm[b] if b >= 0 else None)
+                                        for sg, a, b in s.terms])
+        except (KeyError, ValueError):
+            continue
 
 
 def f_embed(name):
@@ -2770,8 +2839,9 @@ def overfit(name: str, link_index: int = 0) -> str:
     enlarging it and finding the extra parameters non-significant.
 
     Two enlargements, one at a time: one more numerator weight (s+1) and one
-    denominator (r+1). Each is refitted jointly and compared by likelihood
-    ratio with 1 degree of freedom.
+    denominator (r+1). Each is refitted jointly FROM THE CURRENT OPTIMUM, with
+    the current constraints (the `.cns`), the new parameter at zero, and
+    compared by likelihood ratio with the free parameters it adds (1).
 
     **A failed experiment is not a confirmation.** Muñoz 6.4.3 abandons an
     overfit because "la situación de estimación está mal definida (altas
@@ -2812,11 +2882,24 @@ def overfit(name: str, link_index: int = 0) -> str:
             verdicts.append(("no converge", label)); continue
         ll1 = float(f1.loglik)
         lr = 2.0 * (ll1 - ll0)
-        p = float(1.0 - _st.chi2.cdf(max(lr, 0.0), 1))
+        # los g.l. son los parámetros LIBRES que la variante añade (BUG-72):
+        # con el `.cns` heredado, 1; sin él, todos los que liberaba
+        t0 = _TABLES.get(name)
+        gl = (t1.n_free - t0.n_free) if t0 is not None else 1
+        gl = max(gl, 1)
+        p = float(1.0 - _st.chi2.cdf(max(lr, 0.0), gl))
         val, err = school_slot(f1, t1, se1, slot)
         pairs, nflag = worst_correlations(f1, se1, t1, top=3)
         out += [f"  {label}",
-                f"    logL = {ll1:.6f}   LR = {lr:.3f}  (1 g.l.)  p = {p:.4f}"]
+                f"    logL = {ll1:.6f}   LR = {lr:.3f}  ({gl} g.l.)  p = {p:.4f}"]
+        if lr < -1e-4:
+            # el ampliado ANIDA al actual y arranca en él: menos verosimilitud
+            # solo puede ser el optimizador, no los datos
+            out += ["    ⚠ EXPERIMENTO FALLIDO: el modelo ampliado anida al actual y "
+                    "arranca en su óptimo, así que su logL no puede ser menor. Ha "
+                    "fallado el optimizador; el LR no se lee.", ""]
+            verdicts.append(("fallido", label))
+            continue
         if val is not None and err and err > 0:
             out.append(f"    {slot} = {val:+.6f}  (e.t. {err:.6f}, "
                        f"t = {val / err:.2f})")
