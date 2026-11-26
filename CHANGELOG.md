@@ -4,6 +4,22 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**Two defects from the course run of practice 7 (BUG-71, BUG-72).**
+- **BUG-71: the N0 gate with ifadf factors.** `_en_muestra_comun` counted the
+  observations lost to differencing as d + D·s, ignoring the frequency
+  factors, and cut the output to a sample that was not the common one: every
+  CPI with loose seasonal roots got a «No sigas» at N0 (+1.87 in the course).
+  It now counts by the degree of the differencing polynomial, as
+  `_muestra_comun` does, and the certificate compares the file with the model
+  the gate re-estimated.
+- **BUG-72: `overfit` from the current optimum, with the `.cns`.** Each
+  enlargement started from the univariate seeds with the transfer at zero and
+  without the constraints: negative LRs (a worse local optimum), freed fixed
+  weights read with 1 d.f. It now inherits the session's constraints and
+  starts at the current optimum with the new parameter at zero, counts the
+  d.f. as the free parameters it adds, and says that a negative LR is the
+  optimiser's failure.
+
 **The CCF is drawn by pyfug** (`pyfug.graphics.ccf`, pyfug >= 2.1.0), the
 suite's one CCF; it went through `drvarma.plots.plot_ccf` before. The numbers
 are still drvarma's `ccf` and `qccf`, with the same swap of the arguments for
