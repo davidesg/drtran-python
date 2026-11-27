@@ -48,8 +48,9 @@ def espia(*a, **k):
 
 
 E.fixed_window_fit = espia
-antes = set(os.listdir(os.getcwd()))
-M.evaluate("ev", window=204, horizon=1)
+csv = os.path.join(tempfile.mkdtemp(), "ev.csv")
+kw = {"path": csv} if "path" in inspect.signature(M.evaluate).parameters else {}
+txt = M.evaluate("ev", window=204, horizon=1, **kw)
 E.fixed_window_fit = _orig
 f = visto["f"]
 n_libres = len(f.xfree) if f.xfree is not None else len(f.x)
@@ -60,10 +61,10 @@ print(f"evaluate estimó: {n_libres} libres, omega1[2] = {w2:+.6f}, "
       f"omega1[3] = {w3:+.6f}")
 print("evaluate admite cns_path:",
       "cns_path" in inspect.signature(M.evaluate).parameters)
-nuevos = set(os.listdir(os.getcwd())) - antes
-print("ficheros escritos por evaluate:", sorted(nuevos) or "ninguno")
+escrito = os.path.exists(csv) and csv in txt
+print("evaluate escribe los errores por origen y dice dónde:", escrito)
 os.unlink(fh.name)
 
-fallo = (w2 != 0 or w3 != 0) or not nuevos
+fallo = (w2 != 0 or w3 != 0) or not escrito
 print("BUG PRESENTE" if fallo else "ok")
 sys.exit(1 if fallo else 0)

@@ -2914,7 +2914,7 @@ q[2,1] = 0.01   rc =    0  logL = -730.270862  CONVERGENCE OBTAINED AFTER 37 ITE
   no coinciden entre el C y el puerto (BUG-89), así que el rango admisible
   que se informa difiere en el tercer decimal.
 
-## BUG-76. `evaluate` reestima con todos los pesos libres (no admite el `.cns`) y no escribe nada
+## BUG-76. `evaluate` reestima con todos los pesos libres (no admite el `.cns`) y no escribe nada — **FIXED 2026-11-27**
 
 **Qué es.** `evaluate` (`mcp_server.py:3117-3133`) llama a `fixed_window_fit` y a `rolling_evaluation` sin `slots`, sin la tabla de `_TABLES` y sin un `cns_path`. Evalúa otro modelo que el adoptado y no lo dice. Tampoco escribe fichero, aunque `evaluate.write_rolling_csv` existe. La librería ya admite las restricciones (`slots_of=`, `slots=`).
 
@@ -2929,7 +2929,15 @@ evaluate admite cns_path: False      ficheros escritos por evaluate: ninguno
 
 **Arreglo propuesto.** Usar `_TABLES[name]` por defecto, o un `cns_path`, y añadir un `path=` que escriba `write_rolling_csv` y devuelva la ruta.
 
-## BUG-77. `evaluate` recorta cada serie por posición, no por fecha, y reestima las entradas sin decirlo
+### Fixed (2026-11-27)
+
+`evaluate` evalúa el modelo adoptado: hereda las restricciones de la tabla
+que guardó `estimate` (su `.cns`), o lee las de un `cns_path`. Escribe los
+errores por origen con `write_rolling_csv` (en `path`, o por defecto en el
+directorio temporal, como las figuras) y devuelve la ruta en el informe, que
+dice también cuántos parámetros van fijados o atados.
+
+## BUG-77. `evaluate` recorta cada serie por posición, no por fecha, y reestima las entradas sin decirlo — **FIXED 2026-11-27**
 
 **Qué es.** `truncate(specs, n)` (`evaluate.py:37-60`) se queda con `ts.data[:n]` de cada `.pre`. Si las series empiezan en fechas distintas y acaban en la misma, como Portugal desde 2010:01 y el WTI desde 2002:01, `estimate` funciona, porque el cast alinea por el final. En cambio, las ventanas de `evaluate` terminan en fechas distintas y el cast las rechaza: «ES_CPI ends 12/2017 and WTI ends 12/2009». Dentro de `rolling_evaluation` el error se traga en cada origen (`evaluate.py:124-130`). Además, `fixed_window_fit` reestima también el modelo de la entrada en la ventana, y el informe no lo dice.
 
@@ -2940,6 +2948,16 @@ evaluate admite cns_path: False      ficheros escritos por evaluate: ninguno
 **Arreglo propuesto.** Contar `window` sobre la salida, o sobre la muestra común, y recortar cada serie hasta esa fecha final. Que el informe diga que se reestiman las entradas y que la entrada futura se prevé.
 
 ## BUG-78. BUG-70 no llegó a `impulse_response`: la ganancia sale ×100 sin aviso cuando los factores difieren — **FIXED 2026-11-27**
+### Fixed (2026-11-27)
+
+`evaluate.truncate` corta cada serie en la FECHA de la observación `window`
+de la salida (con un final común, nobs_i − (nobs_salida − window)), no en la
+misma posición. Con muestras iguales, el único caso del C, no cambia nada. El
+informe dice hasta qué fecha llega la ventana, que en ella se reestima todo
+el modelo conjunto (también el de cada entrada) y que la entrada futura se
+prevé con su modelo.
+
+## BUG-78. BUG-70 no llegó a `impulse_response`: la ganancia sale ×100 sin aviso cuando los factores difieren
 
 **Qué es.** `estimate` da la ganancia en las unidades de cada serie desde la 0.2.7. Pero `impulse_response` (`mcp_server.py:3004-3022`) y `plot_impulse_response` (`:1655-1670`) no pasan por `fue.scale`. La propia herramienta provoca el escenario: el aviso de `load_pre` pide factor 100 para la serie pequeña, y el taller escribe factor 1. `overfit` también imprime ω en las unidades del motor.
 

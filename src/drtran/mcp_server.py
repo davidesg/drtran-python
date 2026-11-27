@@ -3282,21 +3282,73 @@ def forecast(name: str, horizon: int = 12, series_index: int = 0) -> str:
 
 
 @mcp.tool()
-def evaluate(name: str, window: int, horizon: int = 6) -> str:
+def evaluate(name: str, window: int, horizon: int = 6, cns_path: str = "",
+             path: str = "") -> str:
     """Out-of-sample evaluation: estimate ONCE on 1..window, then roll the origin.
 
     The only thing here that compares the model against WHAT HAPPENED instead of
     against itself — every other figure the suite prints is theoretical. Run it
     on two specifications to decide empirically which forecasts better.
+
+    It evaluates the ADOPTED model: the constraints `estimate` used (its
+    `.cns`) by default, or those of `cns_path`. `window` counts observations of
+    the OUTPUT, and every series is cut at that DATE. The per-origin errors are
+    written to a CSV (`path`; by default in the temporary directory, like the
+    figures) and its path is returned.
     """
+    import os as _os
+
     from drtran.evaluate import (fixed_window_fit, report_rolling,
-                                 rolling_evaluation)
+                                 rolling_evaluation, write_rolling_csv)
+    from drtran.slots import build_slots, read_cns
 
     specs = _require(name)
     links = _LINKS.get(name, [])
-    f, _cs = fixed_window_fit(specs, links, window=window, embed=True)
+    if cns_path and not _os.path.exists(cns_path):
+        raise ValueError(f"no encuentro {cns_path}")
+    t0 = _TABLES.get(name)
+
+    # BUG-76: el modelo evaluado es el adoptado, con sus restricciones
+    def _slots_of(cs):
+        t = build_slots(cs)
+        if cns_path:
+            read_cns(cns_path, t)
+        elif t0 is not None:
+            _hereda_restricciones(t0, t)
+        return t
+
+    f, cs_w = fixed_window_fit(specs, links, window=window, embed=True,
+                               slots_of=_slots_of)
     ev = rolling_evaluation(f.x, specs, links, window=window, horizon=horizon)
-    return report_rolling(ev)
+
+    if not path:          # como las figuras (_png): pásale `path` para la entrega
+        path = _os.path.join(tempfile.gettempdir(),
+                             f"mtram_{name}_eval_w{window}_h{horizon}.csv")
+    write_rolling_csv(ev, path)
+
+    # lo que se evaluó, dicho (BUG-76 y BUG-77)
+    ts0 = cs_w.series[0].spec.ts
+    y0, p0 = ts0.start
+    fq = int(ts0.freq or 1)
+    fin = y0 * fq + (p0 - 1) + int(ts0.nobs) - 1
+    fecha = (f"{fin // fq}:{fin % fq + 1:02d}" if fq > 1 else f"{fin // fq}")
+    tab = f.slots
+    n_res = (len(tab) - tab.n_free) if tab is not None else 0
+    origen = (f"las de {cns_path}" if cns_path else
+              "las del modelo adoptado (las de su estimate, con su .cns si lo hubo)"
+              if t0 is not None else "las de defecto (no hay un estimate previo)")
+    notas = ["",
+             f"  Ventana: {window} observaciones de la salida, hasta {fecha}; cada "
+             "serie se corta en esa FECHA.",
+             f"  Restricciones: {origen}; {n_res} parámetro(s) fijado(s) o atado(s) "
+             "(las covarianzas q no liberadas cuentan como fijas a 0), "
+             f"{len(f.xfree) if f.xfree is not None else len(f.x)} libre(s).",
+             "  En la ventana se reestima TODO el modelo conjunto, también el "
+             "modelo univariante de",
+             "  cada entrada; en cada origen la entrada futura se PREVÉ con ese "
+             "modelo (no se usa su valor real).",
+             f"  Errores por origen: {path}"]
+    return report_rolling(ev) + "\n" + "\n".join(notas)
 
 
 # ── autonomous: the same nodes, the documented defaults, said out loud ─────

@@ -4,6 +4,12 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**mtram `evaluate` (P07 register: BUG-76, BUG-77).** It evaluates the
+adopted model, with the constraints `estimate` used (or a `cns_path`), and
+writes the per-origin errors to a CSV whose path it returns (BUG-76). The
+window counts observations of the output and cuts every series at that date,
+so series with different starts work (BUG-77); the report says where the
+window ends and that the inputs' models are re-estimated in it.
 **mtram, presentation (P07 register: BUG-78, BUG-80, BUG-81, BUG-88).**
 - BUG-78: `impulse_response` and its figure give nu_k, the cumulative
   response and the gain in each series' units, as `estimate` does since
