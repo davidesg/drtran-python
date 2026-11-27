@@ -4,6 +4,17 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**BUG-75: an impossible fixed `q[i,j]` is rejected before estimating.** Q is
+relative to series 1 (Q[1,1] = 1, Q[i,i] = var_i/var_1), so a `q[i,j]` fixed
+in the `.cns` outside |q| < sqrt(Q[i,i] Q[j,j]) left a Q that is not a
+covariance: the C wrote logL = 0, a table of zero standard errors and died in
+the plot; the port returned `loglik = -inf` in silence. Both now check the
+starting Q (Cholesky) and say the admissible range, the implied correlation
+and that q is relative to series 1: the C exits with rc = 12 and no table,
+`fit` raises `StartNotAdmissible` with the same text. A start where the
+likelihood cannot be evaluated for any other reason is rejected the same way.
+New open BUG-89: the C and the port seed log(var_i/var_1) differently.
+
 **BUG-73: a fixed weight is not a degree of freedom.** The adequacy
 portmanteau and mtram's LR against the diagonal model discounted the nominal
 form of nu(B), (s + 1) + r, even when the `.cns` fixed or tied weights: the

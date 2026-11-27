@@ -2858,7 +2858,7 @@ red     : ES_CPI <- WTI
 
 **Arreglo propuesto.** Con `-n`, que la cabecera liste la red («Network: ES_CPI <- WTI»); sin `-n`, que diga «Output (Y) = first file».
 
-## BUG-75. Un `q[i,j]` fijado en el `.cns` que deja Q no definida positiva no se rechaza: logL = 0, una tabla entera y segfault
+## BUG-75. Un `q[i,j]` fijado en el `.cns` que deja Q no definida positiva no se rechaza: logL = 0, una tabla entera y segfault — **FIXED 2026-11-27**
 
 **Qué es.** Q va relativa a la serie 1: Q[1,1] = 1 y Q[2,2] = var2/var1. Con el WTI como serie 1 y el IPC como serie 2, Q[2,2] ≈ 0,001, así que cualquier |q[2,1]| > 0,03 es imposible. `read_constraints` no lo comprueba. El `.out` escribe «NO CONVERGENCE AFTER 0 ITERATIONS / unknown / ifault = 1», `Log-likelihood = 0.000000` y una tabla con errores típicos 0, sigue con la IRF y muere en `File_PlotSer` (`diagnose.c:504`). El puerto Python devuelve `loglik = -inf` sin mensaje. El significado de un `q` fijado depende del orden y de la escala de los ficheros, y no está escrito.
 
@@ -2875,6 +2875,24 @@ q[2,1] = 0.01   rc =    0  logL = -730.270862  CONVERGENCE OBTAINED AFTER 37 ITE
 - Si la verosimilitud inicial no se puede evaluar, salir con rc ≠ 0, sin tabla.
 - En el taller, tratar como fallida una corrida con `ifault` o rc ≠ 0.
 - En Python, un mensaje en lugar de `-inf`.
+
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran): `start_q_admissible` comprueba antes de
+  estimar, por Cholesky, que la Q de partida es definida positiva. Si no lo es,
+  escribe en el `.out` y en stderr el rango admisible de cada `q[i,j]`
+  (|q| < sqrt(Q[i,i] Q[j,j])), la correlación que implica y que Q va relativa
+  a la serie 1, y sale con rc = 12, sin tabla. Además, si la verosimilitud no
+  se puede evaluar en el punto de partida por otra razón (`est` vuelve sin
+  iterar y con `ifault`), sale también con rc = 12, sin tabla. La batería del
+  C lo comprueba (sección 19).
+- **El puerto**: `fit` lanza `StartNotAdmissible` (un `ValueError`) con el
+  mismo texto, en lugar de devolver `loglik = -inf`.
+- Con q[2,1] = 0,01, dentro del rango, los dos dan logL = −730,270862.
+- **Queda fuera:** que el taller trate como fallida una corrida con rc ≠ 0 es
+  del taller del curso, no de estos repos. Y las semillas de log(var_i/var_1)
+  no coinciden entre el C y el puerto (BUG-89), así que el rango admisible
+  que se informa difiere en el tercer decimal.
 
 ## BUG-76. `evaluate` reestima con todos los pesos libres (no admite el `.cns`) y no escribe nada
 
@@ -3041,3 +3059,17 @@ convenio dicho en las instrucciones del servidor: False
 - Bajo la tabla de `estimate`, una línea: «omega en convenio Box-Jenkins: ω(B) = ω0 − ω1B − …; el peso del retardo k ≥ 1 es −omega[k]».
 - En la ecuación, el rótulo «(coeficientes tal como multiplican)».
 - Lo mismo en `overfit` y `refine_link` cuando impriman ω, y en `impulse_response`, cuyos ν ya van con el signo de la ecuación.
+
+## BUG-89. Las semillas de log(var_i/var_1) no son las mismas en el C y en el puerto
+
+**Qué es.** El C siembra la razón de varianzas con la varianza muestral de cada serie estacionaria, `log(vv[i]/vv[1])` (`drtran.c`, en `main`). El puerto la siembra con la varianza de las innovaciones del modelo univariante de cada `.pre`, evaluada con `elf` (`cast.x0_from_pre`). En el óptimo dan lo mismo, pero el punto de partida no es el mismo, y lo que depende de él tampoco: las iteraciones y el rango admisible de un `q[i,j]` fijado que se informa desde el BUG-75.
+
+**Reproducción.** `python3 scripts/repro_semilla_razon_varianzas.py`
+```
+Q[2,2] de partida (WTI, ES_CPI): C 0.000993917   puerto 0.000910335
+```
+
+**Qué cuesta.** Nada en el óptimo. Rompe la regla de que el C y el puerto son el mismo programa: un q fijado entre los dos rangos lo acepta uno y lo rechaza el otro.
+
+**Arreglo propuesto.** Decidir cuál es la semilla de la escuela. La del puerto es la razón de varianzas de las innovaciones, que es lo que Q contiene; la del C es la de las series. Cambiarla en el C mueve las iteraciones y los goldens de la batería: es un cambio de motor y va con todas las baterías.
+
