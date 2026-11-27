@@ -2980,7 +2980,7 @@ a la ganancia y a sus errores típicos el mismo factor que `estimate`
 ganancia coincide con la de `estimate` en las unidades de cada serie. `overfit`
 dice que sus omega van en las unidades del motor y por cuánto se multiplican.
 
-## BUG-79. `write_inp` pisa el fichero que escribió antes, y del modelo conjunto no queda `.out`
+## BUG-79. `write_inp` pisa el fichero que escribió antes, y del modelo conjunto no queda `.out` — **FIXED 2026-11-27**
 
 **Qué es.**
 - **El defecto:** `next_inp_path` (`pre.py:296-314`) pone siempre el sufijo `.1`, sin mirar si el fichero existe. Dos formas candidatas, o dos países que comparten el WTI, escriben el mismo `X.1.inp`, y el segundo borra el primero.
@@ -2998,6 +2998,18 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 **Arreglo propuesto.** Buscar el primer sufijo libre, como hace fue. Añadir un `path=` en `estimate` y `diagnose`, o una herramienta `write_out`, que escriba NAME.out en el formato de la CLI. Guardar la red (`.dag` o `.json`) junto a los `.inp`.
 
 ## BUG-80. Con denominador, `estimate` avisa «revisa el signo» sin motivo y rotula la ganancia «omega(1)» — **FIXED 2026-11-27**
+### Fixed (2026-11-27)
+
+- `next_inp_path(..., free=True)` busca el primer sufijo libre, como fue:
+  la segunda escritura del mismo bloque va a `.2.inp` y no pisa la primera.
+  `write_inp` lo usa.
+- `write_inp` deja además el modelo conjunto: `NAME.out` (la tabla de
+  parámetros, la respuesta al impulso y la adecuación de cada enlace, como la
+  CLI con `-m`), `NAME.dag` (la red) y `NAME.cns` (las restricciones que lo
+  apartan del de defecto, `slots.write_cns`). Ninguno pisa uno anterior, y
+  `drtran-py <los .pre> -n NAME.dag -c NAME.cns` reproduce la verosimilitud.
+
+## BUG-80. Con denominador, `estimate` avisa «revisa el signo» sin motivo y rotula la ganancia «omega(1)»
 
 **Qué es.** `_splice_transfer` (`mcp_server.py:2118-2125`) compara ω(1) con la ganancia sin mirar `lk.r`. Con r ≥ 1 la ganancia es ω(1)/δ(1), y la diferencia es la que debe haber. `_what_the_transfer_bought` (`:1829`, `:1832`) escribe «GANANCIA = omega(1)» también en ese caso.
 

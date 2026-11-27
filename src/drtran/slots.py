@@ -436,6 +436,39 @@ def _parse_term(tok):
     return tok.strip(), None
 
 
+def write_cns(path, table, default):
+    """Write the constraints that take `table` away from `default` as a `.cns`.
+
+    The counterpart of `read_cns` (BUG-79: the joint model had to be
+    re-creatable from what mtram leaves on disk). `default` is the table
+    `build_slots` gives for the same cast; only what differs is written, so a
+    `q[i,j] = free` appears and the default zero covariances do not. Returns the
+    number of lines written; with none, no file is written.
+    """
+    nm = table.names
+    lines = []
+    for s, d in zip(table.slots, default.slots):
+        if (s.kind, s.value, s.pa, s.pb, s.terms) == (d.kind, d.value, d.pa, d.pb, d.terms):
+            continue
+        if s.kind == FREE:
+            lines.append(f"{s.name} = free")
+        elif s.kind == FIXED:
+            lines.append(f"{s.name} = {s.value!r}")
+        elif s.kind == ALIAS:
+            lines.append(f"{s.name} = {nm[s.pa]}")
+        elif s.kind == PRODUCT:
+            lines.append(f"{s.name} = {'-' if s.value < 0 else ''}{nm[s.pa]} * {nm[s.pb]}")
+        elif s.kind == LINCOMB:
+            ts = " ".join(f"{'+' if sg > 0 else '-'}{nm[a]}" + (f" * {nm[b]}" if b >= 0 else "")
+                          for sg, a, b in s.terms)
+            lines.append(f"{s.name} = {ts}")
+    if lines:
+        with open(path, "w") as f:
+            f.write("# constraints of the joint model, written by mtram (read_cns)\n")
+            f.write("\n".join(lines) + "\n")
+    return len(lines)
+
+
 def read_cns(path, table):
     """Read the constraints file and apply them to `table`. Returns how many.
 

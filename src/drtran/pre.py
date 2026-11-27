@@ -293,7 +293,7 @@ def write_inp(fit, series=0, path=None, std_errors=None):
     return str(path)
 
 
-def next_inp_path(source, suffix=1):
+def next_inp_path(source, suffix=1, outdir=None, free=False):
     """`ES_CPI_m10.pre` -> `ES_CPI_m10.1.inp`, fue's iteration convention.
 
     The suffix is fue's; the EXTENSION changes on purpose. What drtran writes
@@ -305,10 +305,18 @@ def next_inp_path(source, suffix=1):
     Deliberately never the source path: overwriting the input of the run that
     produced it destroys the only record of where the estimates came from, and
     makes the run unrepeatable.
+
+    With `free=True` the suffix is the FIRST FREE one, as fue does (BUG-79): a
+    second write of the same block -- another candidate form, or two countries
+    sharing the WTI -- goes to `.2.inp` and does not overwrite the first.
+    `outdir` is where to write (and look); by default, the source's directory.
     """
     import os
 
     base = os.path.basename(str(source))
     stem = base[:-4] if base.lower().endswith((".pre", ".inp")) else base
-    return os.path.join(os.path.dirname(str(source)) or ".",
-                        f"{stem}.{suffix}.inp")
+    d = outdir if outdir is not None else (os.path.dirname(str(source)) or ".")
+    k = int(suffix)
+    while free and os.path.exists(os.path.join(d, f"{stem}.{k}.inp")):
+        k += 1
+    return os.path.join(d, f"{stem}.{k}.inp")

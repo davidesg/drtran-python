@@ -3534,6 +3534,62 @@ def build_model(name: str, horizon: int = 12) -> str:
 
 
 # ── 7. back out ────────────────────────────────────────────────────────────
+def _libre(path):
+    """`path` si no existe; si no, el primer `stem.k.ext` libre (k = 2, 3, ...)."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    k = 2
+    while os.path.exists(f"{stem}.{k}{ext}"):
+        k += 1
+    return f"{stem}.{k}{ext}"
+
+
+def _write_joint(name, f, specs, se, outdir):
+    """BUG-79: el `.out` del modelo conjunto, su red y sus restricciones.
+
+    El `.out` lleva lo que escribe la CLI (`-m NAME`): la tabla de parámetros,
+    la respuesta al impulso con sus errores típicos y la adecuación de cada
+    enlace. La red va en un `.dag` y las restricciones en un `.cns`, de modo
+    que `drtran-py <los .pre> -n NAME.dag -c NAME.cns` reproduce el modelo.
+    Ninguno pisa un fichero anterior. Devuelve las rutas escritas.
+    """
+    from drtran.cli import report_fit
+    from drtran.diagnose import report_adequacy, transfer_adequacy
+    from drtran.irf import impulse_response as _irf
+    from drtran.irf import report_irf
+    from drtran.network import write_dag
+    from drtran.slots import build_slots, write_cns
+
+    cs = f.cast_spec
+    nombres = [s.name for s in specs]
+    table = f.slots if f.slots is not None else build_slots(cs)
+    parts = [f"mtram: joint model {name!r}",
+             "files  : " + ", ".join(s.path or s.name for s in specs), "",
+             report_fit(f, table, nombres, se)]
+    links = cs.links or []
+    if links:
+        cov = None if se.ifault else se.cov
+        parts += ["", report_irf([_irf(f, link_index=k, cov=cov)
+                                  for k in range(len(links))])]
+        for k in range(len(links)):
+            parts += ["", report_adequacy(transfer_adequacy(f, link_index=k,
+                                                            embed=f.embed))]
+    out = []
+    p = _libre(os.path.join(outdir, f"{name}.out"))
+    with open(p, "w") as fh:
+        fh.write("\n".join(parts) + "\n")
+    out.append(p)
+    if links:
+        p = _libre(os.path.join(outdir, f"{name}.dag"))
+        write_dag(p, links, nombres)
+        out.append(p)
+    p = _libre(os.path.join(outdir, f"{name}.cns"))
+    if write_cns(p, table, build_slots(cs)):
+        out.append(p)
+    return out
+
+
 @mcp.tool()
 def write_inp(name: str, outdir: str = ".") -> str:
     """Write the JOINTLY re-estimated univariate blocks back out as `.inp`.
@@ -3569,11 +3625,17 @@ def write_inp(name: str, outdir: str = ".") -> str:
                          "reestima antes")
     written = []
     for i, s in enumerate(specs):
-        tgt = os.path.join(outdir, os.path.basename(next_inp_path(s.path)))
+        # BUG-79: el primer sufijo LIBRE, como fue; antes siempre .1 y el
+        # segundo pisaba al primero
+        tgt = next_inp_path(s.path, outdir=outdir, free=True)
         _wpre(f, series=i, path=tgt, std_errors=se)
         written.append(tgt)
+    conjunto = _write_joint(name, f, specs, se, outdir)
     return ("Bloques univariantes reestimados escritos:\n  "
             + "\n  ".join(written)
+            + "\n\nEl modelo CONJUNTO (BUG-79), para poder verificarlo y "
+              "rehacerlo con la CLI:\n  "
+            + "\n  ".join(conjunto)
             + "\n\n  Son `.inp`, NO `.pre`, y la extensión es la afirmación: un"
               "\n  `.pre` dice \"esto es el óptimo de esta especificación\", y"
               "\n  estos bloques son óptimos CON la transferencia, no por su"

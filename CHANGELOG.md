@@ -4,6 +4,11 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**mtram `write_inp` (P07 register: BUG-79).** It takes the first free
+suffix, as fue does, instead of always `.1` (a second write overwrote the
+first), and it also writes the joint model: `NAME.out` (parameters, impulse
+response, adequacy), `NAME.dag` and `NAME.cns`, from which the CLI reproduces
+the fit. New `slots.write_cns`, the counterpart of `read_cns`.
 **mtram `evaluate` (P07 register: BUG-76, BUG-77).** It evaluates the
 adopted model, with the constraints `estimate` used (or a `cns_path`), and
 writes the per-origin errors to a CSV whose path it returns (BUG-76). The
