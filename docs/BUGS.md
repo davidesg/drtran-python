@@ -2939,7 +2939,7 @@ evaluate admite cns_path: False      ficheros escritos por evaluate: ninguno
 
 **Arreglo propuesto.** Contar `window` sobre la salida, o sobre la muestra común, y recortar cada serie hasta esa fecha final. Que el informe diga que se reestiman las entradas y que la entrada futura se prevé.
 
-## BUG-78. BUG-70 no llegó a `impulse_response`: la ganancia sale ×100 sin aviso cuando los factores difieren
+## BUG-78. BUG-70 no llegó a `impulse_response`: la ganancia sale ×100 sin aviso cuando los factores difieren — **FIXED 2026-11-27**
 
 **Qué es.** `estimate` da la ganancia en las unidades de cada serie desde la 0.2.7. Pero `impulse_response` (`mcp_server.py:3004-3022`) y `plot_impulse_response` (`:1655-1670`) no pasan por `fue.scale`. La propia herramienta provoca el escenario: el aviso de `load_pre` pide factor 100 para la serie pequeña, y el taller escribe factor 1. `overfit` también imprime ω en las unidades del motor.
 
@@ -2953,6 +2953,14 @@ El repro de BUG-70 no lo ve, porque solo mira `estimate` y `forecast`.
 **Qué cuesta.** Lecturas ×100 en dos grupos, justo en la herramienta donde se busca la respuesta.
 
 **Arreglo propuesto.** La misma conversión ω·factor_X/factor_Y en `report_irf` y `plot_irf`. Ampliar `repro_presentacion_en_unidades_del_motor.py`.
+
+### Fixed (2026-11-27)
+
+`impulse_response` y `plot_impulse_response` aplican a nu_k, a la acumulada,
+a la ganancia y a sus errores típicos el mismo factor que `estimate`
+(`_cruce`, `fue.scale.display_cross`) y dicen en qué unidades van; la
+ganancia coincide con la de `estimate` en las unidades de cada serie. `overfit`
+dice que sus omega van en las unidades del motor y por cuánto se multiplican.
 
 ## BUG-79. `write_inp` pisa el fichero que escribió antes, y del modelo conjunto no queda `.out`
 
@@ -2971,7 +2979,7 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Buscar el primer sufijo libre, como hace fue. Añadir un `path=` en `estimate` y `diagnose`, o una herramienta `write_out`, que escriba NAME.out en el formato de la CLI. Guardar la red (`.dag` o `.json`) junto a los `.inp`.
 
-## BUG-80. Con denominador, `estimate` avisa «revisa el signo» sin motivo y rotula la ganancia «omega(1)»
+## BUG-80. Con denominador, `estimate` avisa «revisa el signo» sin motivo y rotula la ganancia «omega(1)» — **FIXED 2026-11-27**
 
 **Qué es.** `_splice_transfer` (`mcp_server.py:2118-2125`) compara ω(1) con la ganancia sin mirar `lk.r`. Con r ≥ 1 la ganancia es ω(1)/δ(1), y la diferencia es la que debe haber. `_what_the_transfer_bought` (`:1829`, `:1832`) escribe «GANANCIA = omega(1)» también en ese caso.
 
@@ -2981,7 +2989,14 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Comparar con ω(1)/δ(1), o no comprobar nada con r > 0, y rotular «omega(1)/delta(1)».
 
-## BUG-81. `estimate` devuelve una orden dirigida a un modelo concreto: «[Claude: muestra el bloque … TAL CUAL]»
+### Fixed (2026-11-27)
+
+Con r ≥ 1 la comprobación compara la ganancia con omega(1)/delta(1), con
+delta(1) = 1 − δ1 − … (convenio de Box y Jenkins), y el rótulo dice
+«GANANCIA = omega(1)/delta(1)». España (0,0,1): 0,030856 = ω0/(1 − δ1), sin
+aviso.
+
+## BUG-81. `estimate` devuelve una orden dirigida a un modelo concreto: «[Claude: muestra el bloque … TAL CUAL]» — **FIXED 2026-11-27**
 
 **Qué es.** La primera línea del valor que devuelve `estimate` (`mcp_server.py:2444-2445`, la variable `head`) es una instrucción al asistente, con su nombre, dentro del resultado de la herramienta.
 
@@ -2990,6 +3005,12 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 **Qué cuesta.** Los asistentes guardan la salida, y la orden acaba en las entregas (tres ficheros de un grupo). Además, nombra a un asistente cuando se usan otros, y es texto dirigido al modelo dentro de un resultado, un patrón que conviene no normalizar.
 
 **Arreglo propuesto.** Quitarla. Si hace falta, ponerla en las instrucciones del servidor sin nombrar ningún modelo.
+
+### Fixed (2026-11-27)
+
+`estimate` ya no empieza con una orden a un asistente: empieza por el bloque.
+Que ese bloque se presente tal cual lo dice la regla 1 de las instrucciones
+del servidor, sin nombrar ningún modelo.
 
 ## BUG-82. `refine_link` dice «se cortan» de pesos que no se cortan
 
@@ -3082,7 +3103,7 @@ residuos del IPC: media = 0.0669, e.t. = 0.0139, t = 4.80      aviso: NINGUNO
   da el mismo texto; lo escriben la CLI y el `diagnose` de mtram, que añade
   la lectura en español. Mismos números que el C.
 
-## BUG-88. mtram no dice en ningún sitio visible que ω va en el convenio de Box y Jenkins: la tabla y la ecuación parecen contradecirse
+## BUG-88. mtram no dice en ningún sitio visible que ω va en el convenio de Box y Jenkins: la tabla y la ecuación parecen contradecirse — **FIXED 2026-11-27**
 
 **Qué es.** En la misma salida de `estimate`, la tabla del motor da `omega1[1] = −0.010747` (se almacena ω(B) = ω0 − ω1B − …, como en fue y en el C) y la ecuación da `+ 0.0107·B` (el polinomio tal como multiplica, `_omega_poly`, `mcp_server.py:1951`). Las dos cifras son correctas. Pero el convenio solo está en comentarios del código (`_omega_poly`, `cast.py:72`): ni las instrucciones del servidor, ni la tabla, ni la ecuación, ni `impulse_response` lo dicen. Un agente que ve dos signos opuestos para el mismo coeficiente concluye que hay un error y se lo traslada al analista. Que el usuario tenga que recordárselo es, en sí mismo, el defecto.
 
@@ -3100,6 +3121,18 @@ convenio dicho en las instrucciones del servidor: False
 - Bajo la tabla de `estimate`, una línea: «omega en convenio Box-Jenkins: ω(B) = ω0 − ω1B − …; el peso del retardo k ≥ 1 es −omega[k]».
 - En la ecuación, el rótulo «(coeficientes tal como multiplican)».
 - Lo mismo en `overfit` y `refine_link` cuando impriman ω, y en `impulse_response`, cuyos ν ya van con el signo de la ecuación.
+
+### Fixed (2026-11-27)
+
+- Las instrucciones del servidor (regla 1) dicen el convenio: ω(B) = ω0 −
+  ω1·B − …, δ(B) = 1 − δ1·B − …, la tabla da los ωk almacenados y la
+  ecuación el polinomio tal como multiplica; un omega1[1] negativo es un peso
+  positivo; la ganancia es ω0 − ω1 − … (entre δ(1)). Y que no es una
+  inconsistencia que haya que corregir al presentar.
+- `estimate` lo dice bajo la tabla, y el bloque de coeficientes lleva el
+  rótulo «(coeficientes tal como multiplican)».
+- `overfit` lo dice bajo sus omega/delta; `impulse_response` dice que nu_k va
+  con el signo de la ecuación.
 
 ## BUG-89. Las semillas de log(var_i/var_1) no son las mismas en el C y en el puerto
 

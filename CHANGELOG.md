@@ -4,6 +4,17 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**mtram, presentation (P07 register: BUG-78, BUG-80, BUG-81, BUG-88).**
+- BUG-78: `impulse_response` and its figure give nu_k, the cumulative
+  response and the gain in each series' units, as `estimate` does since
+  BUG-70, and say so; `overfit` says its weights are in the engine's units.
+- BUG-80: with a denominator the gain is checked against and labelled
+  omega(1)/delta(1); no more false «check the sign» warning.
+- BUG-81: `estimate` no longer opens with an instruction addressed to a named
+  assistant; the server instructions ask for the block verbatim.
+- BUG-88: the Box-Jenkins sign convention of omega and delta is stated in the
+  server instructions, under `estimate`'s table, in `overfit` and in
+  `impulse_response`: a negative omega[1] in the table is a positive weight.
 **Three C defects of the P07 register closed (BUG-74, BUG-86, BUG-22).** In
 atsw-gui's drtran: with `-n` the `.out` header lists the files and the
 network instead of calling the first file «Output (Y)» (BUG-74); the

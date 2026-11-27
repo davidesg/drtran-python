@@ -251,8 +251,16 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
 REGLAS QUE NO SE NEGOCIAN
 ══════════════════════════════════════════════════════
 1. PRESENTA SIEMPRE LA ECUACIÓN QUE DEVUELVE EL TOOL, VERBATIM, dentro de su
-   bloque de código. NUNCA construyas tu propia tabla de parámetros: los signos,
+   bloque de código (el de `estimate` incluido: muéstralo tal cual antes de
+   comentar nada). NUNCA construyas tu propia tabla de parámetros: los signos,
    los errores típicos y las convenciones son del motor, no tuyos.
+   EL CONVENIO DE SIGNOS DE ω ES EL DE BOX Y JENKINS, como fue y el C:
+   ω(B) = ω0 − ω1·B − … − ωs·B^s y δ(B) = 1 − δ1·B − … − δr·B^r. La tabla del
+   motor da los ωk ALMACENADOS; la ecuación, el polinomio tal como multiplica.
+   Un omega1[1] NEGATIVO en la tabla es un peso POSITIVO en el retardo 1 (la
+   ecuación escribe +|ω1|·B). La ganancia es ω0 − ω1 − … − ωs, dividida por
+   δ(1) = 1 − δ1 − … − δr si hay denominador. No es una inconsistencia de
+   mtram: no lo «corrijas» al presentar.
 2. DECLARA, NO ELIJAS. Si una herramienta se niega —descomposición de varianza
    con Q no diagonal, hessiano no definido positivo, DAG cíclico— transmite la
    negativa y su motivo. No busques la manera de obtener un número igualmente.
@@ -1676,8 +1684,9 @@ def plot_impulse_response(name: str, link_index: int = 0, path: str = "") -> lis
     f = _require_fit(name)
     se = standard_errors(f)
     ir = _irf(f, link_index=link_index, cov=(None if se.ifault else se.cov))
+    ir, nota = _irf_en_unidades(f, link_index, ir)        # BUG-78
     return _fig_result(plot_irf(ir), _png(name, f"irf{link_index}", path),
-                       "Respuesta al impulso nu(k), acumulada y ganancia")
+                       "Respuesta al impulso nu(k), acumulada y ganancia. " + nota)
 
 
 @mcp.tool()
@@ -1834,12 +1843,14 @@ def _what_the_transfer_bought(name, f, cs):
                      f"{nm[lk.inp]}_t  +  N_t"
                      f"     (b={lk.b}, r={lk.r}, s={lk.s})")
         g, gse = float(ir.gain), getattr(ir, "se_gain", None)
+        # BUG-80: con denominador la ganancia es omega(1)/delta(1)
+        rot = "omega(1)/delta(1)" if lk.r else "omega(1)"
         if gse is not None and np.isfinite(gse) and gse > 0:
             t = g / gse
-            lines.append(f"      GANANCIA = omega(1) = {g:+.6f}   "
+            lines.append(f"      GANANCIA = {rot} = {g:+.6f}   "
                          f"(e.t. {gse:.6f},  t = {t:.2f})")
         else:
-            lines.append(f"      GANANCIA = omega(1) = {g:+.6f}")
+            lines.append(f"      GANANCIA = {rot} = {g:+.6f}")
         lines.append("      El efecto ACUMULADO sobre "
                      f"{nm[lk.out]} de un cambio PERMANENTE de una unidad en "
                      f"{nm[lk.inp]}, en la escala transformada.")
@@ -2128,13 +2139,22 @@ def _splice_transfer(txt, name, f, cs, table, se, out_i, nm):
 
         terms, total = _omega_poly(f, table, se, li, lk)
         bloques.append("")
-        bloques.append(f"  {num}·{nm[lk.inp]}ₜ:")
+        # BUG-88: los coeficientes van TAL COMO MULTIPLICAN; la tabla del
+        # motor da los omega[k] almacenados (convenio de Box y Jenkins).
+        bloques.append(f"  {num}·{nm[lk.inp]}ₜ (coeficientes tal como multiplican):")
         bloques += _poly_lines(terms)
         try:
             g = float(drtran.impulse_response(f, link_index=li).gain)
-            if abs(total - g) > 1e-6 * max(1.0, abs(g)):
-                bloques.append(f"    ⚠ la suma de los coeficientes ({total:.6f}) "
-                               f"no es la ganancia ({g:.6f}): revisa el signo")
+            # BUG-80: con denominador la ganancia es omega(1)/delta(1), con
+            # delta(1) = 1 - d1 - ... (la suma de los términos de _den_poly,
+            # que ya llevan el signo con que multiplican). Comparar con omega(1)
+            # a secas avisaba de un error de signo que no existía.
+            d1 = sum(c for c, _e, _k in _den_poly(f, table, se, li, lk)) if lk.r else 1.0
+            esperada = total / d1 if d1 else float("nan")
+            if not abs(esperada - g) <= 1e-6 * max(1.0, abs(g)):
+                que = "omega(1)/delta(1)" if lk.r else "la suma de los coeficientes"
+                bloques.append(f"    ⚠ {que} ({esperada:.6f}) no es la ganancia "
+                               f"({g:.6f}): revisa el signo")
         except Exception:                                  # noqa: BLE001
             pass
         if lk.r:
@@ -2454,8 +2474,10 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     _TABLES[name] = table
 
     se = standard_errors(f)
-    head = ("[Claude: muestra el bloque ``` siguiente TAL CUAL, verbatim, "
-            "antes de comentar nada]\n\n```\n")
+    # BUG-81: aquí iba una orden a un asistente con nombre propio, dentro del
+    # resultado; acababa en las entregas. La orden de presentar el bloque tal
+    # cual vive en las instrucciones del servidor (regla 1), sin nombrar a nadie.
+    head = "```\n"
     nombres = [s.name for s in specs]
     body = report_fit(f, table, nombres, se)
     if cs.links:
@@ -2471,6 +2493,12 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     except Exception as exc:                               # noqa: BLE001
         body = f"  (no se pudo dibujar la ecuación: {str(exc)[:120]})\n" + body
     extra = ""
+    if cs.links:
+        # BUG-88: el convenio, dicho donde se leen las dos cifras
+        extra += ("\n  omega en convenio Box-Jenkins: ω(B) = ω0 − ω1·B − … − ωs·B^s. La "
+                  "tabla da los omega[k]\n  almacenados y la ecuación, el polinomio tal "
+                  "como multiplica: el peso del\n  retardo k ≥ 1 es −omega[k]. Ganancia = "
+                  "ω0 − ω1 − … (entre δ(1) = 1 − δ1 − … si hay\n  denominador).\n")
     if pedido and not f.embed:
         extra += ("\n  EL CAST: se pidió el EMPOTRADO y corrió el de RESTA.\n"
                   "  Los dos operadores de diferenciación difieren, así que la "
@@ -2975,6 +3003,17 @@ def overfit(name: str, link_index: int = 0) -> str:
         out += ["  Sin veredicto: NINGUNA ampliación salió bien condicionada, "
                 "y un sobreajuste mal condicionado se descarta, no se "
                 "interpreta. El modelo no queda confirmado ni desmentido."]
+    # BUG-88 y BUG-78: lo que se imprime son los omega[k]/delta[k] almacenados
+    # (convenio de Box y Jenkins) y en las unidades del motor.
+    _k, _que = _cruce(f.cast_spec if (f := _FITS.get(name)) is not None
+                      else build_cast_spec(_require(name), links=_LINKS.get(name)),
+                      lk.out, lk.inp)
+    out += ["", "  omega[k] y delta[k] van como se almacenan (convenio Box-Jenkins: "
+            "ω(B) = ω0 − ω1·B − …,", "  δ(B) = 1 − δ1·B − …): el peso del retardo "
+            "k ≥ 1 es −omega[k]."
+            + ("" if abs(_k - 1.0) <= 1e-12 else
+               f" Y van en las unidades del motor:\n  por {_k:g} en las de cada serie "
+               f"({_que}).")]
     out += ["", f"  (El modelo estimado de {name!r} sigue siendo el de antes: "
             "estas variantes no se han guardado.)", "```"]
     return "\n".join(out)
@@ -3099,6 +3138,32 @@ def plot_calibration(name: str, link_index: int = 0, path: str = "") -> list:
 
 
 # ── 5. structure ───────────────────────────────────────────────────────────
+def _irf_en_unidades(f, link_index, ir):
+    """BUG-78: la irf en las unidades de cada serie, y la nota que lo dice.
+
+    El motor trabaja en refactor·BoxCox; si los dos ficheros no comparten
+    factor o lambda, nu_k, la acumulada y la ganancia llevan el cociente
+    (BUG-70). `estimate` ya la daba en las unidades de cada serie; aquí se
+    aplica el mismo factor (`_cruce`, `fue.scale.display_cross`). Devuelve la
+    irf convertida (o la misma si el factor es 1) y la nota de unidades.
+    """
+    import dataclasses
+
+    lk = f.cast_spec.links[link_index]
+    k, que = _cruce(f.cast_spec, lk.out, lk.inp)
+    if abs(k - 1.0) <= 1e-12:
+        return ir, f"Unidades: {que} (los dos ficheros en la misma escala del motor)."
+    a = abs(k)
+    ir2 = dataclasses.replace(
+        ir, nu=np.asarray(ir.nu) * k, se=np.asarray(ir.se) * a,
+        cum=np.asarray(ir.cum) * k, se_cum=np.asarray(ir.se_cum) * a,
+        gain=float(ir.gain) * k, se_gain=float(ir.se_gain) * a)
+    return ir2, (f"Unidades: EN LAS DE CADA SERIE — {que}. El motor da estas cifras "
+                 f"multiplicadas por {1.0 / k:g} (los ficheros no comparten factor de "
+                 "reescala o lambda); la ganancia coincide con la de `estimate` en las "
+                 "unidades de cada serie.")
+
+
 @mcp.tool()
 def impulse_response(name: str, link_index: int = 0) -> str:
     """nu(k), its cumulative sum and the GAIN, with standard errors.
@@ -3118,7 +3183,10 @@ def impulse_response(name: str, link_index: int = 0) -> str:
     f = _require_fit(name)
     se = standard_errors(f)
     cov = None if se.ifault else se.cov
-    return report_irf(_irf(f, link_index=link_index, cov=cov))
+    ir, nota = _irf_en_unidades(f, link_index, _irf(f, link_index=link_index, cov=cov))
+    return (report_irf(ir) + "\n  " + nota
+            + "\n  nu_k va con el signo con que multiplica (el de la ecuación): "
+              "con omega(B) = w0 - w1·B - ..., nu_1 = -omega[1] cuando r = 0.")
 
 
 @mcp.tool()
