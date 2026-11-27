@@ -2197,7 +2197,7 @@ worktrees. Ninguno es de esos arreglos.
 
 ---
 
-## BUG-22. El binario en C aplica Box-Cox con λ=1 como (y−1), y fue como y: sin diferenciar y con la media FIJA el escalón diagonal no homologa, y una serie en niveles que cruce el cero no entra
+## BUG-22. El binario en C aplica Box-Cox con λ=1 como (y−1), y fue como y: sin diferenciar y con la media FIJA el escalón diagonal no homologa, y una serie en niveles que cruce el cero no entra — **FIXED 2026-11-27**
 
 Encontrado 2026-09-23 comprobando que el C lee los `.pre` que escribe ahora
 `fue.write_pre` (datos exactos, μ fija conservada, δ de orden 2, parámetros
@@ -2277,6 +2277,16 @@ las ramas que la necesitan (λ=0 y λ no entero). El repro tiene que salir con
 diferencia 0 en los tres casos y aceptar la serie que cruza el cero.
 
 ---
+
+### Fixed (atsw-gui, comprobado 2026-11-27)
+
+Lo arregló atsw-gui en `lib/prewhiten` (BUG-0001: un dato ≤ 0 entra con
+λ = 1; BUG-0002: con λ = 1 la Box-Cox es la de fue, `refactor·y`), que es la
+que usa el drtran mantenido. El registro seguía abierto porque el repro
+buscaba el binario del repo `drtran`, archivado, y además tomaba por error la
+salida de una estimación que sí terminaba. Ahora busca el binario como los
+`repro_p07_*` (`DRTRAN_C`, o atsw-gui) y da diferencia 0 en los tres casos;
+la serie que cruza el cero estima.
 
 ## BUG-51. `mtram` no arranca en Python 3.10 ni 3.11: `mcp_server.py` usa sintaxis de f-string de 3.12 y el paquete declara `>=3.10` — **FIXED 2026-09-26**
 
@@ -2842,7 +2852,7 @@ El C da lo mismo: «Q(21) = 28.5233 [25 lags - 4 parameters of nu(B)]».
 - El repro lee ahora el LR de la salida de `estimate`, no lo calcula.
   `tests/test_bug73_gl_pesos_fijados.py`.
 
-## BUG-74. La cabecera del `.out` del C rotula «Output (Y)» al primer fichero, no a la salida de la red
+## BUG-74. La cabecera del `.out` del C rotula «Output (Y)» al primer fichero, no a la salida de la red — **FIXED 2026-11-27**
 
 **Qué es.** `Output (Y)` es `argv[optind]`, es decir, el primer `.pre`, y no mira el `-n .dag`. La línea `Series : 2 (1 output + 1 input(s))` tampoco tiene sentido en una red. La estimación del mismo `.out` sí es la correcta.
 
@@ -2857,6 +2867,16 @@ red     : ES_CPI <- WTI
 **Qué cuesta.** Un grupo dio su caso de España por «invertido» y lo sacó de la comparación, cuando era su mejor fila (g = 0,027).
 
 **Arreglo propuesto.** Con `-n`, que la cabecera liste la red («Network: ES_CPI <- WTI»); sin `-n`, que diga «Output (Y) = first file».
+
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran): con `-n`, la cabecera del `.out` y la de
+  la consola escriben «File k : ruta» por fichero y la red («Network : ES_CPI
+  <- WTI»), y «Series : 2 (a network of 1 link(s), from red.dag)». Sin `-n` no
+  cambia, porque ahí el primer fichero sí es la salida. El GUI atsw, que saca
+  las rutas de esas líneas (`casos_gui.c`, `lee_cabecera`), acepta también
+  «File ». La batería del C lo comprueba (sección 20).
+- El puerto no escribe esta cabecera: no cambia.
 
 ## BUG-75. Un `q[i,j]` fijado en el `.cns` que deja Q no definida positiva no se rechaza: logL = 0, una tabla entera y segfault — **FIXED 2026-11-27**
 
@@ -3013,7 +3033,7 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Un argumento `lags`, por defecto (s, 2s, 3s + 3), con una p para cada Q, y la p también en el pie de la figura.
 
-## BUG-86. Las fechas de los residuos en el `.out` del C son relativas («from 1/1 to 11/18»)
+## BUG-86. Las fechas de los residuos en el `.out` del C son relativas («from 1/1 to 11/18») — **FIXED 2026-11-27**
 
 **Qué es.** `diagnose.c:367-368` rellena el `Tseries` de los residuos con `begtime = 1; begyear = 1`. Lo mismo pasa en las líneas 303-304 y 412. El `_res.txt` y mtram fechan bien.
 
@@ -3027,7 +3047,15 @@ minimo at 9/7 (observation 81)       <- 10/2008
 
 **Arreglo propuesto.** Pasar a `diagnose()` el inicio de la muestra estacionaria, que es el inicio en bruto más lo que se pierde al diferenciar.
 
-## BUG-87. Con μ fijada a 0 en el `.pre`, ni drtran ni mtram avisan aunque la media residual sea significativa
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran): `diagnose()` recibe la fecha del primer
+  residuo, la observación 1 + ornsop de la serie 1, como `write_residuals`
+  (drvarma ya los fechaba así). El repro da «215 observations: from 2/2002 to
+  12/2019» y el mínimo en 10/2008. La batería del C lo comprueba (sección 20).
+- El puerto y mtram ya fechaban bien: no cambian.
+
+## BUG-87. Con μ fijada a 0 en el `.pre`, ni drtran ni mtram avisan aunque la media residual sea significativa — **FIXED 2026-11-27**
 
 **Qué es.** Es una cuestión de política: respetar lo fijado es correcto, pero falta un aviso. El diagnóstico de residuos (`diagnose.c`, `File_StatSer`) imprime la media y su error típico, y no los compara.
 
@@ -3040,6 +3068,19 @@ residuos del IPC: media = 0.0669, e.t. = 0.0139, t = 4.80      aviso: NINGUNO
 **Qué cuesta.** Un grupo estimó España con un IPC sin deriva.
 
 **Arreglo propuesto.** Con μ fijada, o sin μ, y d + D > 0, si |media/e.t.| > 2: «WARNING: mu fixed at 0 by the .pre, residual mean t = 4.8: the drift is missing». El mismo aviso en el `diagnose` de mtram.
+
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran): tras `diagnose()`, para cada serie con
+  μ fijada (por el `.pre` o con `-M`) y d + D > 0, si la media de sus residuos
+  estructurales tiene |t| > 2, el `.out` y la consola escriben «WARNING:
+  series 1 (ES_CPI): the residual mean is significant (0.0668886, t = 4.80)
+  with mu FIXED at 0 ... the drift may be missing». No cambia el ajuste. La
+  batería del C lo comprueba (sección 21).
+- **El puerto**: `school.fixed_mu_drift` hace la misma cuenta (residuos
+  estructurales, desviación típica con divisor n) y `report_fixed_mu_drift`
+  da el mismo texto; lo escriben la CLI y el `diagnose` de mtram, que añade
+  la lectura en español. Mismos números que el C.
 
 ## BUG-88. mtram no dice en ningún sitio visible que ω va en el convenio de Box y Jenkins: la tabla y la ecuación parecen contradecirse
 

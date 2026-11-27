@@ -343,6 +343,56 @@ def npar_for_series(fit, series_index=0):
                if s.kind == FREE and s.name.startswith(own))
 
 
+def fixed_mu_drift(fit, embed=None, tol=2.0):
+    """BUG-87: series whose mu is FIXED, with d + D > 0, and a significant
+    residual mean -- a fixed drift that may be missing.
+
+    A mu fixed by the `.pre` is respected (it is the analyst's decision); with
+    d + D > 0 it is a fixed drift, and a residual mean with |t| > tol says the
+    drift is missing. The mirror of the C's check after `diagnose()`: the
+    STRUCTURAL residuals, the C's `Stdev` (divisor n), t = mean / (sd/sqrt(n)).
+
+    Returns a list of dicts: series (0-based), name, mean, t, mu, dd (d + D).
+    """
+    from .netid import residuals
+
+    cs = fit.cast_spec
+    a, ifa = residuals(fit.x, cs, embed=fit.embed if embed is None else embed,
+                       structural=True)
+    if ifa:
+        return []
+    a = np.asarray(a, float)
+    out = []
+    for i, sc in enumerate(cs.series):
+        m = sc.spec.model
+        dd = int(getattr(m, "d", 0) or 0) + int(getattr(m, "D", 0) or 0)
+        if getattr(m, "estimate_mu", True) or dd <= 0:
+            continue
+        r = a[:, i]
+        n = len(r)
+        mr = float(np.mean(r))
+        se = float(np.sqrt(np.mean((r - mr) ** 2))) / math.sqrt(n)
+        t = mr / se if se > 0.0 else 0.0
+        if abs(t) > tol:
+            out.append({"series": i, "name": sc.name, "mean": mr, "t": t,
+                        "mu": float(getattr(m, "mu", 0.0) or 0.0), "dd": dd})
+    return out
+
+
+def report_fixed_mu_drift(warns):
+    """The C's text for each warning of `fixed_mu_drift` (engine English)."""
+    lines = []
+    for w in warns:
+        lines += ["",
+                  f"WARNING: series {w['series'] + 1} ({w['name']}): the residual mean is "
+                  f"significant ({w['mean']:g}, t = {w['t']:.2f})",
+                  f"         with mu FIXED at {w['mu']:g} (by the .pre, or -M) and "
+                  f"d + D = {w['dd']}:",
+                  "         the drift may be missing. Free mu in the .pre (or drop -M) "
+                  "and compare."]
+    return "\n".join(lines)
+
+
 def ccf_pairs(fit, link_index=0, lag=None, top=5, embed=None):
     """Which PAIRS of observations build a residual-CCF coefficient.
 

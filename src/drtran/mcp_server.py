@@ -2743,8 +2743,21 @@ def diagnose(name: str, link_index: int = 0) -> str:
     f = _require_fit(name)
     _require_link(f, link_index, "test for adequacy or exogeneity")
     ad = drtran.transfer_adequacy(f, link_index=link_index, embed=f.embed)
-    return (drtran.report_adequacy(ad)
-            + "\n" + "\n".join(_what_now(ad, name, link_index)))
+    out = (drtran.report_adequacy(ad)
+           + "\n" + "\n".join(_what_now(ad, name, link_index)))
+    # BUG-87: lo fijado en el .pre se respeta, pero se avisa si con d + D > 0
+    # la media de los residuos es significativa: falta la deriva. El texto del
+    # motor es el del C.
+    from drtran.school import fixed_mu_drift, report_fixed_mu_drift
+    warns = fixed_mu_drift(f)
+    if warns:
+        out += ("\n" + report_fixed_mu_drift(warns)
+                + "\n\n⚠ μ FIJADA CON UNA MEDIA RESIDUAL SIGNIFICATIVA: "
+                + "; ".join(f"{w['name']} (media {w['mean']:.4g}, t = {w['t']:.2f})"
+                            for w in warns)
+                + ". Con d + D > 0 una μ fijada es una deriva fijada, y aquí falta. "
+                  "Libera μ en el .pre (o vuelve a ART) y compara.")
+    return out
 
 
 def _fit_variant(name, links, embed=None):

@@ -4,6 +4,20 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**Three C defects of the P07 register closed (BUG-74, BUG-86, BUG-22).** In
+atsw-gui's drtran: with `-n` the `.out` header lists the files and the
+network instead of calling the first file «Output (Y)» (BUG-74); the
+residuals of the `.out` are dated from the start of the sample, not from 1/1
+(BUG-86). BUG-22 (Box-Cox with lambda = 1) was already fixed in atsw-gui's
+`lib/prewhiten`; its repro looked for the archived `drtran` binary and now
+finds the maintained one. The port did not change.
+
+**BUG-87: a fixed mu with a significant residual mean is warned about.** A mu
+fixed by the `.pre` is respected, but with d + D > 0 it is a fixed drift: if
+the residual mean of that series has |t| > 2, the C (after its residual
+diagnostics), the port's CLI and mtram's `diagnose` say the drift may be
+missing, with the C's text (`school.fixed_mu_drift`).
+
 **BUG-75: an impossible fixed `q[i,j]` is rejected before estimating.** Q is
 relative to series 1 (Q[1,1] = 1, Q[i,i] = var_i/var_1), so a `q[i,j]` fixed
 in the `.cns` outside |q| < sqrt(Q[i,i] Q[j,j]) left a Q that is not a

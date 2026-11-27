@@ -694,6 +694,14 @@ def _run(o, files):
             parts.append("")
             parts.append(report_adequacy(ad))
 
+    # BUG-87: a fixed mu with d + D > 0 and a significant residual mean
+    if not o["net_ident"]:
+        from .school import fixed_mu_drift, report_fixed_mu_drift
+
+        warns = fixed_mu_drift(f, embed=o["embed"])
+        if warns:
+            parts.append(report_fixed_mu_drift(warns))
+
     # ── forecast ─────────────────────────────────────────────────────────────
     if o["horizon"] > 0:
         # the origin: -O wins, then the window end, then the data end. -O -1 is
