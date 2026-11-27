@@ -251,8 +251,16 @@ LA ESCALERA — Y DÓNDE TERMINA TU COMPETENCIA
 REGLAS QUE NO SE NEGOCIAN
 ══════════════════════════════════════════════════════
 1. PRESENTA SIEMPRE LA ECUACIÓN QUE DEVUELVE EL TOOL, VERBATIM, dentro de su
-   bloque de código. NUNCA construyas tu propia tabla de parámetros: los signos,
+   bloque de código (el de `estimate` incluido: muéstralo tal cual antes de
+   comentar nada). NUNCA construyas tu propia tabla de parámetros: los signos,
    los errores típicos y las convenciones son del motor, no tuyos.
+   EL CONVENIO DE SIGNOS DE ω ES EL DE BOX Y JENKINS, como fue y el C:
+   ω(B) = ω0 − ω1·B − … − ωs·B^s y δ(B) = 1 − δ1·B − … − δr·B^r. La tabla del
+   motor da los ωk ALMACENADOS; la ecuación, el polinomio tal como multiplica.
+   Un omega1[1] NEGATIVO en la tabla es un peso POSITIVO en el retardo 1 (la
+   ecuación escribe +|ω1|·B). La ganancia es ω0 − ω1 − … − ωs, dividida por
+   δ(1) = 1 − δ1 − … − δr si hay denominador. No es una inconsistencia de
+   mtram: no lo «corrijas» al presentar.
 2. DECLARA, NO ELIJAS. Si una herramienta se niega —descomposición de varianza
    con Q no diagonal, hessiano no definido positivo, DAG cíclico— transmite la
    negativa y su motivo. No busques la manera de obtener un número igualmente.
@@ -1106,7 +1114,7 @@ def _before_you_choose(idt, cs, link):
 
 @mcp.tool()
 def identify_link(name: str, input_index: int = 1, band: str = "constant",
-                  ident_pre: str = "") -> list:
+                  ident_pre: str = "", path: str = "") -> list:
     """Identify (b, r, s) of ONE link by prewhitening and the CCF.
 
     Filters the input with ITS OWN ARMA and applies the SAME filter to the
@@ -1127,6 +1135,9 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant",
     the contiguous-block heuristic will read an order off anyway. Build the
     alternative in `art` with the seasonality made DETERMINISTIC, and pass it
     here.
+
+    `path` is where to save the CCF figure (PNG); by default, the temporary
+    directory. It draws the same lags the text cites.
     """
     specs = _require(name)
     if not 1 <= input_index < len(specs):
@@ -1158,11 +1169,17 @@ def identify_link(name: str, input_index: int = 1, band: str = "constant",
     # es lo que distingue una cola que decae de un pico aislado.
     grafico = None
     try:
-        grafico = plot_ccf(name, input_index=input_index)
-        txt += ["", "  La CCF va ABAJO, con estos números. Léela CON el "
-                "analista antes de decidir nada: una tabla de r(k) no lleva la "
-                "FORMA, que es lo que distingue una cola que decae de un pico "
-                "aislado."]
+        # BUG-84: los mismos retardos que el informe, y se puede guardar
+        nl = int(max(abs(int(k)) for k in idt.lags)) if len(idt.lags) else 0
+        grafico = plot_ccf(name, input_index=input_index, lags=nl, path=path)
+        txt += ["", "  La CCF va ABAJO, con estos números y hasta el mismo "
+                f"retardo (±{nl}). Léela CON el analista antes de decidir nada: "
+                "una tabla de r(k) no lleva la FORMA, que es lo que distingue una "
+                "cola que decae de un pico aislado.",
+                "  La P del pie de la figura es el portmanteau de Hosking "
+                "bivariante sobre la serie apilada (las cuatro correlaciones, "
+                "en todos los retardos), no la Q del informe, que mira un lado "
+                "de una sola correlación cruzada."]
     except Exception as exc:                               # noqa: BLE001
         txt += ["", f"  (no se pudo dibujar la CCF: {str(exc)[:120]})"]
 
@@ -1202,6 +1219,14 @@ def _seasonality_note(specs, input_index, name):
     except Exception:                                      # noqa: BLE001
         return []
     if not bad:
+        if d.get("out") == "estacionaria" and d.get("inp") not in (
+                "sarima", "meg", "estacionaria"):
+            # BUG-83: un ARMA estacional estacionario con D = 0 no deja nada
+            # no estacionario; sólo una nota suave
+            return ["", "  Nota: el output lleva factores estacionales ESTACIONARIOS "
+                    "(D = 0) y el input no. No hay raíz unitaria estacional que el "
+                    "filtro del input deje pasar; la CCF puede llevar algo de "
+                    "correlación estacional residual, nada más."]
         return []
     if d["out"] == "meg":
         cabeza = ["", "  ⚠ EL OUTPUT LLEVA ESTACIONALIDAD ESTOCÁSTICA HÍBRIDA "
@@ -1530,15 +1555,31 @@ def refine_link(name: str, input_index: int = 1, b: int = -1,
                     f"    Prueba:  set_network({name!r}, "
                     f'\'[{{"out": 0, "inp": {input_index}, "b": {b}, '
                     f'"r": 1, "s": {max(0, sig[0])}}}]\')']
-        else:
+        elif pat["pattern"] == "cut":
             s_prop = sig[-1]
             out += ["",
-                    "  ▸ Los pesos NO decrecen gradualmente: se cortan. Eso es "
-                    "un numerador finito, sin denominador.",
+                    "  ▸ Un bloque corto de pesos seguidos y nada significativo después: "
+                    "se cortan. Eso es un numerador finito, sin denominador.",
                     "",
                     f"    Prueba:  set_network({name!r}, "
                     f'\'[{{"out": 0, "inp": {input_index}, "b": {b}, '
                     f'"r": 0, "s": {s_prop}}}]\')']
+        else:
+            # BUG-82: una cola larga con ruido, huecos o un peso que vuelve:
+            # la forma no decide, y no se dice «se cortan»
+            s_prop = sig[-1]
+            out += ["",
+                    f"  ▸ La forma NO SE LEE: {len(sig)} pesos significativos "
+                    f"repartidos hasta el retardo {last}, sin un decaimiento "
+                    "limpio ni un corte corto. Puede ser una cola geométrica con "
+                    "ruido (un denominador) o un numerador largo.",
+                    "",
+                    "    Compara r = 0 y r = 1 con `overfit`: estima uno, y "
+                    "sobreajusta el denominador.",
+                    f"    Por ejemplo:  set_network({name!r}, "
+                    f'\'[{{"out": 0, "inp": {input_index}, "b": {b}, '
+                    f'"r": 0, "s": {s_prop}}}]\')  y luego  '
+                    f"overfit({name!r})"]
         out += ["",
                 "  Los pesos no significativos se quitan; los casos de la "
                 "escuela lo hacen sistemáticamente y a veces dejan huecos "
@@ -1676,8 +1717,9 @@ def plot_impulse_response(name: str, link_index: int = 0, path: str = "") -> lis
     f = _require_fit(name)
     se = standard_errors(f)
     ir = _irf(f, link_index=link_index, cov=(None if se.ifault else se.cov))
+    ir, nota = _irf_en_unidades(f, link_index, ir)        # BUG-78
     return _fig_result(plot_irf(ir), _png(name, f"irf{link_index}", path),
-                       "Respuesta al impulso nu(k), acumulada y ganancia")
+                       "Respuesta al impulso nu(k), acumulada y ganancia. " + nota)
 
 
 @mcp.tool()
@@ -1730,8 +1772,21 @@ def plot_residuals(name: str, series_index: int = 0, lags: int = 0,
               nobs=int(getattr(_ser, "nobs", 0) or len(_ser.data)),
               refactor=float(getattr(cs.series[series_index].spec.model,
                                      "refactor", 1.0) or 1.0))
+    # BUG-85: el pie de la figura (pyfug) da la Q sin p; se da aquí, con los
+    # mismos retardos y la misma corrección
+    pie = ""
+    try:
+        from pyfug.graphics.fugplot import default_lags
+        from fue.diagnostics import ljung_box
+        kk = int(lags) if lags else default_lags(len(a[:, series_index]), freq)
+        lb = ljung_box(a[:, series_index], lags=kk, df_correction=int(npar))
+        pie = (f"\nLa Q del pie: Q({kk - int(npar)}) = {float(lb['statistic'][0]):.1f}, "
+               f"p = {float(lb['pvalue'][0]):.4f} ({kk} retardos menos {int(npar)} "
+               "parámetros). Para s, 2s y 3s + 3, cada una con su p: `diagnose`.")
+    except Exception:                                      # noqa: BLE001
+        pass
     return _fig_result(fig, _png(name, f"res{series_index}", path),
-                       f"Residuos de {cs.names[series_index]} — serie + ACF/PACF")
+                       f"Residuos de {cs.names[series_index]} — serie + ACF/PACF" + pie)
 
 
 # ── 3. estimation ──────────────────────────────────────────────────────────
@@ -1834,12 +1889,14 @@ def _what_the_transfer_bought(name, f, cs):
                      f"{nm[lk.inp]}_t  +  N_t"
                      f"     (b={lk.b}, r={lk.r}, s={lk.s})")
         g, gse = float(ir.gain), getattr(ir, "se_gain", None)
+        # BUG-80: con denominador la ganancia es omega(1)/delta(1)
+        rot = "omega(1)/delta(1)" if lk.r else "omega(1)"
         if gse is not None and np.isfinite(gse) and gse > 0:
             t = g / gse
-            lines.append(f"      GANANCIA = omega(1) = {g:+.6f}   "
+            lines.append(f"      GANANCIA = {rot} = {g:+.6f}   "
                          f"(e.t. {gse:.6f},  t = {t:.2f})")
         else:
-            lines.append(f"      GANANCIA = omega(1) = {g:+.6f}")
+            lines.append(f"      GANANCIA = {rot} = {g:+.6f}")
         lines.append("      El efecto ACUMULADO sobre "
                      f"{nm[lk.out]} de un cambio PERMANENTE de una unidad en "
                      f"{nm[lk.inp]}, en la escala transformada.")
@@ -1936,7 +1993,10 @@ def _what_the_transfer_bought(name, f, cs):
                     f"el modelo univariante a **{sat:.4f}** con la "
                     "transferencia.",
                     f"    R² (Brajín A.28, sobre la serie estacionaria): pasa "
-                    f"de **{r2u:.4f}** a **{r2t:.4f}**.", ""]
+                    f"de **{r2u:.4f}** a **{r2t:.4f}**. Es la proporción de "
+                    "la varianza de la serie estacionaria w_t (la diferenciada) "
+                    "que explica el modelo, 1 − Σ(a_t − ā)²/Σ(w_t − w̄)²; "
+                    "sobre el nivel no diría nada.", ""]
                 if r2t - r2u > 0.05:
                     lines += ["    Esa subida sugiere que una parte importante "
                               f"de la variabilidad de {nm[0]} se explica con "
@@ -2128,13 +2188,22 @@ def _splice_transfer(txt, name, f, cs, table, se, out_i, nm):
 
         terms, total = _omega_poly(f, table, se, li, lk)
         bloques.append("")
-        bloques.append(f"  {num}·{nm[lk.inp]}ₜ:")
+        # BUG-88: los coeficientes van TAL COMO MULTIPLICAN; la tabla del
+        # motor da los omega[k] almacenados (convenio de Box y Jenkins).
+        bloques.append(f"  {num}·{nm[lk.inp]}ₜ (coeficientes tal como multiplican):")
         bloques += _poly_lines(terms)
         try:
             g = float(drtran.impulse_response(f, link_index=li).gain)
-            if abs(total - g) > 1e-6 * max(1.0, abs(g)):
-                bloques.append(f"    ⚠ la suma de los coeficientes ({total:.6f}) "
-                               f"no es la ganancia ({g:.6f}): revisa el signo")
+            # BUG-80: con denominador la ganancia es omega(1)/delta(1), con
+            # delta(1) = 1 - d1 - ... (la suma de los términos de _den_poly,
+            # que ya llevan el signo con que multiplican). Comparar con omega(1)
+            # a secas avisaba de un error de signo que no existía.
+            d1 = sum(c for c, _e, _k in _den_poly(f, table, se, li, lk)) if lk.r else 1.0
+            esperada = total / d1 if d1 else float("nan")
+            if not abs(esperada - g) <= 1e-6 * max(1.0, abs(g)):
+                que = "omega(1)/delta(1)" if lk.r else "la suma de los coeficientes"
+                bloques.append(f"    ⚠ {que} ({esperada:.6f}) no es la ganancia "
+                               f"({g:.6f}): revisa el signo")
         except Exception:                                  # noqa: BLE001
             pass
         if lk.r:
@@ -2454,8 +2523,10 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     _TABLES[name] = table
 
     se = standard_errors(f)
-    head = ("[Claude: muestra el bloque ``` siguiente TAL CUAL, verbatim, "
-            "antes de comentar nada]\n\n```\n")
+    # BUG-81: aquí iba una orden a un asistente con nombre propio, dentro del
+    # resultado; acababa en las entregas. La orden de presentar el bloque tal
+    # cual vive en las instrucciones del servidor (regla 1), sin nombrar a nadie.
+    head = "```\n"
     nombres = [s.name for s in specs]
     body = report_fit(f, table, nombres, se)
     if cs.links:
@@ -2471,6 +2542,12 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
     except Exception as exc:                               # noqa: BLE001
         body = f"  (no se pudo dibujar la ecuación: {str(exc)[:120]})\n" + body
     extra = ""
+    if cs.links:
+        # BUG-88: el convenio, dicho donde se leen las dos cifras
+        extra += ("\n  omega en convenio Box-Jenkins: ω(B) = ω0 − ω1·B − … − ωs·B^s. La "
+                  "tabla da los omega[k]\n  almacenados y la ecuación, el polinomio tal "
+                  "como multiplica: el peso del\n  retardo k ≥ 1 es −omega[k]. Ganancia = "
+                  "ω0 − ω1 − … (entre δ(1) = 1 − δ1 − … si hay\n  denominador).\n")
     if pedido and not f.embed:
         extra += ("\n  EL CAST: se pidió el EMPOTRADO y corrió el de RESTA.\n"
                   "  Los dos operadores de diferenciación difieren, así que la "
@@ -2494,7 +2571,7 @@ def estimate(name: str, embed: bool = True, cns_path: str = "") -> str:
 
 
 # ── 4. diagnosis ───────────────────────────────────────────────────────────
-def _what_now(ad, name, link_index):
+def _what_now(ad, name, link_index, lags=None):
     """El nodo N6: qué hacer con el veredicto. Las ramas piden cosas OPUESTAS.
 
     Un diagnóstico que dice "adecuado / no adecuado" y calla deja al analista
@@ -2559,7 +2636,7 @@ def _what_now(ad, name, link_index):
                   "observación sospechosa: en la escuela eso se comprueba "
                   "mirando, no se supone."]
 
-    lines += _reformulation_order(ad, name, link_index)
+    lines += _reformulation_order(ad, name, link_index, lags=lags)
 
     if ad.significant_lags is not None and len(ad.significant_lags):
         lines += ["",
@@ -2572,7 +2649,7 @@ def _what_now(ad, name, link_index):
 _jb_falla = [False]      # lo pone `_residual_panel`, lo lee el veredicto
 
 
-def _residual_panel(name, f, Q, p, k, df):
+def _residual_panel(name, f, Q, p, k, df, todas=None):
     """El residuo del output leído como lo lee art, con los mismos contrastes.
 
     art cierra cada modelo univariante con cuatro líneas -- veredicto, ruido
@@ -2596,8 +2673,14 @@ def _residual_panel(name, f, Q, p, k, df):
     from .netid import residuals
 
     _jb_falla[0] = False
-    L = [f"    Ruido blanco (Q): {'✓' if p >= 0.05 else '✗'}  "
-         f"Q({k}) = {Q:.2f}, g.l. = {df}, p = {p:.4f}"]
+    if todas and len(todas) > 1:
+        # BUG-85: una línea por retardo, cada una con su p
+        L = [f"    Ruido blanco (Q): {'✓' if p >= 0.05 else '✗'}  "
+             + ";  ".join(f"Q({kk}) = {QQ:.2f}, g.l. = {dd}, p = {pp:.4f}"
+                          for QQ, pp, kk, dd in todas)]
+    else:
+        L = [f"    Ruido blanco (Q): {'✓' if p >= 0.05 else '✗'}  "
+             f"Q({k}) = {Q:.2f}, g.l. = {df}, p = {p:.4f}"]
     try:
         a, ifa = residuals(f.x, f.cast_spec, embed=f.embed, structural=True)
         if ifa:
@@ -2639,7 +2722,28 @@ def _residual_panel(name, f, Q, p, k, df):
     return L
 
 
-def _reformulation_order(ad, name, link_index):
+def _noise_lags(f, lags=None):
+    """BUG-85: los retardos a los que se lee la Q del ruido.
+
+    Los que se pidan (`lags`), o los de la escuela: s, 2s y 3s + 3 con datos
+    estacionales (un MA estacional que falta se ve a s y a 3s), y el de
+    `noise_adequacy` sin estacionalidad. Nunca más allá de n/2 - 1."""
+    import numpy as np
+
+    from .netid import residuals
+
+    a, ifa = residuals(f.x, f.cast_spec, embed=f.embed, structural=True)
+    n = int(np.asarray(a).shape[0]) if not ifa else 0
+    if lags:
+        ks = [int(k) for k in lags]
+    else:
+        s = int(getattr(f.cast_spec.series[0].spec.model.series, "freq", 1) or 1)
+        ks = [s, 2 * s, 3 * s + 3] if s > 1 else [min(24, max(4, n // 5))]
+    top = max(1, n // 2 - 1) if n else max(ks)
+    return sorted({k for k in ks if 1 <= k <= top}) or [min(ks[0], top)]
+
+
+def _reformulation_order(ad, name, link_index, lags=None):
     """En qué ORDEN se arregla lo que está mal. Muñoz §2.6 p.42.
 
     Este es el enunciado más codificable de todo el capítulo metodológico, y
@@ -2668,15 +2772,20 @@ def _reformulation_order(ad, name, link_index):
         return []
     try:
         from .school import noise_adequacy
-        Q, p, k, df = noise_adequacy(f, series_index=0)
+        # BUG-85: la Q a varios retardos (s, 2s, 3s + 3), cada una con su p
+        qs = [noise_adequacy(f, series_index=0, nlags=k)
+              for k in _noise_lags(f, lags)]
     except Exception:                                      # noqa: BLE001
         return []
-    if not (p == p):                                       # NaN
+    qs = [q for q in qs if q[1] == q[1]]                   # sin NaN
+    if not qs:
         return []
+    # el veredicto lo da la peor: un MA estacional que falta se ve a s o a 3s
+    Q, p, k, df = min(qs, key=lambda q: q[1])
 
     noise_bad, rel_bad = p < 0.05, not ad.adequate
     out = ["", "  ── EL RUIDO, Y EN QUÉ ORDEN " + "─" * 30, ""]
-    out += _residual_panel(name, f, Q, p, k, df)
+    out += _residual_panel(name, f, Q, p, k, df, todas=qs)
     out += [""]
 
     if rel_bad and noise_bad:
@@ -2728,7 +2837,7 @@ def _reformulation_order(ad, name, link_index):
 
 
 @mcp.tool()
-def diagnose(name: str, link_index: int = 0) -> str:
+def diagnose(name: str, link_index: int = 0, lags: str = "") -> str:
     """Is the transfer adequate, and is the input really exogenous?
 
     Two portmanteaus on the CCF between the estimated noise and the prewhitened
@@ -2739,12 +2848,31 @@ def diagnose(name: str, link_index: int = 0) -> str:
     Measured on the STRUCTURAL residuals: with a contemporaneous transfer the
     reduced-form ones are correlated by construction and would condemn a correct
     model.
+
+    The NOISE is read with the Ljung-Box Q of the output residual at several
+    lags, each with its p: `lags` ("12,24,39"), or by default s, 2s and 3s + 3
+    with seasonal data.
     """
     f = _require_fit(name)
     _require_link(f, link_index, "test for adequacy or exogeneity")
+    ks = [int(t) for t in str(lags).replace(";", ",").split(",") if t.strip()] \
+        if lags else None
     ad = drtran.transfer_adequacy(f, link_index=link_index, embed=f.embed)
-    return (drtran.report_adequacy(ad)
-            + "\n" + "\n".join(_what_now(ad, name, link_index)))
+    out = (drtran.report_adequacy(ad)
+           + "\n" + "\n".join(_what_now(ad, name, link_index, lags=ks)))
+    # BUG-87: lo fijado en el .pre se respeta, pero se avisa si con d + D > 0
+    # la media de los residuos es significativa: falta la deriva. El texto del
+    # motor es el del C.
+    from drtran.school import fixed_mu_drift, report_fixed_mu_drift
+    warns = fixed_mu_drift(f)
+    if warns:
+        out += ("\n" + report_fixed_mu_drift(warns)
+                + "\n\n⚠ μ FIJADA CON UNA MEDIA RESIDUAL SIGNIFICATIVA: "
+                + "; ".join(f"{w['name']} (media {w['mean']:.4g}, t = {w['t']:.2f})"
+                            for w in warns)
+                + ". Con d + D > 0 una μ fijada es una deriva fijada, y aquí falta. "
+                  "Libera μ en el .pre (o vuelve a ART) y compara.")
+    return out
 
 
 def _fit_variant(name, links, embed=None):
@@ -2962,6 +3090,17 @@ def overfit(name: str, link_index: int = 0) -> str:
         out += ["  Sin veredicto: NINGUNA ampliación salió bien condicionada, "
                 "y un sobreajuste mal condicionado se descarta, no se "
                 "interpreta. El modelo no queda confirmado ni desmentido."]
+    # BUG-88 y BUG-78: lo que se imprime son los omega[k]/delta[k] almacenados
+    # (convenio de Box y Jenkins) y en las unidades del motor.
+    _k, _que = _cruce(f.cast_spec if (f := _FITS.get(name)) is not None
+                      else build_cast_spec(_require(name), links=_LINKS.get(name)),
+                      lk.out, lk.inp)
+    out += ["", "  omega[k] y delta[k] van como se almacenan (convenio Box-Jenkins: "
+            "ω(B) = ω0 − ω1·B − …,", "  δ(B) = 1 − δ1·B − …): el peso del retardo "
+            "k ≥ 1 es −omega[k]."
+            + ("" if abs(_k - 1.0) <= 1e-12 else
+               f" Y van en las unidades del motor:\n  por {_k:g} en las de cada serie "
+               f"({_que}).")]
     out += ["", f"  (El modelo estimado de {name!r} sigue siendo el de antes: "
             "estas variantes no se han guardado.)", "```"]
     return "\n".join(out)
@@ -3086,6 +3225,32 @@ def plot_calibration(name: str, link_index: int = 0, path: str = "") -> list:
 
 
 # ── 5. structure ───────────────────────────────────────────────────────────
+def _irf_en_unidades(f, link_index, ir):
+    """BUG-78: la irf en las unidades de cada serie, y la nota que lo dice.
+
+    El motor trabaja en refactor·BoxCox; si los dos ficheros no comparten
+    factor o lambda, nu_k, la acumulada y la ganancia llevan el cociente
+    (BUG-70). `estimate` ya la daba en las unidades de cada serie; aquí se
+    aplica el mismo factor (`_cruce`, `fue.scale.display_cross`). Devuelve la
+    irf convertida (o la misma si el factor es 1) y la nota de unidades.
+    """
+    import dataclasses
+
+    lk = f.cast_spec.links[link_index]
+    k, que = _cruce(f.cast_spec, lk.out, lk.inp)
+    if abs(k - 1.0) <= 1e-12:
+        return ir, f"Unidades: {que} (los dos ficheros en la misma escala del motor)."
+    a = abs(k)
+    ir2 = dataclasses.replace(
+        ir, nu=np.asarray(ir.nu) * k, se=np.asarray(ir.se) * a,
+        cum=np.asarray(ir.cum) * k, se_cum=np.asarray(ir.se_cum) * a,
+        gain=float(ir.gain) * k, se_gain=float(ir.se_gain) * a)
+    return ir2, (f"Unidades: EN LAS DE CADA SERIE — {que}. El motor da estas cifras "
+                 f"multiplicadas por {1.0 / k:g} (los ficheros no comparten factor de "
+                 "reescala o lambda); la ganancia coincide con la de `estimate` en las "
+                 "unidades de cada serie.")
+
+
 @mcp.tool()
 def impulse_response(name: str, link_index: int = 0) -> str:
     """nu(k), its cumulative sum and the GAIN, with standard errors.
@@ -3105,7 +3270,10 @@ def impulse_response(name: str, link_index: int = 0) -> str:
     f = _require_fit(name)
     se = standard_errors(f)
     cov = None if se.ifault else se.cov
-    return report_irf(_irf(f, link_index=link_index, cov=cov))
+    ir, nota = _irf_en_unidades(f, link_index, _irf(f, link_index=link_index, cov=cov))
+    return (report_irf(ir) + "\n  " + nota
+            + "\n  nu_k va con el signo con que multiplica (el de la ecuación): "
+              "con omega(B) = w0 - w1·B - ..., nu_1 = -omega[1] cuando r = 0.")
 
 
 @mcp.tool()
@@ -3201,21 +3369,73 @@ def forecast(name: str, horizon: int = 12, series_index: int = 0) -> str:
 
 
 @mcp.tool()
-def evaluate(name: str, window: int, horizon: int = 6) -> str:
+def evaluate(name: str, window: int, horizon: int = 6, cns_path: str = "",
+             path: str = "") -> str:
     """Out-of-sample evaluation: estimate ONCE on 1..window, then roll the origin.
 
     The only thing here that compares the model against WHAT HAPPENED instead of
     against itself — every other figure the suite prints is theoretical. Run it
     on two specifications to decide empirically which forecasts better.
+
+    It evaluates the ADOPTED model: the constraints `estimate` used (its
+    `.cns`) by default, or those of `cns_path`. `window` counts observations of
+    the OUTPUT, and every series is cut at that DATE. The per-origin errors are
+    written to a CSV (`path`; by default in the temporary directory, like the
+    figures) and its path is returned.
     """
+    import os as _os
+
     from drtran.evaluate import (fixed_window_fit, report_rolling,
-                                 rolling_evaluation)
+                                 rolling_evaluation, write_rolling_csv)
+    from drtran.slots import build_slots, read_cns
 
     specs = _require(name)
     links = _LINKS.get(name, [])
-    f, _cs = fixed_window_fit(specs, links, window=window, embed=True)
+    if cns_path and not _os.path.exists(cns_path):
+        raise ValueError(f"no encuentro {cns_path}")
+    t0 = _TABLES.get(name)
+
+    # BUG-76: el modelo evaluado es el adoptado, con sus restricciones
+    def _slots_of(cs):
+        t = build_slots(cs)
+        if cns_path:
+            read_cns(cns_path, t)
+        elif t0 is not None:
+            _hereda_restricciones(t0, t)
+        return t
+
+    f, cs_w = fixed_window_fit(specs, links, window=window, embed=True,
+                               slots_of=_slots_of)
     ev = rolling_evaluation(f.x, specs, links, window=window, horizon=horizon)
-    return report_rolling(ev)
+
+    if not path:          # como las figuras (_png): pásale `path` para la entrega
+        path = _os.path.join(tempfile.gettempdir(),
+                             f"mtram_{name}_eval_w{window}_h{horizon}.csv")
+    write_rolling_csv(ev, path)
+
+    # lo que se evaluó, dicho (BUG-76 y BUG-77)
+    ts0 = cs_w.series[0].spec.ts
+    y0, p0 = ts0.start
+    fq = int(ts0.freq or 1)
+    fin = y0 * fq + (p0 - 1) + int(ts0.nobs) - 1
+    fecha = (f"{fin // fq}:{fin % fq + 1:02d}" if fq > 1 else f"{fin // fq}")
+    tab = f.slots
+    n_res = (len(tab) - tab.n_free) if tab is not None else 0
+    origen = (f"las de {cns_path}" if cns_path else
+              "las del modelo adoptado (las de su estimate, con su .cns si lo hubo)"
+              if t0 is not None else "las de defecto (no hay un estimate previo)")
+    notas = ["",
+             f"  Ventana: {window} observaciones de la salida, hasta {fecha}; cada "
+             "serie se corta en esa FECHA.",
+             f"  Restricciones: {origen}; {n_res} parámetro(s) fijado(s) o atado(s) "
+             "(las covarianzas q no liberadas cuentan como fijas a 0), "
+             f"{len(f.xfree) if f.xfree is not None else len(f.x)} libre(s).",
+             "  En la ventana se reestima TODO el modelo conjunto, también el "
+             "modelo univariante de",
+             "  cada entrada; en cada origen la entrada futura se PREVÉ con ese "
+             "modelo (no se usa su valor real).",
+             f"  Errores por origen: {path}"]
+    return report_rolling(ev) + "\n" + "\n".join(notas)
 
 
 # ── autonomous: the same nodes, the documented defaults, said out loud ─────
@@ -3401,6 +3621,62 @@ def build_model(name: str, horizon: int = 12) -> str:
 
 
 # ── 7. back out ────────────────────────────────────────────────────────────
+def _libre(path):
+    """`path` si no existe; si no, el primer `stem.k.ext` libre (k = 2, 3, ...)."""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    k = 2
+    while os.path.exists(f"{stem}.{k}{ext}"):
+        k += 1
+    return f"{stem}.{k}{ext}"
+
+
+def _write_joint(name, f, specs, se, outdir):
+    """BUG-79: el `.out` del modelo conjunto, su red y sus restricciones.
+
+    El `.out` lleva lo que escribe la CLI (`-m NAME`): la tabla de parámetros,
+    la respuesta al impulso con sus errores típicos y la adecuación de cada
+    enlace. La red va en un `.dag` y las restricciones en un `.cns`, de modo
+    que `drtran-py <los .pre> -n NAME.dag -c NAME.cns` reproduce el modelo.
+    Ninguno pisa un fichero anterior. Devuelve las rutas escritas.
+    """
+    from drtran.cli import report_fit
+    from drtran.diagnose import report_adequacy, transfer_adequacy
+    from drtran.irf import impulse_response as _irf
+    from drtran.irf import report_irf
+    from drtran.network import write_dag
+    from drtran.slots import build_slots, write_cns
+
+    cs = f.cast_spec
+    nombres = [s.name for s in specs]
+    table = f.slots if f.slots is not None else build_slots(cs)
+    parts = [f"mtram: joint model {name!r}",
+             "files  : " + ", ".join(s.path or s.name for s in specs), "",
+             report_fit(f, table, nombres, se)]
+    links = cs.links or []
+    if links:
+        cov = None if se.ifault else se.cov
+        parts += ["", report_irf([_irf(f, link_index=k, cov=cov)
+                                  for k in range(len(links))])]
+        for k in range(len(links)):
+            parts += ["", report_adequacy(transfer_adequacy(f, link_index=k,
+                                                            embed=f.embed))]
+    out = []
+    p = _libre(os.path.join(outdir, f"{name}.out"))
+    with open(p, "w") as fh:
+        fh.write("\n".join(parts) + "\n")
+    out.append(p)
+    if links:
+        p = _libre(os.path.join(outdir, f"{name}.dag"))
+        write_dag(p, links, nombres)
+        out.append(p)
+    p = _libre(os.path.join(outdir, f"{name}.cns"))
+    if write_cns(p, table, build_slots(cs)):
+        out.append(p)
+    return out
+
+
 @mcp.tool()
 def write_inp(name: str, outdir: str = ".") -> str:
     """Write the JOINTLY re-estimated univariate blocks back out as `.inp`.
@@ -3436,11 +3712,17 @@ def write_inp(name: str, outdir: str = ".") -> str:
                          "reestima antes")
     written = []
     for i, s in enumerate(specs):
-        tgt = os.path.join(outdir, os.path.basename(next_inp_path(s.path)))
+        # BUG-79: el primer sufijo LIBRE, como fue; antes siempre .1 y el
+        # segundo pisaba al primero
+        tgt = next_inp_path(s.path, outdir=outdir, free=True)
         _wpre(f, series=i, path=tgt, std_errors=se)
         written.append(tgt)
+    conjunto = _write_joint(name, f, specs, se, outdir)
     return ("Bloques univariantes reestimados escritos:\n  "
             + "\n  ".join(written)
+            + "\n\nEl modelo CONJUNTO (BUG-79), para poder verificarlo y "
+              "rehacerlo con la CLI:\n  "
+            + "\n  ".join(conjunto)
             + "\n\n  Son `.inp`, NO `.pre`, y la extensión es la afirmación: un"
               "\n  `.pre` dice \"esto es el óptimo de esta especificación\", y"
               "\n  estos bloques son óptimos CON la transferencia, no por su"

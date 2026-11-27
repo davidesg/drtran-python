@@ -45,8 +45,9 @@ est = M.estimate("EV")
 print("estimate con las dos series:", "ℓ =" + re.search(r"ℓ = (-?[\d.]+)", est).group(1))
 try:
     out = M.evaluate("EV", window=96, horizon=6)
-    print(out[:600])
-    ok = True
+    print(out[-700:])
+    # la ventana por FECHA, y el informe dice que tambien se reestima la entrada
+    ok = "hasta 2017:12" in out and "también el modelo univariante" in out
 except Exception as exc:
     print("evaluate(window=96) ->", type(exc).__name__, str(exc)[:300])
     ok = False

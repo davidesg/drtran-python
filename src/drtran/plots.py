@@ -60,7 +60,7 @@ def plot_ccf(a_input, beta_output, freq=12, names=("X", "Y"), lags=None,
     """
     import numpy as _np
     from drvarma.diagnostics import ccf as _ccf, qccf as _qccf
-    from pyfug.graphics.ccf import ccf_default_lags, p_label, plot_ccf as _plot
+    from pyfug.graphics.ccf import p_label, plot_ccf as _plot
 
     # (w1, w2) = (output, input) in drvarma's convention, so that w2 -- the
     # series leading at k > 0 -- is the input: "input - output", as GraphMaker.
@@ -68,7 +68,11 @@ def plot_ccf(a_input, beta_output, freq=12, names=("X", "Y"), lags=None,
     w2 = _np.asarray(a_input, float).ravel()
     n = w1.shape[0]
     if lags is None:
-        lags = min(ccf_default_lags(freq), n // 4)
+        # BUG-84: los MISMOS retardos que la identificación cita en el texto
+        # (identify.identify: min(n/4, 24), al menos 10). Con
+        # ccf_default_lags(12) = 12 la figura no enseñaba las barras de 14, 16,
+        # 22 y 24 que el texto mandaba mirar.
+        lags = max(10, min(n // 4, 24))
     rho = _ccf(w1, w2, lags)
     Q, df, _ = _qccf(w1, w2, lags)
     return _plot(rho, lags, n, freq, "%s - %s" % (names[0], names[1]),

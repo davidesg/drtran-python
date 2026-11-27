@@ -283,7 +283,21 @@ def decay_pattern(weights, ses=None, tol=1.96):
     mean because one near-zero weight would otherwise dominate.
 
     Returns a dict: `significant` (the lags whose weight clears `tol` standard
-    errors), `decaying`, `alternating`, `ratio`, `suggests_denominator`.
+    errors), `decaying`, `alternating`, `ratio`, `suggests_denominator` and
+    `pattern`, one of three readings (BUG-82):
+
+      "decay"    the weights die away gradually: a denominator;
+      "cut"      a SHORT contiguous block (up to four weights, s <= 3) and
+                 nothing significant after it: a finite numerator;
+      "unclear"  anything else -- a long tail with noise, gaps, a weight that
+                 comes back: the shape does not decide, and r = 0 against
+                 r = 1 is a question for `overfit`.
+
+    Before, everything that was not a strictly decreasing run was read as
+    "cut", and a long noisy tail got r = 0 exactly where the form was in doubt.
+    The decay test now tolerates the noise: each |weight| may exceed the
+    previous one by at most its own standard error, and the log-magnitudes
+    must fall with the lag.
     """
     w = np.asarray(weights, float)
     n = len(w)
@@ -295,14 +309,25 @@ def decay_pattern(weights, ses=None, tol=1.96):
                and abs(w[k] / e[k]) > tol]
     if not sig:
         return dict(significant=[], decaying=False, alternating=False,
-                    ratio=float("nan"), suggests_denominator=False)
+                    ratio=float("nan"), suggests_denominator=False,
+                    pattern="none")
 
     # Read the shape over the SIGNIFICANT span only. A tail of noise beyond the
     # last real weight would flatten any pattern there is.
     span = w[sig[0]:sig[-1] + 1]
     mag = np.abs(span)
-    decaying = bool(len(mag) >= 3 and np.all(np.diff(mag) < 1e-12)
-                    and mag[0] > 0)
+    if ses is not None:
+        es = np.asarray(ses, float)[sig[0]:sig[-1] + 1]
+        es = np.where(np.isfinite(es), es, 0.0)
+    else:
+        es = np.zeros(len(mag))
+    # decaying, with the noise tolerated (BUG-82): a step up of at most one
+    # standard error, and log|w| falling with the lag overall
+    decaying = False
+    if len(mag) >= 3 and mag[0] > 0 and np.all(mag > 0):
+        steps_ok = np.all(np.diff(mag) < es[1:] + 1e-12)
+        slope = np.polyfit(np.arange(len(mag)), np.log(mag), 1)[0]
+        decaying = bool(steps_ok and slope < 0)
     ratios = [span[i + 1] / span[i] for i in range(len(span) - 1)
               if abs(span[i]) > 1e-12]
     ratio = float(np.median(ratios)) if ratios else float("nan")
@@ -312,8 +337,15 @@ def decay_pattern(weights, ses=None, tol=1.96):
     # more weights in a row, shrinking, with a ratio inside the unit circle.
     suggests = bool(decaying and len(span) >= 3
                     and np.isfinite(ratio) and 0.05 < abs(ratio) < 0.95)
+    contiguous = sig == list(range(sig[0], sig[-1] + 1))
+    if suggests:
+        pattern = "decay"
+    elif contiguous and len(sig) <= 4:
+        pattern = "cut"
+    else:
+        pattern = "unclear"
     return dict(significant=sig, decaying=decaying, alternating=alternating,
-                ratio=ratio, suggests_denominator=suggests)
+                ratio=ratio, suggests_denominator=suggests, pattern=pattern)
 
 
 def npar_for_series(fit, series_index=0):
@@ -341,6 +373,56 @@ def npar_for_series(fit, series_index=0):
     own = (f"phi_{si}[", f"theta_{si}[")
     return sum(1 for s in slots.slots
                if s.kind == FREE and s.name.startswith(own))
+
+
+def fixed_mu_drift(fit, embed=None, tol=2.0):
+    """BUG-87: series whose mu is FIXED, with d + D > 0, and a significant
+    residual mean -- a fixed drift that may be missing.
+
+    A mu fixed by the `.pre` is respected (it is the analyst's decision); with
+    d + D > 0 it is a fixed drift, and a residual mean with |t| > tol says the
+    drift is missing. The mirror of the C's check after `diagnose()`: the
+    STRUCTURAL residuals, the C's `Stdev` (divisor n), t = mean / (sd/sqrt(n)).
+
+    Returns a list of dicts: series (0-based), name, mean, t, mu, dd (d + D).
+    """
+    from .netid import residuals
+
+    cs = fit.cast_spec
+    a, ifa = residuals(fit.x, cs, embed=fit.embed if embed is None else embed,
+                       structural=True)
+    if ifa:
+        return []
+    a = np.asarray(a, float)
+    out = []
+    for i, sc in enumerate(cs.series):
+        m = sc.spec.model
+        dd = int(getattr(m, "d", 0) or 0) + int(getattr(m, "D", 0) or 0)
+        if getattr(m, "estimate_mu", True) or dd <= 0:
+            continue
+        r = a[:, i]
+        n = len(r)
+        mr = float(np.mean(r))
+        se = float(np.sqrt(np.mean((r - mr) ** 2))) / math.sqrt(n)
+        t = mr / se if se > 0.0 else 0.0
+        if abs(t) > tol:
+            out.append({"series": i, "name": sc.name, "mean": mr, "t": t,
+                        "mu": float(getattr(m, "mu", 0.0) or 0.0), "dd": dd})
+    return out
+
+
+def report_fixed_mu_drift(warns):
+    """The C's text for each warning of `fixed_mu_drift` (engine English)."""
+    lines = []
+    for w in warns:
+        lines += ["",
+                  f"WARNING: series {w['series'] + 1} ({w['name']}): the residual mean is "
+                  f"significant ({w['mean']:g}, t = {w['t']:.2f})",
+                  f"         with mu FIXED at {w['mu']:g} (by the .pre, or -M) and "
+                  f"d + D = {w['dd']}:",
+                  "         the drift may be missing. Free mu in the .pre (or drop -M) "
+                  "and compare."]
+    return "\n".join(lines)
 
 
 def ccf_pairs(fit, link_index=0, lag=None, top=5, embed=None):
@@ -536,6 +618,20 @@ def integration_order_moved(fit_transfer, fit_diagonal, series_index=0,
     return moved, mj, md, kind
 
 
+def _seasonal_ar_unit_root(model, tol=1e-3):
+    """True if a seasonal AR factor of `model` has a root on (or inside) the
+    unit circle: 1 - SUM phi_k z^k with a root of modulus <= 1 + tol, z = B^s.
+    Its coefficients are fue's, in Box-Jenkins sign."""
+    for fac in (getattr(model, "ar_s", None) or []):
+        c = [float(v) for v in (fac if isinstance(fac, (list, tuple)) else [fac])]
+        if not c:
+            continue
+        roots = np.roots([-v for v in c[::-1]] + [1.0])
+        if len(roots) and np.min(np.abs(roots)) <= 1.0 + tol:
+            return True
+    return False
+
+
 def seasonality_mismatch(specs, out=0, inp=1):
     """Can the input's filter remove the output's seasonality? Often it cannot.
 
@@ -581,18 +677,25 @@ def seasonality_mismatch(specs, out=0, inp=1):
     down" call for different amounts of hesitation.
 
     Returns (mismatch, detail) where detail["out"] and detail["inp"] are one of
-    "sarima", "meg" or "determinista".
+    "sarima", "meg", "estacionaria" (seasonal ARMA factors, all stationary,
+    D = 0: no mismatch, BUG-83) or "determinista".
     """
     def _seasonal(sp):
         m = sp.model
         freq = int(getattr(m.series, "freq", 1) or 1)
         if freq <= 1:
             return "", freq
-        # SARIMA multiplicativo: (1-B^s) o factores estacionales completos.
-        # TODAS las frecuencias estacionales son estocásticas a la vez.
-        if (int(getattr(m, "D", 0) or 0) > 0 or getattr(m, "ar_s", None)
-                or getattr(m, "ma_s", None)):
+        # SARIMA multiplicativo NO ESTACIONARIO: (1-B^s), o un AR estacional
+        # con raíz unitaria. TODAS las frecuencias estacionales son
+        # estocásticas a la vez. Un AR estacional ESTACIONARIO con D = 0, o un
+        # MA estacional, no deja ninguna no estacionariedad que el filtro del
+        # input deje pasar (BUG-83): es "estacionaria", y sólo lleva una nota.
+        if int(getattr(m, "D", 0) or 0) > 0 or _seasonal_ar_unit_root(m):
             return "sarima", freq
+        if getattr(m, "ar_s", None) or getattr(m, "ma_s", None):
+            if getattr(m, "ar_f", None) or getattr(m, "ma_f", None):
+                return "meg", freq
+            return "estacionaria", freq
         # MEG / híbrido: factores de frecuencia FIJA, una frecuencia cada uno.
         if getattr(m, "ar_f", None) or getattr(m, "ma_f", None):
             return "meg", freq

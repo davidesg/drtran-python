@@ -33,9 +33,11 @@ geo_e = [0.001] * 7
 malos = 0
 for nombre, w, e in (("G3 Irlanda", g3_w, g3_e), ("geometrica + ruido", geo, geo_e)):
     p = decay_pattern(w, e)
-    lee = "denominador" if p["suggests_denominator"] else "«se cortan»"
+    pat = p.get("pattern", "decay" if p["suggests_denominator"] else "cut")
+    lee = {"decay": "denominador", "cut": "«se cortan»",
+           "unclear": "«no se lee: compara r = 0 y r = 1 con overfit»"}.get(pat, pat)
     print(f"{nombre:20s} significativos {p['significant']}  ->  {lee}")
-    if not p["suggests_denominator"] and len(p["significant"]) >= 3 \
+    if pat == "cut" and len(p["significant"]) >= 3 \
             and p["significant"][-1] - p["significant"][0] >= 3:
         malos += 1
 print("esperado: con 3 o mas pesos significativos en un tramo largo, no "

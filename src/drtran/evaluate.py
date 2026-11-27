@@ -34,8 +34,16 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
-def truncate(specs, n):
-    """The same `.pre` specs with only their first `n` observations.
+def truncate(specs, n, ref=0):
+    """The same `.pre` specs cut at the DATE of observation `n` of `specs[ref]`.
+
+    BUG-77: it cut every series at position `n`. The joint cast aligns the
+    series by the END (they must end on the same date; `check_alignment`), so
+    with different starts -- Portugal from 2010:01, the WTI from 2002:01 -- the
+    windows ended on different dates and the cast refused them. Now each series
+    keeps the observations up to the reference's n-th date: with a common end,
+    series i keeps nobs_i - (nobs_ref - n). With equal samples (the C's only
+    case: it requires the same number of observations) nothing changes.
 
     A copy, not a view: the caller's specs keep the full sample, which is what
     the actual values are read from afterwards. The model is deep-copied because
@@ -45,9 +53,14 @@ def truncate(specs, n):
     """
     from .pre import PreSpec
 
+    cut = int(specs[ref].ts.nobs) - int(n)          # observations dropped at the end
     out = []
     for s in specs:
         ts = s.ts
+        n = int(ts.nobs) - cut
+        if n <= 0:
+            raise ValueError(f"{s.name} has no observations before the end of the "
+                             f"window ({cut} dropped of {ts.nobs})")
         if n >= ts.nobs:
             out.append(s)
             continue
@@ -119,7 +132,7 @@ def rolling_evaluation(x, specs, links, window, horizon, series=0,
     n_origins = 0
 
     for e in range(window, last + 1):
-        cs = build_cast_spec(truncate(specs, e), links=links)
+        cs = build_cast_spec(truncate(specs, e, ref=series), links=links)
         try:
             fc = forecast(x, cs, L=H, embed=embed, xitol=xitol)
             level = to_level(fc, cs, series=series)

@@ -13,7 +13,8 @@ G11.
 Caso de clase con (b, s, r) = (0, 0, 1): omega0 = 0.0168, delta = 0.456,
 ganancia = 0.0168/(1 - 0.456) = 0.0309.
 
-Sale con 1 mientras salga el aviso o el rotulo «omega(1)» con r >= 1.
+Sale con 1 mientras salga el aviso o el rotulo «omega(1)» con r >= 1, o
+falte «omega(1)/delta(1)» con g = w0/(1 - d1). Arreglado 2026-11-27.
 """
 from _p07 import ES, WTI, pre  # noqa: F401,E402 (datos y codigo de salida)
 import os, re, sys, warnings
@@ -32,6 +33,10 @@ rotulo = re.search(r"GANANCIA = omega\(1\) = ([+-][\d.]+)", txt)
 print(f"omega0 = {w0:.6f}, delta1 = {d1:.6f}, omega0/(1-delta1) = {w0/(1-d1):.6f}")
 print(f"aviso  : {aviso.group(0) if aviso else '(no sale)'}")
 print(f"rotulo : {rotulo.group(0) if rotulo else '(no sale)'}")
+bien = re.search(r"GANANCIA = omega\(1\)/delta\(1\) = ([+-][\d.]+)", txt)
+print(f"rotulo correcto: {bien.group(0) if bien else '(no sale)'}")
 print("esperado: sin aviso (la suma de omega no es la ganancia cuando r >= 1, "
       "y no es un error), y la ganancia rotulada omega(1)/delta(1)")
-sys.exit(1 if (aviso or rotulo) else 0)
+# con el convenio de Box y Jenkins, omega(B) = w0 y delta(B) = 1 - d1 B: g = w0/(1 - d1)
+ok_g = bool(bien) and abs(float(bien.group(1)) - w0 / (1 - d1)) < 5e-6
+sys.exit(1 if (aviso or rotulo or not ok_g) else 0)

@@ -2197,7 +2197,7 @@ worktrees. Ninguno es de esos arreglos.
 
 ---
 
-## BUG-22. El binario en C aplica Box-Cox con λ=1 como (y−1), y fue como y: sin diferenciar y con la media FIJA el escalón diagonal no homologa, y una serie en niveles que cruce el cero no entra
+## BUG-22. El binario en C aplica Box-Cox con λ=1 como (y−1), y fue como y: sin diferenciar y con la media FIJA el escalón diagonal no homologa, y una serie en niveles que cruce el cero no entra — **FIXED 2026-11-27**
 
 Encontrado 2026-09-23 comprobando que el C lee los `.pre` que escribe ahora
 `fue.write_pre` (datos exactos, μ fija conservada, δ de orden 2, parámetros
@@ -2277,6 +2277,16 @@ las ramas que la necesitan (λ=0 y λ no entero). El repro tiene que salir con
 diferencia 0 en los tres casos y aceptar la serie que cruza el cero.
 
 ---
+
+### Fixed (atsw-gui, comprobado 2026-11-27)
+
+Lo arregló atsw-gui en `lib/prewhiten` (BUG-0001: un dato ≤ 0 entra con
+λ = 1; BUG-0002: con λ = 1 la Box-Cox es la de fue, `refactor·y`), que es la
+que usa el drtran mantenido. El registro seguía abierto porque el repro
+buscaba el binario del repo `drtran`, archivado, y además tomaba por error la
+salida de una estimación que sí terminaba. Ahora busca el binario como los
+`repro_p07_*` (`DRTRAN_C`, o atsw-gui) y da diferencia 0 en los tres casos;
+la serie que cruza el cero estima.
 
 ## BUG-51. `mtram` no arranca en Python 3.10 ni 3.11: `mcp_server.py` usa sintaxis de f-string de 3.12 y el paquete declara `>=3.10` — **FIXED 2026-09-26**
 
@@ -2842,7 +2852,7 @@ El C da lo mismo: «Q(21) = 28.5233 [25 lags - 4 parameters of nu(B)]».
 - El repro lee ahora el LR de la salida de `estimate`, no lo calcula.
   `tests/test_bug73_gl_pesos_fijados.py`.
 
-## BUG-74. La cabecera del `.out` del C rotula «Output (Y)» al primer fichero, no a la salida de la red
+## BUG-74. La cabecera del `.out` del C rotula «Output (Y)» al primer fichero, no a la salida de la red — **FIXED 2026-11-27**
 
 **Qué es.** `Output (Y)` es `argv[optind]`, es decir, el primer `.pre`, y no mira el `-n .dag`. La línea `Series : 2 (1 output + 1 input(s))` tampoco tiene sentido en una red. La estimación del mismo `.out` sí es la correcta.
 
@@ -2857,6 +2867,16 @@ red     : ES_CPI <- WTI
 **Qué cuesta.** Un grupo dio su caso de España por «invertido» y lo sacó de la comparación, cuando era su mejor fila (g = 0,027).
 
 **Arreglo propuesto.** Con `-n`, que la cabecera liste la red («Network: ES_CPI <- WTI»); sin `-n`, que diga «Output (Y) = first file».
+
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran): con `-n`, la cabecera del `.out` y la de
+  la consola escriben «File k : ruta» por fichero y la red («Network : ES_CPI
+  <- WTI»), y «Series : 2 (a network of 1 link(s), from red.dag)». Sin `-n` no
+  cambia, porque ahí el primer fichero sí es la salida. El GUI atsw, que saca
+  las rutas de esas líneas (`casos_gui.c`, `lee_cabecera`), acepta también
+  «File ». La batería del C lo comprueba (sección 20).
+- El puerto no escribe esta cabecera: no cambia.
 
 ## BUG-75. Un `q[i,j]` fijado en el `.cns` que deja Q no definida positiva no se rechaza: logL = 0, una tabla entera y segfault — **FIXED 2026-11-27**
 
@@ -2894,7 +2914,7 @@ q[2,1] = 0.01   rc =    0  logL = -730.270862  CONVERGENCE OBTAINED AFTER 37 ITE
   no coinciden entre el C y el puerto (BUG-89), así que el rango admisible
   que se informa difiere en el tercer decimal.
 
-## BUG-76. `evaluate` reestima con todos los pesos libres (no admite el `.cns`) y no escribe nada
+## BUG-76. `evaluate` reestima con todos los pesos libres (no admite el `.cns`) y no escribe nada — **FIXED 2026-11-27**
 
 **Qué es.** `evaluate` (`mcp_server.py:3117-3133`) llama a `fixed_window_fit` y a `rolling_evaluation` sin `slots`, sin la tabla de `_TABLES` y sin un `cns_path`. Evalúa otro modelo que el adoptado y no lo dice. Tampoco escribe fichero, aunque `evaluate.write_rolling_csv` existe. La librería ya admite las restricciones (`slots_of=`, `slots=`).
 
@@ -2909,7 +2929,15 @@ evaluate admite cns_path: False      ficheros escritos por evaluate: ninguno
 
 **Arreglo propuesto.** Usar `_TABLES[name]` por defecto, o un `cns_path`, y añadir un `path=` que escriba `write_rolling_csv` y devuelva la ruta.
 
-## BUG-77. `evaluate` recorta cada serie por posición, no por fecha, y reestima las entradas sin decirlo
+### Fixed (2026-11-27)
+
+`evaluate` evalúa el modelo adoptado: hereda las restricciones de la tabla
+que guardó `estimate` (su `.cns`), o lee las de un `cns_path`. Escribe los
+errores por origen con `write_rolling_csv` (en `path`, o por defecto en el
+directorio temporal, como las figuras) y devuelve la ruta en el informe, que
+dice también cuántos parámetros van fijados o atados.
+
+## BUG-77. `evaluate` recorta cada serie por posición, no por fecha, y reestima las entradas sin decirlo — **FIXED 2026-11-27**
 
 **Qué es.** `truncate(specs, n)` (`evaluate.py:37-60`) se queda con `ts.data[:n]` de cada `.pre`. Si las series empiezan en fechas distintas y acaban en la misma, como Portugal desde 2010:01 y el WTI desde 2002:01, `estimate` funciona, porque el cast alinea por el final. En cambio, las ventanas de `evaluate` terminan en fechas distintas y el cast las rechaza: «ES_CPI ends 12/2017 and WTI ends 12/2009». Dentro de `rolling_evaluation` el error se traga en cada origen (`evaluate.py:124-130`). Además, `fixed_window_fit` reestima también el modelo de la entrada en la ventana, y el informe no lo dice.
 
@@ -2918,6 +2946,16 @@ evaluate admite cns_path: False      ficheros escritos por evaluate: ninguno
 **Qué cuesta.** Un grupo tuvo que escribir un CSV desde 2010 para evaluar Portugal, que es justo el caso que pide el curso.
 
 **Arreglo propuesto.** Contar `window` sobre la salida, o sobre la muestra común, y recortar cada serie hasta esa fecha final. Que el informe diga que se reestiman las entradas y que la entrada futura se prevé.
+
+## BUG-78. BUG-70 no llegó a `impulse_response`: la ganancia sale ×100 sin aviso cuando los factores difieren — **FIXED 2026-11-27**
+### Fixed (2026-11-27)
+
+`evaluate.truncate` corta cada serie en la FECHA de la observación `window`
+de la salida (con un final común, nobs_i − (nobs_salida − window)), no en la
+misma posición. Con muestras iguales, el único caso del C, no cambia nada. El
+informe dice hasta qué fecha llega la ventana, que en ella se reestima todo
+el modelo conjunto (también el de cada entrada) y que la entrada futura se
+prevé con su modelo.
 
 ## BUG-78. BUG-70 no llegó a `impulse_response`: la ganancia sale ×100 sin aviso cuando los factores difieren
 
@@ -2934,7 +2972,15 @@ El repro de BUG-70 no lo ve, porque solo mira `estimate` y `forecast`.
 
 **Arreglo propuesto.** La misma conversión ω·factor_X/factor_Y en `report_irf` y `plot_irf`. Ampliar `repro_presentacion_en_unidades_del_motor.py`.
 
-## BUG-79. `write_inp` pisa el fichero que escribió antes, y del modelo conjunto no queda `.out`
+### Fixed (2026-11-27)
+
+`impulse_response` y `plot_impulse_response` aplican a nu_k, a la acumulada,
+a la ganancia y a sus errores típicos el mismo factor que `estimate`
+(`_cruce`, `fue.scale.display_cross`) y dicen en qué unidades van; la
+ganancia coincide con la de `estimate` en las unidades de cada serie. `overfit`
+dice que sus omega van en las unidades del motor y por cuánto se multiplican.
+
+## BUG-79. `write_inp` pisa el fichero que escribió antes, y del modelo conjunto no queda `.out` — **FIXED 2026-11-27**
 
 **Qué es.**
 - **El defecto:** `next_inp_path` (`pre.py:296-314`) pone siempre el sufijo `.1`, sin mirar si el fichero existe. Dos formas candidatas, o dos países que comparten el WTI, escriben el mismo `X.1.inp`, y el segundo borra el primero.
@@ -2951,6 +2997,18 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Buscar el primer sufijo libre, como hace fue. Añadir un `path=` en `estimate` y `diagnose`, o una herramienta `write_out`, que escriba NAME.out en el formato de la CLI. Guardar la red (`.dag` o `.json`) junto a los `.inp`.
 
+## BUG-80. Con denominador, `estimate` avisa «revisa el signo» sin motivo y rotula la ganancia «omega(1)» — **FIXED 2026-11-27**
+### Fixed (2026-11-27)
+
+- `next_inp_path(..., free=True)` busca el primer sufijo libre, como fue:
+  la segunda escritura del mismo bloque va a `.2.inp` y no pisa la primera.
+  `write_inp` lo usa.
+- `write_inp` deja además el modelo conjunto: `NAME.out` (la tabla de
+  parámetros, la respuesta al impulso y la adecuación de cada enlace, como la
+  CLI con `-m`), `NAME.dag` (la red) y `NAME.cns` (las restricciones que lo
+  apartan del de defecto, `slots.write_cns`). Ninguno pisa uno anterior, y
+  `drtran-py <los .pre> -n NAME.dag -c NAME.cns` reproduce la verosimilitud.
+
 ## BUG-80. Con denominador, `estimate` avisa «revisa el signo» sin motivo y rotula la ganancia «omega(1)»
 
 **Qué es.** `_splice_transfer` (`mcp_server.py:2118-2125`) compara ω(1) con la ganancia sin mirar `lk.r`. Con r ≥ 1 la ganancia es ω(1)/δ(1), y la diferencia es la que debe haber. `_what_the_transfer_bought` (`:1829`, `:1832`) escribe «GANANCIA = omega(1)» también en ese caso.
@@ -2961,7 +3019,14 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Comparar con ω(1)/δ(1), o no comprobar nada con r > 0, y rotular «omega(1)/delta(1)».
 
-## BUG-81. `estimate` devuelve una orden dirigida a un modelo concreto: «[Claude: muestra el bloque … TAL CUAL]»
+### Fixed (2026-11-27)
+
+Con r ≥ 1 la comprobación compara la ganancia con omega(1)/delta(1), con
+delta(1) = 1 − δ1 − … (convenio de Box y Jenkins), y el rótulo dice
+«GANANCIA = omega(1)/delta(1)». España (0,0,1): 0,030856 = ω0/(1 − δ1), sin
+aviso.
+
+## BUG-81. `estimate` devuelve una orden dirigida a un modelo concreto: «[Claude: muestra el bloque … TAL CUAL]» — **FIXED 2026-11-27**
 
 **Qué es.** La primera línea del valor que devuelve `estimate` (`mcp_server.py:2444-2445`, la variable `head`) es una instrucción al asistente, con su nombre, dentro del resultado de la herramienta.
 
@@ -2971,7 +3036,13 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Quitarla. Si hace falta, ponerla en las instrucciones del servidor sin nombrar ningún modelo.
 
-## BUG-82. `refine_link` dice «se cortan» de pesos que no se cortan
+### Fixed (2026-11-27)
+
+`estimate` ya no empieza con una orden a un asistente: empieza por el bloque.
+Que ese bloque se presente tal cual lo dice la regla 1 de las instrucciones
+del servidor, sin nombrar ningún modelo.
+
+## BUG-82. `refine_link` dice «se cortan» de pesos que no se cortan — **FIXED 2026-11-27**
 
 **Qué es.** `school.decay_pattern` (`school.py:304-314`) solo propone denominador si los |pesos| significativos bajan estrictamente. En cualquier otro caso, `refine_link` (`mcp_server.py:1523-1531`) escribe «se cortan. Eso es un numerador finito, sin denominador». Falta el tercer caso, una cola larga con ruido.
 
@@ -2983,7 +3054,17 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Tres salidas: «decaen», «se cortan» (solo si no hay significativos después y el tramo es corto) y «no se lee: compara r = 0 y r = 1 con `overfit`». La regla de decaimiento tiene que tolerar el ruido, por ejemplo con la pendiente de log|ν| contra k o una monotonía dentro de un error típico.
 
-## BUG-83. «EL OUTPUT LLEVA SARIMA MULTIPLICATIVO… NO ESTACIONARIA» con un AR estacional estacionario y D = 0
+### Fixed (2026-11-27)
+
+`school.decay_pattern` da tres lecturas (`pattern`): «decay» (un
+decaimiento que tolera el ruido: cada |peso| puede superar al anterior en su
+error típico, y log|ν| baja con el retardo), «cut» (sólo un bloque contiguo
+corto, de hasta cuatro pesos) y «unclear». `refine_link` dice «se cortan» sólo con
+«cut»; con «unclear», que la forma no se lee y que se comparen r = 0 y r = 1
+con `overfit`. Irlanda (0, 1, 2, 3, 6) sale «no se lee»; la geométrica con
+ruido, denominador.
+
+## BUG-83. «EL OUTPUT LLEVA SARIMA MULTIPLICATIVO… NO ESTACIONARIA» con un AR estacional estacionario y D = 0 — **FIXED 2026-11-27**
 
 **Qué es.** `school.seasonality_mismatch` (`school.py:591-594`) clasifica como «sarima» todo modelo con D > 0, con `ar_s` o con `ma_s`. Un (1 − 0,3B¹²) con D = 0 y armónicos no tiene raíz unitaria estacional, y aun así el aviso (`mcp_server.py:1204-1208`) dice «es el caso peor».
 
@@ -2993,7 +3074,14 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Dejar «sarima» para D > 0 o para factores estacionales con raíz unitaria, y dar un aviso suave en el caso estacionario.
 
-## BUG-84. La CCF de `identify_link` llega a ±12 y el texto cita retardos hasta 24; `identify_link` no acepta `path`
+### Fixed (2026-11-27)
+
+`seasonality_mismatch` reserva «sarima» para D > 0 o un AR estacional con
+raíz unitaria (`_seasonal_ar_unit_root`). Un ARMA estacional estacionario con
+D = 0 es «estacionaria»: no hay desajuste, e `identify_link` sólo da una nota
+suave.
+
+## BUG-84. La CCF de `identify_link` llega a ±12 y el texto cita retardos hasta 24; `identify_link` no acepta `path` — **FIXED 2026-11-27**
 
 **Qué es.** La identificación usa max(10, min(n // 4, 24)) retardos y cita k = 24 («míralo en el gráfico»), pero la figura usa `ccf_default_lags(12)` = 12 (`plots.py:66-67`, llamada en `mcp_server.py:1143`). `identify_link` no tiene `path` (`mcp_server.py:1098`). La «R² (Brajín A.28)» de `mcp_server.py:1925` aparece sin decir qué mide.
 
@@ -3003,7 +3091,14 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 
 **Arreglo propuesto.** Los mismos retardos en el texto y en la figura, un `path=`, y una línea que explique la R² y la P del pie.
 
-## BUG-85. `diagnose` da una sola Q del ruido, a 24 retardos; la figura de `plot_residuals` da otra, sin p
+### Fixed (2026-11-27)
+
+La figura de la CCF usa los mismos retardos que la identificación
+(min(n/4, 24), al menos 10) e `identify_link` se la pasa explícitamente;
+`identify_link` admite `path`. El texto explica la P del pie (Hosking
+bivariante, no la Q del informe) y `estimate` dice qué mide la R² de Brajín.
+
+## BUG-85. `diagnose` da una sola Q del ruido, a 24 retardos; la figura de `plot_residuals` da otra, sin p — **FIXED 2026-11-27**
 
 **Qué es.** Es una carencia. `diagnose(name, link_index)` no tiene argumento de retardos, y `school.noise_adequacy` (`school.py:255`) usa k = min(24, max(4, n // 5)). El pie de `plot_residuals` pone «Q(38) = 29.9» sin p-valor (`plots.py:179-205`). Los g.l. de la Q(24) son correctos (BUG-57).
 
@@ -3012,6 +3107,14 @@ escritos dos veces con contenido distinto (el segundo pisó al primero):
 **Qué cuesta.** La escuela lee la Q a s, 2s y 3s + 3: un MA estacional que falta se ve a 12 y a 36. Un grupo acabó programando la Q en Python.
 
 **Arreglo propuesto.** Un argumento `lags`, por defecto (s, 2s, 3s + 3), con una p para cada Q, y la p también en el pie de la figura.
+
+## BUG-86. Las fechas de los residuos en el `.out` del C son relativas («from 1/1 to 11/18») — **FIXED 2026-11-27**
+### Fixed (2026-11-27)
+
+`diagnose(name, link_index, lags="")` lee la Q del ruido a varios retardos,
+por defecto s, 2s y 3s + 3 (Q(12), Q(24), Q(39) en mensual), cada una con su
+p; el veredicto lo da la peor. `plot_residuals` da en su texto la p de la Q
+del pie de la figura, con los mismos retardos y la misma corrección.
 
 ## BUG-86. Las fechas de los residuos en el `.out` del C son relativas («from 1/1 to 11/18»)
 
@@ -3027,7 +3130,15 @@ minimo at 9/7 (observation 81)       <- 10/2008
 
 **Arreglo propuesto.** Pasar a `diagnose()` el inicio de la muestra estacionaria, que es el inicio en bruto más lo que se pierde al diferenciar.
 
-## BUG-87. Con μ fijada a 0 en el `.pre`, ni drtran ni mtram avisan aunque la media residual sea significativa
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran): `diagnose()` recibe la fecha del primer
+  residuo, la observación 1 + ornsop de la serie 1, como `write_residuals`
+  (drvarma ya los fechaba así). El repro da «215 observations: from 2/2002 to
+  12/2019» y el mínimo en 10/2008. La batería del C lo comprueba (sección 20).
+- El puerto y mtram ya fechaban bien: no cambian.
+
+## BUG-87. Con μ fijada a 0 en el `.pre`, ni drtran ni mtram avisan aunque la media residual sea significativa — **FIXED 2026-11-27**
 
 **Qué es.** Es una cuestión de política: respetar lo fijado es correcto, pero falta un aviso. El diagnóstico de residuos (`diagnose.c`, `File_StatSer`) imprime la media y su error típico, y no los compara.
 
@@ -3041,7 +3152,20 @@ residuos del IPC: media = 0.0669, e.t. = 0.0139, t = 4.80      aviso: NINGUNO
 
 **Arreglo propuesto.** Con μ fijada, o sin μ, y d + D > 0, si |media/e.t.| > 2: «WARNING: mu fixed at 0 by the .pre, residual mean t = 4.8: the drift is missing». El mismo aviso en el `diagnose` de mtram.
 
-## BUG-88. mtram no dice en ningún sitio visible que ω va en el convenio de Box y Jenkins: la tabla y la ecuación parecen contradecirse
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran): tras `diagnose()`, para cada serie con
+  μ fijada (por el `.pre` o con `-M`) y d + D > 0, si la media de sus residuos
+  estructurales tiene |t| > 2, el `.out` y la consola escriben «WARNING:
+  series 1 (ES_CPI): the residual mean is significant (0.0668886, t = 4.80)
+  with mu FIXED at 0 ... the drift may be missing». No cambia el ajuste. La
+  batería del C lo comprueba (sección 21).
+- **El puerto**: `school.fixed_mu_drift` hace la misma cuenta (residuos
+  estructurales, desviación típica con divisor n) y `report_fixed_mu_drift`
+  da el mismo texto; lo escriben la CLI y el `diagnose` de mtram, que añade
+  la lectura en español. Mismos números que el C.
+
+## BUG-88. mtram no dice en ningún sitio visible que ω va en el convenio de Box y Jenkins: la tabla y la ecuación parecen contradecirse — **FIXED 2026-11-27**
 
 **Qué es.** En la misma salida de `estimate`, la tabla del motor da `omega1[1] = −0.010747` (se almacena ω(B) = ω0 − ω1B − …, como en fue y en el C) y la ecuación da `+ 0.0107·B` (el polinomio tal como multiplica, `_omega_poly`, `mcp_server.py:1951`). Las dos cifras son correctas. Pero el convenio solo está en comentarios del código (`_omega_poly`, `cast.py:72`): ni las instrucciones del servidor, ni la tabla, ni la ecuación, ni `impulse_response` lo dicen. Un agente que ve dos signos opuestos para el mismo coeficiente concluye que hay un error y se lo traslada al analista. Que el usuario tenga que recordárselo es, en sí mismo, el defecto.
 
@@ -3059,6 +3183,18 @@ convenio dicho en las instrucciones del servidor: False
 - Bajo la tabla de `estimate`, una línea: «omega en convenio Box-Jenkins: ω(B) = ω0 − ω1B − …; el peso del retardo k ≥ 1 es −omega[k]».
 - En la ecuación, el rótulo «(coeficientes tal como multiplican)».
 - Lo mismo en `overfit` y `refine_link` cuando impriman ω, y en `impulse_response`, cuyos ν ya van con el signo de la ecuación.
+
+### Fixed (2026-11-27)
+
+- Las instrucciones del servidor (regla 1) dicen el convenio: ω(B) = ω0 −
+  ω1·B − …, δ(B) = 1 − δ1·B − …, la tabla da los ωk almacenados y la
+  ecuación el polinomio tal como multiplica; un omega1[1] negativo es un peso
+  positivo; la ganancia es ω0 − ω1 − … (entre δ(1)). Y que no es una
+  inconsistencia que haya que corregir al presentar.
+- `estimate` lo dice bajo la tabla, y el bloque de coeficientes lleva el
+  rótulo «(coeficientes tal como multiplican)».
+- `overfit` lo dice bajo sus omega/delta; `impulse_response` dice que nu_k va
+  con el signo de la ecuación.
 
 ## BUG-89. Las semillas de log(var_i/var_1) no son las mismas en el C y en el puerto
 

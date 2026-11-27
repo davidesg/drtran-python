@@ -28,6 +28,7 @@ si no puede correr (sin el binario).
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import warnings
 
@@ -37,8 +38,14 @@ import fue
 
 warnings.filterwarnings("ignore")
 
-# drtran C, the repository next to this one (or under ATSW_SRC)
-BIN = os.path.join(os.environ.get("ATSW_SRC") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "drtran", "bin", "drtran")
+# drtran C: the maintained one, atsw-gui/engines/drtran (DRTRAN_C first), as
+# every repro_p07_* finds it. It looked for the standalone `drtran` repo,
+# archived since atsw-gui took the engine, and kept reporting a defect that
+# atsw-gui's lib/prewhiten fixed as its BUG-0002.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _p07 import binario  # noqa: E402
+
+BIN = binario()
 N = 120
 
 
@@ -102,9 +109,12 @@ def main():
     mz = fue.Model(tz, ar=[[0.3]], mu=0.0, estimate_mu=True).fit()
     z_pre = os.path.join(d, "Z.pre")
     mz.write_pre(z_pre)
-    _, err = _drtran(d, z_pre, x_pre, "z")
+    llz, res = _drtran(d, z_pre, x_pre, "z")
+    # _drtran da (None, el error) si el C no estima, y (logL, medias) si estima
+    err = res if llz is None else None
     print(f"\nserie que cruza el cero, lambda=1: fue estima (loglik "
-          f"{mz._result.loglik:.6f}); drtran C: {err}")
+          f"{mz._result.loglik:.6f}); drtran C: "
+          f"{err if err else f'estima (logL conjunta {llz:.6f})'}")
     bug = peor > 1e-4 or err is not None
     print("BUG PRESENTE" if bug else "ARREGLADO")
     return 1 if bug else 0

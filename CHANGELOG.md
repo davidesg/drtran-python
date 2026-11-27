@@ -4,6 +4,51 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**mtram, identification and diagnosis (P07 register: BUG-82 to BUG-85).**
+- BUG-82: `refine_link` reads the free weights in three ways (decay, cut,
+  unclear) with a decay test that tolerates noise; a long noisy tail is no
+  longer called «cut», it sends to `overfit`.
+- BUG-83: a stationary seasonal AR with D = 0 is not a «SARIMA» mismatch.
+- BUG-84: the CCF figure draws the lags the text cites; `identify_link`
+  takes `path`; the P of the figure and Brajín's R² are explained.
+- BUG-85: `diagnose` gives the noise Q at s, 2s and 3s + 3 (or `lags`), each
+  with its p; `plot_residuals` gives the p of the figure's Q.
+**mtram `write_inp` (P07 register: BUG-79).** It takes the first free
+suffix, as fue does, instead of always `.1` (a second write overwrote the
+first), and it also writes the joint model: `NAME.out` (parameters, impulse
+response, adequacy), `NAME.dag` and `NAME.cns`, from which the CLI reproduces
+the fit. New `slots.write_cns`, the counterpart of `read_cns`.
+**mtram `evaluate` (P07 register: BUG-76, BUG-77).** It evaluates the
+adopted model, with the constraints `estimate` used (or a `cns_path`), and
+writes the per-origin errors to a CSV whose path it returns (BUG-76). The
+window counts observations of the output and cuts every series at that date,
+so series with different starts work (BUG-77); the report says where the
+window ends and that the inputs' models are re-estimated in it.
+**mtram, presentation (P07 register: BUG-78, BUG-80, BUG-81, BUG-88).**
+- BUG-78: `impulse_response` and its figure give nu_k, the cumulative
+  response and the gain in each series' units, as `estimate` does since
+  BUG-70, and say so; `overfit` says its weights are in the engine's units.
+- BUG-80: with a denominator the gain is checked against and labelled
+  omega(1)/delta(1); no more false «check the sign» warning.
+- BUG-81: `estimate` no longer opens with an instruction addressed to a named
+  assistant; the server instructions ask for the block verbatim.
+- BUG-88: the Box-Jenkins sign convention of omega and delta is stated in the
+  server instructions, under `estimate`'s table, in `overfit` and in
+  `impulse_response`: a negative omega[1] in the table is a positive weight.
+**Three C defects of the P07 register closed (BUG-74, BUG-86, BUG-22).** In
+atsw-gui's drtran: with `-n` the `.out` header lists the files and the
+network instead of calling the first file «Output (Y)» (BUG-74); the
+residuals of the `.out` are dated from the start of the sample, not from 1/1
+(BUG-86). BUG-22 (Box-Cox with lambda = 1) was already fixed in atsw-gui's
+`lib/prewhiten`; its repro looked for the archived `drtran` binary and now
+finds the maintained one. The port did not change.
+
+**BUG-87: a fixed mu with a significant residual mean is warned about.** A mu
+fixed by the `.pre` is respected, but with d + D > 0 it is a fixed drift: if
+the residual mean of that series has |t| > 2, the C (after its residual
+diagnostics), the port's CLI and mtram's `diagnose` say the drift may be
+missing, with the C's text (`school.fixed_mu_drift`).
+
 **BUG-75: an impossible fixed `q[i,j]` is rejected before estimating.** Q is
 relative to series 1 (Q[1,1] = 1, Q[i,i] = var_i/var_1), so a `q[i,j]` fixed
 in the `.cns` outside |q| < sqrt(Q[i,i] Q[j,j]) left a Q that is not a
