@@ -34,7 +34,8 @@ from .cast import (Link, build_cast_spec, build_sigma, cast_diagonal,
 from .diagnose import (Adequacy, chi_test, report_adequacy,
                        transfer_adequacy)
 from .embed import cast_embedded, loglik_embedded, normalize_phi0
-from .estimate import Fit, StdErrors, fit, loglik, standard_errors, unpack, x0_full
+from .estimate import (Fit, StartNotAdmissible, StdErrors, fit, loglik, standard_errors,
+                       unpack, x0_full)
 from .evaluate import (RollingEval, fixed_window_fit, report_rolling,
                        rolling_evaluation, truncate, write_rolling_csv)
 from .forecast import (Forecast, error_variance, forecast,
@@ -76,7 +77,7 @@ __all__ = [
     "x0_from_pre",
     "cast_embedded", "loglik_embedded", "normalize_phi0",
     "Adequacy", "transfer_adequacy", "report_adequacy", "chi_test",
-    "Fit", "fit", "loglik", "unpack", "x0_full",
+    "Fit", "StartNotAdmissible", "fit", "loglik", "unpack", "x0_full",
     "StdErrors", "standard_errors",
     "RollingEval", "rolling_evaluation", "fixed_window_fit", "truncate",
     "report_rolling", "write_rolling_csv",

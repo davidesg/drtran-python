@@ -213,6 +213,76 @@ def x0_full(cast_spec, slots):
     return np.concatenate([x0, np.zeros(missing)])
 
 
+class StartNotAdmissible(ValueError):
+    """The starting point is not an admissible model: nothing is estimated.
+
+    The C exits with rc = 12 and writes no table (BUG-75). Before, the port
+    returned a `Fit` with `loglik = -inf` and no message.
+    """
+
+
+def start_q_message(xfull, cast_spec, slots):
+    """BUG-75: None if the STARTING Q is positive definite, else the C's message.
+
+    Q is relative to series 1: Q[1,1] = 1, Q[i,i] = var_i/var_1, and a
+    `q[i,j]` of the `.cns` is in those units. A fixed q with |q[i,j]| above
+    sqrt(Q[i,i] Q[j,j]) leaves a Q that is not a covariance, and the likelihood
+    cannot be evaluated even at the start. The mirror of the C's
+    `start_q_admissible`: the same check (Cholesky) and the same text.
+    """
+    m = cast_spec.m
+    if slots is None or m < 2:
+        return None
+    xfull = np.asarray(xfull, float)
+    Q = np.zeros((m, m))
+    Q[0, 0] = 1.0
+    ok = True
+    for i in range(2, m + 1):
+        k = slots.index(f"log(var{i}/var1)")
+        Q[i - 1, i - 1] = math.exp(xfull[k]) if k >= 0 else 1.0
+        if not (math.isfinite(Q[i - 1, i - 1]) and Q[i - 1, i - 1] > 0.0):
+            ok = False
+    for i in range(2, m + 1):
+        for j in range(1, i):
+            k = slots.index(f"q[{i},{j}]")
+            Q[i - 1, j - 1] = Q[j - 1, i - 1] = xfull[k] if k >= 0 else 0.0
+    if ok:
+        # the C's Cholesky: every pivot strictly positive
+        L = np.zeros((m, m))
+        for j in range(m):
+            d = Q[j, j] - float(np.dot(L[j, :j], L[j, :j]))
+            if not d > 0.0:
+                ok = False
+                break
+            L[j, j] = math.sqrt(d)
+            for i in range(j + 1, m):
+                L[i, j] = (Q[i, j] - float(np.dot(L[i, :j], L[j, :j]))) / L[j, j]
+    if ok:
+        return None
+    name1 = cast_spec.names[0] if cast_spec.names else "?"
+    lines = [
+        "the starting innovation covariance Q is not positive definite, so the",
+        "likelihood cannot be evaluated even at the starting point. Nothing is estimated.",
+        f"Q is RELATIVE TO SERIES 1 ({name1}, the first file): Q[1,1] = 1 and",
+        "Q[i,i] = var_i/var_1, so a q[i,j] in the .cns is in units of var_1 and its",
+        "meaning depends on the order of the files. A q[i,j] must satisfy",
+        "|q[i,j]| < sqrt(Q[i,i] Q[j,j]); at the starting point:",
+    ]
+    for i in range(2, m + 1):
+        for j in range(1, i):
+            q = Q[i - 1, j - 1]
+            if q == 0.0:
+                continue
+            lim = math.sqrt(Q[i - 1, i - 1] * Q[j - 1, j - 1])
+            lines.append(f"  q[{i},{j}] = {q:<12g}  admissible: |q| < {lim:<10.4g}"
+                         f"  (correlation {q / lim:+.3f})"
+                         + ("   <- outside" if abs(q) >= lim else ""))
+    for i in range(2, m + 1):
+        lines.append(f"  Q[{i},{i}] = var{i}/var1 = {Q[i - 1, i - 1]:g}")
+    lines.append("Free the q[i,j] (q[i,j] = free) or give a value inside the range.")
+    return "\n".join(lines)
+
+
 def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
         sptol=1e-7, embed=True, slots=None, lik="elf"):
     """Estimate the joint model and return a `Fit`.
@@ -273,9 +343,16 @@ def fit(cast_spec, x0=None, xitol=-1e-3, maxits=500, grtol=1e-7,
                    xfree=np.asarray(v, float), embed=embed, bfac=bfac, fk=fk,
                    lik=lik, lik_check=check, ma_boundary=nb, ma_nroots=nr)
 
+    msg = start_q_message(expand(x_ini), cast_spec, slots)        # BUG-75
+    if msg:
+        raise StartNotAdmissible(msg)
     f1_0, f2_0, ifa0 = _f1f2(expand(x_ini), cast_spec, xitol, embed, lik, check)
     if ifa0 or f1_0 is None or not (f1_0 > 0.0 and f2_0 > 0.0):
-        return _pack(x_ini, float("-inf"), ifa0 or 5, 0, 0)
+        # BUG-75: the C exits (rc = 12) without a table; no -inf in silence.
+        raise StartNotAdmissible(
+            f"the likelihood cannot be evaluated at the starting point "
+            f"(ifault = {ifa0 or 5}): the starting values are not an admissible "
+            f"model. Nothing is estimated.")
 
     m = cast_spec.m
 
