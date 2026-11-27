@@ -4,6 +4,13 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**BUG-73: a fixed weight is not a degree of freedom.** The adequacy
+portmanteau and mtram's LR against the diagonal model discounted the nominal
+form of nu(B), (s + 1) + r, even when the `.cns` fixed or tied weights: the
+more the numerator was pruned, the more liberal the adequacy and the more
+conservative the LR. They now count the free `omega`/`delta` slots of the
+fit (`diagnose.link_free_params`), as the C does since atsw-gui#225.
+
 **Two defects from the course run of practice 7 (BUG-71, BUG-72).**
 - **BUG-71: the N0 gate with ifadf factors.** `_en_muestra_comun` counted the
   observations lost to differencing as d + D·s, ignoring the frequency
