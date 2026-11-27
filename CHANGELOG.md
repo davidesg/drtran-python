@@ -4,6 +4,15 @@ Los informes completos están en `docs/BUGS.md`. Etiquetas de publicación: `v*`
 
 ## Unreleased
 
+**mtram, identification and diagnosis (P07 register: BUG-82 to BUG-85).**
+- BUG-82: `refine_link` reads the free weights in three ways (decay, cut,
+  unclear) with a decay test that tolerates noise; a long noisy tail is no
+  longer called «cut», it sends to `overfit`.
+- BUG-83: a stationary seasonal AR with D = 0 is not a «SARIMA» mismatch.
+- BUG-84: the CCF figure draws the lags the text cites; `identify_link`
+  takes `path`; the P of the figure and Brajín's R² are explained.
+- BUG-85: `diagnose` gives the noise Q at s, 2s and 3s + 3 (or `lags`), each
+  with its p; `plot_residuals` gives the p of the figure's Q.
 **mtram `write_inp` (P07 register: BUG-79).** It takes the first free
 suffix, as fue does, instead of always `.1` (a second write overwrote the
 first), and it also writes the joint model: `NAME.out` (parameters, impulse

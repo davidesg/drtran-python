@@ -10,8 +10,8 @@ que falta se ve a 12 y a 36. `plot_residuals` dibuja la figura de pyfug con
 distintas del mismo residuo y solo una con p. G7 acabo programando la Q en
 Python con el asistente.
 
-Sale con 1 mientras `diagnose` no admita los retardos o devuelva una sola
-Q del ruido.
+Sale con 1 mientras `diagnose` no de la Q del ruido a 12, 24 y 39 (cada una
+con su p) y no admita `lags`.
 """
 from _p07 import ES, WTI, pre  # noqa: F401,E402 (datos y codigo de salida)
 import inspect, os, re, sys, warnings
@@ -24,10 +24,12 @@ M.load_pre("QR", f"{ES},{WTI}", check=False)
 M.set_network("QR", '[{"out": 0, "inp": 1, "b": 0, "r": 0, "s": 1}]')
 M.estimate("QR")
 txt = M.diagnose("QR", 0)
-qs = re.findall(r"Ruido blanco \(Q\).*?Q\((\d+)\)", txt)
+lin = re.search(r"Ruido blanco \(Q\).*", txt)
+qs = re.findall(r"Q\((\d+)\) = [\d.]+, g\.l\. = \d+, p = [\d.]+", lin.group(0)) if lin else []
 params = list(inspect.signature(M.diagnose).parameters)
 print("parametros de diagnose:", params)
 print("Q del ruido que da diagnose, a los retardos:", qs)
 print("esperado: Q(12), Q(24) y Q(39) en mensual (o un argumento `lags`), "
       "cada una con su p, como la figura")
-sys.exit(1 if (len(set(qs)) < 2 and "lags" not in params) else 0)
+# arreglado (2026-11-27): Q(12), Q(24) y Q(39), cada una con su p, y `lags`
+sys.exit(0 if ({"12", "24", "39"} <= set(qs) and "lags" in params) else 1)

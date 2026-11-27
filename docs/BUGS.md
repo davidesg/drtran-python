@@ -3042,7 +3042,7 @@ aviso.
 Que ese bloque se presente tal cual lo dice la regla 1 de las instrucciones
 del servidor, sin nombrar ningún modelo.
 
-## BUG-82. `refine_link` dice «se cortan» de pesos que no se cortan
+## BUG-82. `refine_link` dice «se cortan» de pesos que no se cortan — **FIXED 2026-11-27**
 
 **Qué es.** `school.decay_pattern` (`school.py:304-314`) solo propone denominador si los |pesos| significativos bajan estrictamente. En cualquier otro caso, `refine_link` (`mcp_server.py:1523-1531`) escribe «se cortan. Eso es un numerador finito, sin denominador». Falta el tercer caso, una cola larga con ruido.
 
@@ -3054,7 +3054,17 @@ del servidor, sin nombrar ningún modelo.
 
 **Arreglo propuesto.** Tres salidas: «decaen», «se cortan» (solo si no hay significativos después y el tramo es corto) y «no se lee: compara r = 0 y r = 1 con `overfit`». La regla de decaimiento tiene que tolerar el ruido, por ejemplo con la pendiente de log|ν| contra k o una monotonía dentro de un error típico.
 
-## BUG-83. «EL OUTPUT LLEVA SARIMA MULTIPLICATIVO… NO ESTACIONARIA» con un AR estacional estacionario y D = 0
+### Fixed (2026-11-27)
+
+`school.decay_pattern` da tres lecturas (`pattern`): «decay» (un
+decaimiento que tolera el ruido: cada |peso| puede superar al anterior en su
+error típico, y log|ν| baja con el retardo), «cut» (sólo un bloque contiguo
+corto, de hasta cuatro pesos) y «unclear». `refine_link` dice «se cortan» sólo con
+«cut»; con «unclear», que la forma no se lee y que se comparen r = 0 y r = 1
+con `overfit`. Irlanda (0, 1, 2, 3, 6) sale «no se lee»; la geométrica con
+ruido, denominador.
+
+## BUG-83. «EL OUTPUT LLEVA SARIMA MULTIPLICATIVO… NO ESTACIONARIA» con un AR estacional estacionario y D = 0 — **FIXED 2026-11-27**
 
 **Qué es.** `school.seasonality_mismatch` (`school.py:591-594`) clasifica como «sarima» todo modelo con D > 0, con `ar_s` o con `ma_s`. Un (1 − 0,3B¹²) con D = 0 y armónicos no tiene raíz unitaria estacional, y aun así el aviso (`mcp_server.py:1204-1208`) dice «es el caso peor».
 
@@ -3064,7 +3074,14 @@ del servidor, sin nombrar ningún modelo.
 
 **Arreglo propuesto.** Dejar «sarima» para D > 0 o para factores estacionales con raíz unitaria, y dar un aviso suave en el caso estacionario.
 
-## BUG-84. La CCF de `identify_link` llega a ±12 y el texto cita retardos hasta 24; `identify_link` no acepta `path`
+### Fixed (2026-11-27)
+
+`seasonality_mismatch` reserva «sarima» para D > 0 o un AR estacional con
+raíz unitaria (`_seasonal_ar_unit_root`). Un ARMA estacional estacionario con
+D = 0 es «estacionaria»: no hay desajuste, e `identify_link` sólo da una nota
+suave.
+
+## BUG-84. La CCF de `identify_link` llega a ±12 y el texto cita retardos hasta 24; `identify_link` no acepta `path` — **FIXED 2026-11-27**
 
 **Qué es.** La identificación usa max(10, min(n // 4, 24)) retardos y cita k = 24 («míralo en el gráfico»), pero la figura usa `ccf_default_lags(12)` = 12 (`plots.py:66-67`, llamada en `mcp_server.py:1143`). `identify_link` no tiene `path` (`mcp_server.py:1098`). La «R² (Brajín A.28)» de `mcp_server.py:1925` aparece sin decir qué mide.
 
@@ -3074,7 +3091,14 @@ del servidor, sin nombrar ningún modelo.
 
 **Arreglo propuesto.** Los mismos retardos en el texto y en la figura, un `path=`, y una línea que explique la R² y la P del pie.
 
-## BUG-85. `diagnose` da una sola Q del ruido, a 24 retardos; la figura de `plot_residuals` da otra, sin p
+### Fixed (2026-11-27)
+
+La figura de la CCF usa los mismos retardos que la identificación
+(min(n/4, 24), al menos 10) e `identify_link` se la pasa explícitamente;
+`identify_link` admite `path`. El texto explica la P del pie (Hosking
+bivariante, no la Q del informe) y `estimate` dice qué mide la R² de Brajín.
+
+## BUG-85. `diagnose` da una sola Q del ruido, a 24 retardos; la figura de `plot_residuals` da otra, sin p — **FIXED 2026-11-27**
 
 **Qué es.** Es una carencia. `diagnose(name, link_index)` no tiene argumento de retardos, y `school.noise_adequacy` (`school.py:255`) usa k = min(24, max(4, n // 5)). El pie de `plot_residuals` pone «Q(38) = 29.9» sin p-valor (`plots.py:179-205`). Los g.l. de la Q(24) son correctos (BUG-57).
 
@@ -3085,6 +3109,14 @@ del servidor, sin nombrar ningún modelo.
 **Arreglo propuesto.** Un argumento `lags`, por defecto (s, 2s, 3s + 3), con una p para cada Q, y la p también en el pie de la figura.
 
 ## BUG-86. Las fechas de los residuos en el `.out` del C son relativas («from 1/1 to 11/18») — **FIXED 2026-11-27**
+### Fixed (2026-11-27)
+
+`diagnose(name, link_index, lags="")` lee la Q del ruido a varios retardos,
+por defecto s, 2s y 3s + 3 (Q(12), Q(24), Q(39) en mensual), cada una con su
+p; el veredicto lo da la peor. `plot_residuals` da en su texto la p de la Q
+del pie de la figura, con los mismos retardos y la misma corrección.
+
+## BUG-86. Las fechas de los residuos en el `.out` del C son relativas («from 1/1 to 11/18»)
 
 **Qué es.** `diagnose.c:367-368` rellena el `Tseries` de los residuos con `begtime = 1; begyear = 1`. Lo mismo pasa en las líneas 303-304 y 412. El `_res.txt` y mtram fechan bien.
 
