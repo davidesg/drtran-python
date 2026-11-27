@@ -1901,7 +1901,10 @@ def _what_the_transfer_bought(name, f, cs):
                       "poder contrastar si la transferencia se gana su sitio.)"]
         return lines
 
-    npar_tr = sum(1 + lk.r + lk.s for lk in (cs.links or []))
+    # los parámetros LIBRES de las transferencias: un peso fijado por el
+    # `.cns` no es un grado de libertad (BUG-73)
+    from .diagnose import transfer_free_params
+    npar_tr = transfer_free_params(cs.links, getattr(f, "slots", None))
     lr = 2.0 * (float(f.loglik) - float(diag))
     pval = float(_st.chi2.sf(lr, npar_tr)) if npar_tr > 0 and lr > 0 else 1.0
     lines += [f"    Diagonal (sin transferencia): {diag:.6f}",

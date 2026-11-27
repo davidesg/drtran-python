@@ -119,7 +119,8 @@ def calibrate(fit, link_index=0, threshold=3.5, nlags=None,
     n = a.shape[0]
     if nlags is None:
         nlags = max(10, min(n // 4, 24))
-    npar_tr = (link.s + 1) + link.r
+    from .diagnose import link_free_params
+    npar_tr = link_free_params(link, link_index, getattr(fit, "slots", None))  # BUG-73
 
     aX = np.asarray(a[:, link.inp], float)
     aN = np.asarray(a[:, link.out], float)

@@ -104,16 +104,39 @@ class Adequacy:
                 f"p={self.p_exog:.4f})")
 
 
-def transfer_adequacy(x, cast_spec=None, link_index=0, nlags=None, embed=True):
+def link_free_params(link, link_index, slots=None):
+    """The FREE parameters of link `link_index`'s nu(B): the slots
+    `omega<k>[*]` and `delta<k>[*]` (k = link_index + 1) the optimizer
+    estimates. A weight fixed, shared or tied by the `.cns` is not a degree of
+    freedom (BUG-73, as the C's `link_npar_free`). Without a slot table, the
+    nominal form, (s + 1) + r."""
+    if slots is None:
+        return (link.s + 1) + link.r
+    from .slots import FREE
+    k = link_index + 1
+    pre = (f"omega{k}[", f"delta{k}[")
+    return sum(1 for sl in slots.slots if sl.kind == FREE and sl.name.startswith(pre))
+
+
+def transfer_free_params(links, slots=None):
+    """The free parameters of every link's nu(B), together: what a model with
+    these transfers adds to the one without them (BUG-73)."""
+    return sum(link_free_params(lk, i, slots) for i, lk in enumerate(links or []))
+
+
+def transfer_adequacy(x, cast_spec=None, link_index=0, nlags=None, embed=True,
+                      slots=None):
     """Check link `link_index` of the model ESTIMATED at `x`.
 
     `x` is the full parameter vector together with its `cast_spec`, or simply a
-    `Fit`, which already carries both. Returns an `Adequacy`.
+    `Fit`, which already carries both (and its slot table, if constrained).
+    Returns an `Adequacy`.
     """
     from .netid import residuals
 
     if hasattr(x, "x"):                       # a Fit is accepted directly
         cast_spec = x.cast_spec
+        slots = slots if slots is not None else getattr(x, "slots", None)
         x = x.x
     if cast_spec is None:
         raise TypeError("cast_spec is required (or pass a Fit)")
@@ -137,9 +160,10 @@ def transfer_adequacy(x, cast_spec=None, link_index=0, nlags=None, embed=True):
     cneg = ccf(aN, aX, nlags)                # the k <= 0 side
 
     # The transfer: portmanteau over k >= 0, CONTEMPORANEOUS INCLUDED. The
-    # degrees of freedom discount the parameters of nu(B) — (s+1) + r — because
-    # they were estimated from these same data.
-    npar_tr = (link.s + 1) + link.r
+    # degrees of freedom discount the FREE parameters of nu(B) — (s+1) + r
+    # less those the `.cns` fixes or ties (BUG-73) — because they were
+    # estimated from these same data.
+    npar_tr = link_free_params(link, link_index, slots)
     Qt, ncorr = chi_test(cpos, n, first=0)
     dft = max(1, ncorr - npar_tr)
 

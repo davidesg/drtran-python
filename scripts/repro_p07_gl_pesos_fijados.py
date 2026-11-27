@@ -38,7 +38,20 @@ f = D.fit(cs, x0=D.x0_full(cs, table), embed=True, slots=table)
 ad = transfer_adequacy(f)
 k = ad.nlags + 1
 descontados_q = k - ad.df_transfer
-descontados_lr = sum(1 + lk.r + lk.s for lk in cs.links)   # = mcp_server.py:1894
+# el LR de mtram, tal como lo escribe `estimate` (con el certificado diagonal)
+import re                                                     # noqa: E402
+
+import drtran.mcp_server as M                                 # noqa: E402
+
+with tempfile.NamedTemporaryFile("w", suffix=".cns", delete=False) as fh:
+    fh.write("omega1[2] = 0\nomega1[3] = 0\n")
+    cns2 = fh.name
+M.load_pre("gl", f"{ES},{WTI}", check=True)
+M.set_network("gl", '[{"out":0,"inp":1,"b":0,"r":0,"s":3}]')
+txt = M.estimate("gl", cns_path=cns2)
+os.unlink(cns2)
+m_lr = re.search(r"LR = 2·Δ = \S+\s+con (\d+) parámetro", txt)
+descontados_lr = int(m_lr.group(1)) if m_lr else -1
 
 print(f"logL = {f.loglik:.4f}   termcode = {f.termcode}")
 print(f"slots del enlace: {[ (sl.name, sl.kind) for sl in table.slots if sl.name.startswith('omega1[')]}")

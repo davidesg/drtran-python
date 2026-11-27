@@ -2710,7 +2710,7 @@ Encontrados en el uso de un curso: once grupos de alumnos construyeron funciones
 |---|---|---|---|
 | 71 | mtram | La puerta N0 no cuadra con ifadf: `_en_muestra_comun` cuenta las pérdidas como d + D·s | alta — **FIXED** |
 | 72 | mtram | `overfit` arranca de las semillas y sin el `.cns`: LR negativos y g.l. falsos | alta — **FIXED** |
-| 73 | drtran, C y mtram | Los pesos fijados cuentan como g.l. en la adecuación y en el LR contra el modelo sin enlace | alta |
+| 73 | drtran, C y mtram | Los pesos fijados cuentan como g.l. en la adecuación y en el LR contra el modelo sin enlace | alta — **FIXED** |
 | 74 | drtran C | La cabecera del `.out` rotula salida y entrada por el orden de los ficheros, no por la red | alta |
 | 75 | drtran C (y Python) | Un `q[i,j]` fijado que deja Q no definida positiva da logL = 0, una tabla «normal» y un segfault | alta |
 | 76 | mtram | `evaluate` no admite restricciones y no escribe fichero | media |
@@ -2810,7 +2810,7 @@ Arrancando bien, r+1 da p ≈ 0,047 («aporta»), donde la herramienta dijo «fa
   dos ceros y tiene un parámetro libre más, leído con 1 g.l.
 - `scripts/repro_p07_overfit.py` sale con 0; `tests/test_bug71_72_p07.py`.
 
-## BUG-73. Los pesos fijados cuentan como grados de libertad en la Q de adecuación y en el LR contra el modelo sin enlace
+## BUG-73. Los pesos fijados cuentan como grados de libertad en la Q de adecuación y en el LR contra el modelo sin enlace — **FIXED 2026-11-27**
 
 **Qué es.** Los g.l. del enlace salen de la forma nominal, (s + 1) + r, y no de las ranuras libres. Los parámetros FIXED, ALIAS, PRODUCT y LINCOMB se descuentan como si fueran libres.
 
@@ -2827,6 +2827,20 @@ El C da lo mismo: «Q(21) = 28.5233 [25 lags - 4 parameters of nu(B)]».
 **Qué cuesta.** Un rechazo falso de la adecuación con p = 0,048 en Francia, porque la Q quedó con 13 g.l. habiendo 3 pesos libres de 12. También g.l. mal contados en Irlanda y en Italia, en dos grupos. Cuanto más se poda el numerador, que es lo que se pide, más conservador sale el LR y más liberal la adecuación.
 
 **Arreglo propuesto.** Contar las ranuras `omega<k>[*]`/`delta<k>[*]` con `kind == FREE`, en Python, en el C y en el LR de mtram. Añadir un test con un `.cns` que fije pesos.
+
+### Fixed (2026-11-27)
+
+- **El C** (atsw-gui/engines/drtran, davidesg/atsw-gui#225): `link_npar_free`
+  cuenta las ranuras `omega<j>[k]`/`delta<j>[k]` libres. El repo `drtran`
+  está archivado y no se toca.
+- **El porte:** `diagnose.link_free_params` y `transfer_free_params`, con la
+  tabla de ranuras del ajuste (`Fit.slots`), en `transfer_adequacy`,
+  `calibrate` y el LR de mtram contra el diagonal.
+- En el caso del repro: Q(23) = 28,523, p = 0,1966 en el C y en Python
+  (antes Q(21), p = 0,1259), y el LR de mtram con 2 g.l. (antes 4). Sin
+  `.cns` no cambia nada. En el m6, el enlace 3 pasa de Q(13) a Q(14).
+- El repro lee ahora el LR de la salida de `estimate`, no lo calcula.
+  `tests/test_bug73_gl_pesos_fijados.py`.
 
 ## BUG-74. La cabecera del `.out` del C rotula «Output (Y)» al primer fichero, no a la salida de la red
 
